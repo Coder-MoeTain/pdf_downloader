@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_badge, rank_bar, empty_state %}
+{% block title %}Statistics · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="page-kicker">Insights</div>
+    <h1 class="h2 mb-1">Library statistics</h1>
+    <p class="lede mb-0">How your local collection is distributed by year, venue, author, and download status.</p>
+  </div>
+</div>
+{% if not years and not statuses %}
+  {{ empty_state("No statistics yet", "Search a topic first. Charts appear after papers are stored.", "/search", "Start a search") }}
+{% else %}
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header">By year</div>
+      <div class="card-body">
+        {% if years %}
+        {% set maxc = years | map(attribute='count') | max %}
+        {% for row in years %}
+        <div class="d-flex align-items-center mb-2 gap-2">
+          <div class="year-label">{{ row.year }}</div>
+          {{ rank_bar(row.count, maxc) }}
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted mb-0">No publication years recorded.</p>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card mt-4">
+      <div class="card-header">Paper status</div>
+      <ul class="list-group list-group-flush">
+        {% for row in statuses %}
+        <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
+          <a href="/library?status={{ row.code }}">{{ status_badge(row.code) }}</a>
+          <span class="rank-count">{{ row.count }}</span>
+        </li>
+        {% else %}
+        <li class="list-group-item text-muted">None</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+  <div class="col-md-6">
+    {% for title, rows, empty in [
+      ("Top journals", journals, "No journal data."),
+      ("Top authors", authors, "No author data."),
+      ("Top publishers", publishers, "No publisher data.")
+    ] %}
+    <div class="card {% if not loop.first %}mt-4{% endif %}">
+      <div class="card-header">{{ title }}</div>
+      <div class="card-body">
+        {% if rows %}
+        {% set maxc = rows | map(attribute='count') | max %}
+        {% for row in rows %}
+        <div class="d-flex align-items-center mb-2 gap-2">
+          <div class="flex-grow-1 text-truncate" title="{{ row.name }}">{{ row.name }}</div>
+          {{ rank_bar(row.count, maxc) }}
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted mb-0">{{ empty }}</p>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

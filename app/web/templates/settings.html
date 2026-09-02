@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Settings · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="page-kicker">Configuration</div>
+    <h1 class="h2 mb-1">Settings</h1>
+    <p class="lede mb-0">These values are read-only here. Edit <code>.env</code> and <code>config.yaml</code>, then restart the dashboard.</p>
+  </div>
+</div>
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header">Environment</div>
+      <dl class="settings-list mb-0">
+        {% for key, value in env.items() %}
+        <div class="settings-row">
+          <dt class="settings-key">{{ key }}</dt>
+          <dd>{{ value }}</dd>
+        </div>
+        {% endfor %}
+      </dl>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header">Application</div>
+      <dl class="settings-list mb-0">
+        <div class="settings-row"><dt>Project root</dt><dd><code>{{ root }}</code></dd></div>
+        <div class="settings-row"><dt>Library directory</dt><dd><code>{{ config.library_dir }}</code></dd></div>
+        <div class="settings-row"><dt>Exports</dt><dd><code>{{ config.exports_dir }}</code></dd></div>
+        <div class="settings-row"><dt>Max file size</dt><dd>{{ config.max_file_size_bytes|filesize }}</dd></div>
+        <div class="settings-row"><dt>Download limit</dt><dd>{{ config.download_limit }} PDFs per run</dd></div>
+        <div class="settings-row"><dt>Default max results</dt><dd>{{ config.default_max_results }}</dd></div>
+        <div class="settings-row"><dt>Check robots.txt</dt><dd>{{ "Yes" if config.check_robots_txt else "No" }}</dd></div>
+      </dl>
+    </div>
+    <p class="text-muted small mt-3 mb-0">API keys are masked. Unpaywall stays skipped unless a real contact email is set (not <code>example.com</code>).</p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_badge, empty_state %}
+{% block title %}Downloads · {{ app_name }}{% endblock %}
+{% block extra_js %}
+<script src="/static/downloads.js"></script>
+{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="page-kicker">Files</div>
+    <h1 class="h2 mb-1">Downloads</h1>
+    <p class="lede mb-0">Preview and save PDFs that were retrieved from legal open-access sources. In-progress jobs appear at the top.</p>
+  </div>
+</div>
+
+<div id="download-progress" class="card mb-3 {% if not progress.active %}d-none{% endif %}" data-active="{{ 'true' if progress.active else 'false' }}">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-baseline gap-2">
+      <strong id="progress-label">{{ progress.message or "Downloading…" }}</strong>
+      <span id="progress-counts" class="text-muted small">{{ progress.current }}/{{ progress.total }}</span>
+    </div>
+    <div class="progress mt-2" role="progressbar" aria-valuenow="{{ progress.percent or 0 }}">
+      <div id="progress-bar" class="progress-bar progress-bar-striped {% if progress.active %}progress-bar-animated{% endif %}" style="width: {{ progress.percent or 0 }}%">
+        {% if progress.percent is not none %}{{ progress.percent }}%{% endif %}
+      </div>
+    </div>
+    <div class="small text-muted mt-2" id="progress-detail">{{ progress.title }}</div>
+  </div>
+</div>
+
+<div class="chip-row mb-3">
+  <a class="chip {% if not status %}active{% endif %}" href="/downloads">All{% if counts %} · {{ counts.values()|sum }}{% endif %}</a>
+  {% for code, count in counts.items() %}
+  <a class="chip {% if status == code %}active{% endif %}" href="/downloads?status={{ code }}">{{ status_meta(code).label }} · {{ count }}</a>
+  {% endfor %}
+</div>
+
+<div class="table-responsive card">
+  <table class="table table-hover align-middle mb-0">
+    <thead><tr><th>Status</th><th>Paper</th><th>Size</th><th>Progress</th><th></th></tr></thead>
+    <tbody>
+    {% for row in rows %}
+      <tr data-paper-id="{{ row.paper_id }}" data-status="{{ row.status }}">
+        <td>{{ status_badge(row.status) }}</td>
+        <td>
+          <div class="paper-title" title="{{ row.paper.title if row.paper else row.paper_id }}">
+            {{ row.paper.title if row.paper else row.paper_id }}
+          </div>
+          {% if row.error_message and row.status == "FAILED" %}
+          <div class="paper-meta text-danger">{{ row.error_message[:90] }}</div>
+          {% endif %}
+        </td>
+        <td class="text-nowrap text-muted">{{ row.file_size|filesize or "—" }}</td>
+        <td class="row-progress" style="min-width: 8rem;">
+          {% if row.status == "DOWNLOADED" %}
+          <div class="progress"><div class="progress-bar" style="width:100%">100%</div></div>
+          {% elif row.status == "DOWNLOADING" %}
+          <div class="progress"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:40%">…</div></div>
+          {% elif row.status == "FAILED" %}
+          <span class="text-danger small">Failed</span>
+          {% else %}
+          <span class="text-muted small">{{ status_meta(row.status).label }}</span>
+          {% endif %}
+        </td>
+        <td class="text-nowrap">
+          {% if row.status == "DOWNLOADED" and row.local_path %}
+          <button class="btn btn-sm btn-outline-primary preview-btn" type="button"
+                  data-preview-url="/papers/{{ row.paper_id }}/preview"
+                  data-preview-title="{{ (row.paper.title if row.paper else 'PDF')|e }}">Preview</button>
+          <a class="btn btn-sm btn-primary" href="/papers/{{ row.paper_id }}/pdf">Download</a>
+          {% elif row.status == "FAILED" %}
+          <a class="btn btn-sm btn-outline-secondary" href="/papers/{{ row.paper_id }}/pdf">Retry</a>
+          {% elif row.status in ["OA_AVAILABLE", "FOUND"] %}
+          <a class="btn btn-sm btn-outline-primary" href="/papers/{{ row.paper_id }}/pdf">Download</a>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="p-0">
+        {{ empty_state("No downloads yet", "Run a search, then download legally available PDFs from the library.", "/search", "Search papers") }}
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

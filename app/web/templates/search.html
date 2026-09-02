@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Search · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="page-kicker">Discover</div>
+    <h1 class="h2 mb-1">Search academic sources</h1>
+    <p class="lede mb-0">Queries official APIs only. After results appear, preview or download legally available PDFs. Paywalled items are recorded, never bypassed.</p>
+  </div>
+</div>
+<form method="post" class="card p-4" data-busy="Searching…">
+  <div class="mb-3">
+    <label class="form-label fw-semibold" for="query">Research topic</label>
+    <input class="form-control form-control-lg" id="query" name="query" required autocomplete="off" placeholder="e.g. reinforcement learning for intrusion detection">
+    <div class="chip-row mt-2">
+      {% for example in [
+        "web application security",
+        "reinforcement learning penetration testing",
+        "satellite cybersecurity",
+        "machine learning IDS"
+      ] %}
+      <button class="topic-chip" type="button" data-query="{{ example }}">{{ example }}</button>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-md-3 mb-3">
+      <label class="form-label" for="year_from">Year from</label>
+      <input class="form-control" id="year_from" name="year_from" inputmode="numeric" placeholder="Optional">
+    </div>
+    <div class="col-md-3 mb-3">
+      <label class="form-label" for="year_to">Year to</label>
+      <input class="form-control" id="year_to" name="year_to" inputmode="numeric" placeholder="Optional">
+    </div>
+    <div class="col-md-3 mb-3">
+      <label class="form-label" for="max_results">Max results</label>
+      <input class="form-control" id="max_results" type="number" name="max_results" value="50" min="1" max="500">
+    </div>
+    <div class="col-md-3 mb-3">
+      <label class="form-label" for="sort">Sort</label>
+      <select class="form-select" id="sort" name="sort">
+        <option value="relevance">Relevance</option>
+        <option value="citations">Citations</option>
+        <option value="newest">Newest</option>
+      </select>
+    </div>
+  </div>
+  <div class="form-check mb-2">
+    <input class="form-check-input" type="checkbox" name="open_access_only" id="oa">
+    <label class="form-check-label" for="oa">Open access only</label>
+  </div>
+  <div class="form-check mb-4">
+    <input class="form-check-input" type="checkbox" name="download" id="dl">
+    <label class="form-check-label" for="dl">Download PDFs during search (you can also do this from results)</label>
+  </div>
+  <button class="btn btn-primary btn-lg" type="submit">Run search</button>
+</form>
+{% endblock %}

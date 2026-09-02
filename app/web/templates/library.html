@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_badge, empty_state, star_rating %}
+{% block title %}{% if latest %}Results{% else %}Library{% endif %} · {{ app_name }}{% endblock %}
+{% block extra_head %}
+{% if search_running %}
+<meta http-equiv="refresh" content="5">
+{% endif %}
+{% endblock %}
+{% block content %}
+{% set qs = 'q=' ~ (q|urlencode) ~ '&status=' ~ status ~ ('&pdf=1' if pdf else '') ~ ('&min_rating=' ~ min_rating if min_rating else '') ~ '&latest=' ~ (1 if latest else 0) %}
+<div class="page-head">
+  <div>
+    <div class="page-kicker">{% if latest %}Latest search{% else %}Collection{% endif %}</div>
+    <h1 class="h2 mb-1">{% if latest %}Search results{% else %}Library{% endif %}</h1>
+    {% if latest and latest_search %}
+    <p class="lede mb-0">{{ latest_search.original_query }} · {{ status_meta(latest_search.status).label }}{% if search_running %} · refreshing every 5s{% endif %}{% if total %} · {{ total }} papers{% endif %}</p>
+    {% elif pdf and min_rating %}
+    <p class="lede mb-0">{{ total }} downloadable paper{{ "s" if total != 1 else "" }} rated {{ min_rating }}+ stars.</p>
+    {% elif pdf %}
+    <p class="lede mb-0">{{ total }} paper{{ "s" if total != 1 else "" }} with a legally downloadable PDF.</p>
+    {% elif min_rating %}
+    <p class="lede mb-0">{{ total }} paper{{ "s" if total != 1 else "" }} rated {{ min_rating }}+ stars.</p>
+    {% elif status %}
+    <p class="lede mb-0">{{ total }} {{ status_meta(status).label | lower }} paper{{ "s" if total != 1 else "" }}.</p>
+    {% elif total %}
+    <p class="lede mb-0">{{ total }} papers in the local library. Rate papers and filter to those you can download.</p>
+    {% endif %}
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    {% if latest %}
+    <a class="btn btn-outline-secondary" href="/library">Full library</a>
+    {% endif %}
+    {% if oa_pending and (not status or status in ["OA_AVAILABLE", "FOUND", "FAILED"]) %}
+    <form method="post" action="/download-oa" class="m-0" data-busy="Starting…">
+      {% if latest %}<input type="hidden" name="latest" value="1">{% endif %}
+      <button class="btn btn-primary" type="submit">Download {{ oa_pending }} open-access PDF{{ "s" if oa_pending != 1 else "" }}</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+<div class="chip-row mb-3">
+  <a class="chip {% if not pdf and not min_rating and not status and not q %}active{% endif %}" href="/library{% if latest %}?latest=1{% endif %}">All</a>
+  <a class="chip {% if pdf %}active{% endif %}" href="/library?pdf=1{% if latest %}&latest=1{% endif %}{% if min_rating %}&min_rating={{ min_rating }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}">Downloadable PDF</a>
+  <a class="chip {% if min_rating == 4 %}active{% endif %}" href="/library?min_rating=4{% if pdf %}&pdf=1{% endif %}{% if latest %}&latest=1{% endif %}">4+ stars</a>
+</div>
+<form class="filter-bar row g-2 align-items-end" method="get">
+  {% if latest %}<input type="hidden" name="latest" value="1">{% endif %}
+  <div class="col-md-4">
+    <label class="visually-hidden" for="q">Search library</label>
+    <input class="form-control" id="q" name="q" value="{{ q }}" placeholder="Filter by title, abstract, authors, journal, or DOI">
+  </div>
+  <div class="col-md-2">
+    <label class="visually-hidden" for="status">Status</label>
+    <select class="form-select" id="status" name="status">
+      <option value="">All statuses</option>
+      {% for s in ["FOUND","OA_AVAILABLE","DOWNLOADED","PAYWALLED","NO_PDF","FAILED","SKIPPED"] %}
+      <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ status_meta(s).label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2">
+    <label class="visually-hidden" for="min_rating">Minimum rating</label>
+    <select class="form-select" id="min_rating" name="min_rating">
+      <option value="0">Any rating</option>
+      {% for n in range(1, 6) %}
+      <option value="{{ n }}" {% if min_rating == n %}selected{% endif %}>{{ n }}+ stars</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2">
+    <div class="form-check mt-2">
+      <input class="form-check-input" type="checkbox" name="pdf" value="1" id="pdf" {% if pdf %}checked{% endif %}>
+      <label class="form-check-label" for="pdf">Downloadable PDF</label>
+    </div>
+  </div>
+  <div class="col-md-2">
+    <button class="btn btn-outline-primary w-100" type="submit">Filter</button>
+  </div>
+</form>
+<div class="table-responsive card">
+  <table class="table table-hover align-middle mb-0">
+    <thead><tr><th>Year</th><th>Title</th><th>DOI</th><th>Score</th><th>Your rating</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for p in papers %}
+      {% set state = pdf_button_state(p) %}
+      <tr>
+        <td class="text-muted">{{ p.publication_year or "—" }}</td>
+        <td>
+          <div class="paper-title" title="{{ p.title }}">{{ p.title }}</div>
+          {% if p.journal or p.publisher %}
+          <div class="paper-meta">{{ p.journal or p.publisher }}</div>
+          {% endif %}
+        </td>
+        <td>
+          {% if p.doi %}
+          <a class="doi-link" href="https://doi.org/{{ p.doi }}" target="_blank" rel="noopener">{{ p.doi }}</a>
+          {% else %}—{% endif %}
+        </td>
+        <td class="score-pill">{{ "%.0f"|format(p.relevance_score or 0) }}</td>
+        <td>{{ star_rating(p) }}</td>
+        <td>{{ status_badge(p.status) }}</td>
+        <td class="text-nowrap">
+          {% if can_preview(p) %}
+          <button class="btn b

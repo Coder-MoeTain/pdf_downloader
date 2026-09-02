@@ -1,0 +1,162 @@
+app:
+  name: ResearchPaper Collector
+  version: "1.0.0"
+  user_agent: "ResearchPaperCollector/1.0 (academic research; mailto:{email})"
+  library_dir: research_library
+  exports_dir: exports
+  logs_dir: logs
+  fulltext_dir: data/fulltext
+  min_pdf_size_bytes: 2048
+  max_file_size: 50MB
+  download_limit: 100
+  max_filename_length: 120
+  prefer_https: true
+  check_robots_txt: true
+
+search:
+  default_max_results: 50
+  default_sort: relevance
+  year_from: null
+  year_to: null
+  open_access_only: false
+  min_citations: 0
+
+ranking:
+  title_weight: 0.35
+  abstract_weight: 0.30
+  keyword_weight: 0.15
+  citation_weight: 0.10
+  recency_weight: 0.10
+  recency_horizon_years: 20
+  citation_cap: 1000
+  semantic:
+    enabled: false
+    model: all-MiniLM-L6-v2
+
+dedup:
+  title_similarity_threshold: 92
+  use_fuzzy_title: true
+
+query_expansion:
+  enabled: true
+  max_expanded: 5
+  synonyms:
+    AI:
+      - artificial intelligence
+    ML:
+      - machine learning
+    DL:
+      - deep learning
+    RL:
+      - reinforcement learning
+    NLP:
+      - natural language processing
+    CV:
+      - computer vision
+    IDS:
+      - intrusion detection system
+      - intrusion detection
+    IPS:
+      - intrusion prevention system
+    XSS:
+      - cross-site scripting
+    SQLi:
+      - SQL injection
+    CSRF:
+      - cross-site request forgery
+    pentest:
+      - penetration testing
+    "penetration testing":
+      - autonomous penetration testing
+    cybersecurity:
+      - cyber security
+      - information security
+    "web security":
+      - web application security
+      - application security
+    "web application security":
+      - web vulnerability detection
+    vuln:
+      - vulnerability
+    malware:
+      - malicious software
+    APT:
+      - advanced persistent threat
+    satellite:
+      - space systems
+      - spacecraft
+
+providers:
+  openalex:
+    enabled: true
+    requests_per_second: 8
+    requires_key: false
+  crossref:
+    enabled: true
+    requests_per_second: 8
+    requires_key: false
+  semantic_scholar:
+    enabled: true
+    requests_per_second: 1
+    requests_per_second_with_key: 8
+    requires_key: false
+  arxiv:
+    enabled: true
+    requests_per_second: 0.33
+    requires_key: false
+  pubmed:
+    enabled: true
+    requests_per_second: 3
+    requests_per_second_with_key: 8
+    requires_key: false
+  europe_pmc:
+    enabled: true
+    requests_per_second: 8
+    requires_key: false
+  core:
+    enabled: true
+    requests_per_second: 5
+    requires_key: true
+  doaj:
+    enabled: true
+    requests_per_second: 5
+    requires_key: false
+  ieee:
+    enabled: true
+    requests_per_second: 2
+    requires_key: true
+  springer:
+    enabled: true
+    requests_per_second: 2
+    requires_key: true
+  elsevier:
+    enabled: true
+    requests_per_second: 2
+    requires_key: true
+  nasa_ads:
+    enabled: true
+    requests_per_second: 2
+    requires_key: true
+
+http:
+  max_concurrent_requests: 5
+  max_concurrent_downloads: 3
+  request_timeout_seconds: 30
+  download_timeout_seconds: 120
+  max_redirects: 5
+  retry:
+    max_attempts: 4
+    base_delay: 1.0
+    max_delay: 30.0
+    jitter: 0.3
+
+topics:
+  - name: Web Application Security
+    query: machine learning web application vulnerability detection
+    year_from: 2024
+  - name: Autonomous Pentesting
+    query: reinforcement learning autonomous penetration testing
+    year_from: 2023
+  - name: Satellite Security
+    query: satellite cybersecurity intrusion detection
+    year_from: 2023

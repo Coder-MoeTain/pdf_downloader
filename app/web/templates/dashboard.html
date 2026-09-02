@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% from "_macros.html" import empty_state, rank_bar %}
+{% block title %}Dashboard · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="page-kicker">Overview</div>
+    <h1 class="h2 mb-1">Library at a glance</h1>
+    <p class="lede mb-0">Search trusted academic APIs, keep paywalled records, and download only legally available PDFs.</p>
+  </div>
+  <a class="btn btn-primary" href="/search">Start a search</a>
+</div>
+
+<div class="row g-3 mb-4">
+  {% for href, label, value, tone in [
+    ("/library", "Total papers", total, "primary"),
+    ("/library?pdf=1", "Downloadable PDFs", downloadable, "success"),
+    ("/downloads?status=DOWNLOADED", "PDFs downloaded", downloaded, "info"),
+    ("/library?status=PAYWALLED", "Paywalled", paywalled, "warning"),
+    ("/downloads?status=FAILED", "Failed downloads", failed, "danger"),
+    ("/library?status=OA_AVAILABLE", "Open access", oa, "secondary")
+  ] %}
+  <div class="col-6 col-md-4 col-xl-2">
+    <a class="stat-card h-100" href="{{ href }}">
+      <div class="card-body">
+        <div class="stat-label">{{ label }}</div>
+        <div class="stat-value tone-{{ tone }}">{{ value }}</div>
+      </div>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+
+{% if not total %}
+  {{ empty_state("No papers in the library yet", "Run a topic search to collect metadata and open-access PDFs from official academic sources.", "/search", "Search papers") }}
+{% else %}
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header">Papers by year</div>
+      <div class="card-body">
+        {% if years %}
+        {% set maxc = years | map(attribute='count') | max %}
+        {% for row in years %}
+        <div class="d-flex align-items-center mb-2 gap-2">
+          <div class="year-label">{{ row.year }}</div>
+          {{ rank_bar(row.count, maxc) }}
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted mb-0">No publication years recorded.</p>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card mt-4">
+      <div class="card-header">Top cited papers</div>
+      <ul class="list-group list-group-flush">
+        {% for p in top_cited %}
+        <li class="list-group-item d-flex justify-content-between align-items-start gap-3">
+          <span class="paper-title">{{ p.title }}</span>
+          <span class="badge text-bg-dark">{{ p.citation_count }}</span>
+        </li>
+        {% else %}
+        <li class="list-group-item text-muted">No citation data yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header">Recent topics</div>
+      <ul class="list-group list-group-flush">
+        {% for topic, count in topics %}
+        <li class="list-group-item d-flex justify-content-between gap-3">
+          <a href="/library?q={{ topic|urlencode }}">{{ topic }}</a>
+          <span class="status-badge status-primary">{{ count }}</span>
+        </li>
+        {% else %}
+        <li class="list-group-item text-muted">No saved searches.</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="card mt-4">
+      <div class="card-header">Top publishers</div>
+      <ul class="list-group list-group-flush">
+        {% for name, count in publishers %}
+        <li class="list-group-item d-flex justify-content-between"><span>{{ name }}</span><span class="rank-count">{{ count }}</span></li>
+        {% else %}
+        <li class="list-group-item text-muted">No publisher data.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

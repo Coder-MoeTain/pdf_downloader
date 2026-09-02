@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Sources · {{ app_name }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="page-kicker">Providers</div>
+    <h1 class="h2 mb-1">Academic sources</h1>
+    <p class="lede mb-0">Each provider uses its official API. Sources that need a key stay skipped until you add credentials in <code>.env</code>.</p>
+  </div>
+  <a class="btn btn-outline-primary" href="/settings">Open settings</a>
+</div>
+<div class="table-responsive card">
+  <table class="table align-middle mb-0">
+    <thead><tr><th>Provider</th><th>Status</th><th>API key</th><th>Rate</th></tr></thead>
+    <tbody>
+    {% for p in providers %}
+      <tr class="{% if not p.available %}text-muted{% endif %}">
+        <td>
+          <span class="provider-dot {% if p.available %}on{% else %}off{% endif %}" aria-hidden="true"></span>
+          <strong>{{ p.display_name }}</strong>
+        </td>
+        <td>
+          {% if p.available %}
+          <span class="status-badge status-success">Available</span>
+          {% elif not p.enabled %}
+          <span class="status-badge status-secondary">Disabled</span>
+          {% else %}
+          <span class="status-badge status-warning">Skipped</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if not p.requires_key %}
+          <span class="text-muted">Not required</span>
+          {% elif p.has_key %}
+          <span class="status-badge status-info">Present</span>
+          {% else %}
+          <span class="status-badge status-secondary">Missing</span>
+          {% endif %}
+        </td>
+        <td class="text-nowrap">{{ p.requests_per_second }} req/s</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
