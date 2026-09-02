@@ -291,6 +291,27 @@ a.stat-card:hover {
 }
 .provider-dot.on { background: var(--ok); }
 .provider-dot.off { background: #c5bec0; }
+.star-rating {
+  display: inline-flex;
+  gap: 0.05rem;
+  white-space: nowrap;
+}
+.star-btn {
+  border: 0;
+  background: transparent;
+  color: #d5cbb8;
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 0 0.05rem;
+  cursor: pointer;
+}
+.star-btn.on { color: #d4a017; }
+.star-rating:hover .star-btn { color: #d4a017; }
+.star-rating:hover .star-btn:hover ~ .star-btn { color: #d5cbb8; }
+.star-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  border-radius: 0.2rem;
+}
 .score-pill {
   font-variant-numeric: tabular-nums;
   color: var(--ink-soft);

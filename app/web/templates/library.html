@@ -101,4 +101,40 @@
         <td>{{ status_badge(p.status) }}</td>
         <td class="text-nowrap">
           {% if can_preview(p) %}
-          <button class="btn b
+          <button class="btn btn-sm btn-outline-primary preview-btn" type="button"
+                  data-preview-url="/papers/{{ p.id }}/preview"
+                  data-preview-title="{{ p.title|e }}">Preview</button>
+          {% endif %}
+          {% if state == "download" %}
+          <a class="btn btn-sm btn-primary" href="/papers/{{ p.id }}/pdf">Download PDF</a>
+          {% elif state == "paywalled" %}
+          <span class="text-muted small">Publisher access required</span>
+          {% else %}
+          <span class="text-muted small">No legal PDF</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="p-0">
+        {% if search_running %}
+          {{ empty_state("Search in progress", "Results will appear here automatically. Keep this page open.") }}
+        {% elif latest %}
+          {{ empty_state("No papers in this search", "Try a broader topic, or browse the full library.", "/library", "View library") }}
+        {% elif q or status or pdf or min_rating %}
+          {{ empty_state("Nothing matches this filter", "Clear the filter or try another keyword.", "/library", "Show all papers") }}
+        {% else %}
+          {{ empty_state("Library is empty", "Run a topic search to collect metadata and open-access PDFs.", "/search", "Start a search") }}
+        {% endif %}
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if total and total > per_page %}
+<nav class="mt-3 d-flex align-items-center gap-2" aria-label="Library pages">
+  <a class="btn btn-sm btn-outline-secondary {% if page_num <= 1 %}disabled{% endif %}" href="?{{ qs }}&page={{ page_num-1 }}">Previous</a>
+  <span class="text-muted">Page {{ page_num }}</span>
+  <a class="btn btn-sm btn-outline-secondary {% if page_num * per_page >= total %}disabled{% endif %}" href="?{{ qs }}&page={{ page_num+1 }}">Next</a>
+</nav>
+{% endif %}
+{% endblock %}

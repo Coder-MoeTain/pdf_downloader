@@ -23,6 +23,7 @@ from app.database.repository import (
     list_failed_downloads,
     paper_to_record,
     save_paper,
+    apply_paper_filters,
 )
 from app.models.search import SortMode
 from app.providers import provider_status
@@ -103,18 +104,22 @@ def download(
 def list_papers(
     limit: int = typer.Option(25, "--limit"),
     status: Optional[str] = typer.Option(None, "--status"),
+    downloadable: bool = typer.Option(False, "--downloadable", help="Only papers with a legal PDF"),
+    min_rating: int = typer.Option(0, "--min-rating", help="Minimum user rating 1–5"),
 ) -> None:
     """List papers stored in the local library."""
     with session_scope() as session:
-        stmt = select(Paper).order_by(Paper.relevance_score.desc()).limit(limit)
-        if status:
-            stmt = select(Paper).where(Paper.status == status).order_by(Paper.relevance_score.desc()).limit(limit)
-        papers = session.scalars(stmt).all()
+        stmt = select(Paper).order_by(Paper.relevance_score.desc())
+        stmt = apply_paper_filters(
+            stmt, status=status or "", downloadable=downloadable, min_rating=min_rating
+        )
+        papers = session.scalars(stmt.limit(limit)).all()
         table = Table(title="Library")
         table.add_column("ID", justify="right")
         table.add_column("Year")
         table.add_column("Title")
         table.add_column("Status")
+        table.add_column("Rating")
         table.add_column("Score")
         for paper in papers:
             table.add_row(
@@ -122,6 +127,7 @@ def list_papers(
                 str(paper.publication_year or ""),
                 (paper.title or "")[:80],
                 paper.status,
+                str(paper.user_rating or "—"),
                 f"{paper.relevance_score:.1f}",
             )
         console.print(table)

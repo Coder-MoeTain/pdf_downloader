@@ -35,4 +35,34 @@
       frame.src = "about:blank";
     });
   }
+
+  document.querySelectorAll("[data-star-rating], .star-rating").forEach(function (root) {
+    root.querySelectorAll(".star-btn").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var paperId = root.getAttribute("data-paper-id");
+        var value = Number(button.getAttribute("data-value"));
+        var current = Number(root.getAttribute("data-rating") || 0);
+        if (value === current) value = 0;
+        fetch("/api/papers/" + paperId + "/rating", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ rating: value }),
+        })
+          .then(function (response) {
+            return response.json();
+          })
+          .then(function (data) {
+            if (!data.ok) return;
+            var rating = data.rating || 0;
+            root.setAttribute("data-rating", String(rating));
+            root.querySelectorAll(".star-btn").forEach(function (star) {
+              var on = Number(star.getAttribute("data-value")) <= rating;
+              star.classList.toggle("on", on);
+              star.setAttribute("aria-pressed", on ? "true" : "false");
+            });
+          })
+          .catch(function () {});
+      });
+    });
+  });
 })();

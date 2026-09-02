@@ -261,6 +261,7 @@ def library_page(
 
 @app.post("/api/papers/{paper_id}/rating")
 async def rate_paper(paper_id: int, request: Request):
+    """Save or clear a 1–5 user rating for a paper."""
     try:
         payload = await request.json()
         rating = int(payload.get("rating", -1))
