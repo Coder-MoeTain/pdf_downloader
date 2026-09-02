@@ -12,6 +12,7 @@ app:
   max_filename_length: 120
   prefer_https: true
   check_robots_txt: true
+  timezone: UTC
 
 search:
   default_max_results: 50

@@ -1,0 +1,84 @@
+<div class="modal fade" id="sourceModal" tabindex="-1" aria-labelledby="sourceModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form id="sourceForm" method="post" action="/settings/sources" data-busy="Saving…">
+        <input type="hidden" name="next" id="sourceNext" value="{{ source_next or '/settings?section=sources' }}">
+        <div class="modal-header">
+          <div>
+            <div class="page-kicker mb-0">Academic source</div>
+            <h2 class="modal-title h5" id="sourceModalTitle">Add source</h2>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small" id="sourceModalHint">Custom sources are stored in MySQL. A matching built-in provider id is required for live search.</p>
+          <div class="row g-3">
+            <div class="col-md-5" id="sourceSlugWrap">
+              <label class="form-label" for="sourceSlug">Source id</label>
+              <input class="form-control" id="sourceSlug" name="slug" maxlength="64" placeholder="e.g. openaire" autocomplete="off">
+              <div class="form-hint">Lowercase letters, numbers, underscores.</div>
+            </div>
+            <div class="col-md-7">
+              <label class="form-label" for="sourceName">Display name</label>
+              <input class="form-control" id="sourceName" name="display_name" required maxlength="128" placeholder="e.g. OpenAIRE">
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="sourceDesc">Description</label>
+              <textarea class="form-control" id="sourceDesc" name="description" rows="2" placeholder="What this API covers"></textarea>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="sourceHome">Homepage</label>
+              <input class="form-control" id="sourceHome" name="homepage_url" type="url" placeholder="https://">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="sourceApi">API base URL</label>
+              <input class="form-control" id="sourceApi" name="api_base_url" type="url" placeholder="https://">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="sourceDocs">Documentation</label>
+              <input class="form-control" id="sourceDocs" name="docs_url" type="url" placeholder="https://">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label" for="sourceRps">Rate limit (req/s)</label>
+              <input class="form-control" id="sourceRps" name="requests_per_second" type="number" step="0.01" min="0.01" max="100" value="5">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label" for="sourceRpsKey">With API key</label>
+              <input class="form-control" id="sourceRpsKey" name="requests_per_second_with_key" type="number" step="0.01" min="0.01" max="100" placeholder="Optional">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="sourceKey">API key</label>
+              <input class="form-control" id="sourceKey" name="api_key" type="password" autocomplete="new-password" placeholder="Leave blank to keep current">
+            </div>
+            <div class="col-md-6" id="sourceKeyEnvWrap">
+              <label class="form-label" for="sourceKeyEnv">Env variable name</label>
+              <input class="form-control" id="sourceKeyEnv" name="api_key_env" placeholder="e.g. CORE_API_KEY">
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="sourceNotes">Internal notes</label>
+              <textarea class="form-control" id="sourceNotes" name="notes" rows="2" placeholder="Optional operational notes"></textarea>
+            </div>
+            <div class="col-12 d-flex flex-wrap gap-4">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="enabled" id="sourceEnabled" value="1" checked>
+                <label class="form-check-label" for="sourceEnabled">Enabled for search</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="requires_key" id="sourceRequiresKey" value="1">
+                <label class="form-check-label" for="sourceRequiresKey">API key required</label>
+              </div>
+              <div class="form-check" id="sourceClearKeyWrap" hidden>
+                <input class="form-check-input" type="checkbox" name="clear_api_key" id="sourceClearKey" value="1">
+                <label class="form-check-label" for="sourceClearKey">Clear stored API key</label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="sourceSubmit">Save source</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

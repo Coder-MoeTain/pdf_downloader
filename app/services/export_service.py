@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -13,7 +12,7 @@ from app.config import AppConfig, load_config
 from app.models.paper import PaperRecord, PaperStatus
 from app.models.search import SearchStats
 from app.utils.filename import slugify
-from app.utils.time import utc_now
+from app.utils.time import configured_timezone, format_local, now_local, utc_now
 
 
 EXPORT_COLUMNS = [
@@ -65,7 +64,7 @@ class ExportService:
     def export_all(self, papers: list[PaperRecord], stats: SearchStats) -> dict[str, Path]:
         folder = self.config.resolve_path(self.config.exports_dir)
         slug = slugify(stats.query or "search")
-        stamp = date.today().isoformat()
+        stamp = now_local().strftime("%Y-%m-%d")
         base = folder / f"{slug}_{stamp}"
         rows = papers_to_rows(papers)
         csv_path = Path(str(base) + ".csv")
@@ -83,7 +82,8 @@ class ExportService:
     def _write_json(self, path: Path, papers: list[PaperRecord], stats: SearchStats) -> None:
         payload = {
             "stats": stats.__dict__,
-            "exported_at": utc_now().isoformat() + "Z",
+            "exported_at": now_local().isoformat(timespec="seconds"),
+            "timezone": configured_timezone(),
             "papers": [
                 {
                     **row,
@@ -111,7 +111,7 @@ class ExportService:
         summary = pd.DataFrame(
             [
                 ["Search topic", stats.query],
-                ["Search date", utc_now().strftime("%Y-%m-%d %H:%M UTC")],
+                ["Search date", f"{format_local(utc_now())} {configured_timezone()}"],
                 ["Total discovered", stats.raw_records],
                 ["Unique papers", stats.unique_papers],
                 ["Open-access papers", stats.open_access_papers],

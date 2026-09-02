@@ -19,6 +19,7 @@
     var counts = document.getElementById("progress-counts");
     var detail = document.getElementById("progress-detail");
     if (data.active) {
+      if (data.kind === "search") return;
       panel.classList.remove("d-none");
       panel.dataset.active = "true";
     } else if (panel.dataset.active === "true") {

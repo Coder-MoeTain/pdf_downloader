@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 from sqlalchemy.orm import Session
 
-from app.config import AppConfig, load_config
+from app.config import AppConfig, get_runtime_config
 from app.database.models import Paper
 from app.database.repository import upsert_download
 from app.models.paper import PaperRecord, PaperStatus
@@ -29,7 +29,7 @@ class DownloadError(RuntimeError):
 class DownloadService:
     def __init__(self, client: AsyncHttpClient, config: AppConfig | None = None) -> None:
         self.client = client
-        self.config = config or load_config()
+        self.config = config or get_runtime_config()
 
     def library_root(self) -> Path:
         return self.config.resolve_path(self.config.library_dir)
@@ -200,7 +200,7 @@ def _sha256_file(path: Path) -> str:
 
 def existing_pdf_path(paper: Paper, library_root: Path | None = None) -> Path | None:
     """Return a stored PDF path if it exists inside the library directory."""
-    root = (library_root or load_config().resolve_path(load_config().library_dir)).resolve()
+    root = (library_root or get_runtime_config().resolve_path(get_runtime_config().library_dir)).resolve()
     rows = sorted(paper.downloads or [], key=lambda item: item.id, reverse=True)
     for row in rows:
         if not row.local_path:
@@ -212,7 +212,7 @@ def existing_pdf_path(paper: Paper, library_root: Path | None = None) -> Path | 
             path = path.resolve()
         if not str(path).startswith(str(root)):
             continue
-        if path.exists() and path.stat().st_size >= load_config().min_pdf_size_bytes:
+        if path.exists() and path.stat().st_size >= get_runtime_config().min_pdf_size_bytes:
             if path.read_bytes()[:5] == b"%PDF-":
                 return path
     return None
@@ -222,7 +222,7 @@ def safe_library_pdf(path_value: str | None, library_root: Path | None = None) -
     """Return a PDF path only if it lives inside the research library."""
     if not path_value:
         return None
-    root = (library_root or load_config().resolve_path(load_config().library_dir)).resolve()
+    root = (library_root or get_runtime_config().resolve_path(get_runtime_config().library_dir)).resolve()
     path = Path(path_value)
     if not path.is_absolute():
         path = (root / path).resolve()
@@ -254,7 +254,7 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library") -> Path:
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
-    cfg = load_config()
+    cfg = get_runtime_config()
     library_root = cfg.resolve_path(cfg.library_dir)
     tracker.start_batch(1, "Preparing PDF")
     with session_scope() as session:
@@ -331,7 +331,7 @@ async def download_open_access_papers(
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
-    cfg = load_config()
+    cfg = get_runtime_config()
     cap = limit or cfg.download_limit
     stats = {"attempted": 0, "downloaded": 0, "failed": 0, "skipped": 0}
     async with AsyncHttpClient(cfg) as client:
@@ -385,7 +385,7 @@ async def download_open_access_papers(
 def write_topic_metadata_csv(papers: list[PaperRecord], topic_slug: str, config: AppConfig | None = None) -> Path:
     import csv
 
-    cfg = config or load_config()
+    cfg = config or get_runtime_config()
     folder = cfg.resolve_path(cfg.library_dir) / slugify(topic_slug)
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / "metadata.csv"

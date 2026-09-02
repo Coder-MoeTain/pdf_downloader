@@ -37,6 +37,12 @@ class EnvSettings(BaseSettings):
     download_timeout_seconds: float = 120
     max_redirects: int = 5
     database_path: str = "data/research.db"
+    mysql_host: str = ""
+    mysql_port: int = 3306
+    mysql_user: str = "root"
+    mysql_password: str = ""
+    mysql_database: str = "research_collector"
+    settings_sqlite_path: str = "data/settings.db"
 
     @property
     def polite_email(self) -> str:
@@ -103,6 +109,7 @@ class AppConfig(BaseModel):
     max_filename_length: int = 120
     prefer_https: bool = True
     check_robots_txt: bool = True
+    timezone: str = "UTC"
     default_max_results: int = 50
     default_sort: str = "relevance"
     ranking: RankingConfig = Field(default_factory=RankingConfig)
@@ -174,6 +181,14 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
 
     os.environ.setdefault("CONTACT_EMAIL", env.contact_email)
 
+    try:
+        from app.utils.time import normalize_timezone, set_active_timezone
+
+        timezone_name = normalize_timezone(str(app.get("timezone") or "UTC"))
+        set_active_timezone(timezone_name)
+    except Exception:
+        timezone_name = "UTC"
+
     return AppConfig(
         name=app.get("name", "ResearchPaper Collector"),
         version=app.get("version", "1.0.0"),
@@ -188,6 +203,7 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
         max_filename_length=int(app.get("max_filename_length", 120)),
         prefer_https=bool(app.get("prefer_https", True)),
         check_robots_txt=bool(app.get("check_robots_txt", True)),
+        timezone=timezone_name,
         default_max_results=int(search.get("default_max_results", 50)),
         default_sort=str(search.get("default_sort", "relevance")),
         ranking=ranking,
@@ -203,3 +219,14 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
 def reload_config() -> AppConfig:
     load_config.cache_clear()
     return load_config()
+
+
+def get_runtime_config() -> AppConfig:
+    """YAML + env defaults, overlaid with MySQL-stored settings and academic sources."""
+    cfg = load_config().model_copy(deep=True)
+    try:
+        from app.database.settings_repository import apply_runtime_overlay
+
+        return apply_runtime_overlay(cfg)
+    except Exception:
+        return cfg

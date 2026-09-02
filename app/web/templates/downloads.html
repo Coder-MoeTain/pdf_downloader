@@ -13,7 +13,7 @@
   </div>
 </div>
 
-<div id="download-progress" class="card mb-3 {% if not progress.active %}d-none{% endif %}" data-active="{{ 'true' if progress.active else 'false' }}">
+<div id="download-progress" class="card mb-3 {% if not progress.active or progress.kind == 'search' %}d-none{% endif %}" data-active="{{ 'true' if progress.active and progress.kind != 'search' else 'false' }}">
   <div class="card-body">
     <div class="d-flex justify-content-between align-items-baseline gap-2">
       <strong id="progress-label">{{ progress.message or "Downloading…" }}</strong>
@@ -37,7 +37,7 @@
 
 <div class="table-responsive card">
   <table class="table table-hover align-middle mb-0">
-    <thead><tr><th>Status</th><th>Paper</th><th>Size</th><th>Progress</th><th></th></tr></thead>
+    <thead><tr><th>Status</th><th>Paper</th><th>When</th><th>Size</th><th>Progress</th><th></th></tr></thead>
     <tbody>
     {% for row in rows %}
       <tr data-paper-id="{{ row.paper_id }}" data-status="{{ row.status }}">
@@ -50,6 +50,7 @@
           <div class="paper-meta text-danger">{{ row.error_message[:90] }}</div>
           {% endif %}
         </td>
+        <td class="text-nowrap paper-meta">{{ row.downloaded_at|localdt or "—" }}</td>
         <td class="text-nowrap text-muted">{{ row.file_size|filesize or "—" }}</td>
         <td class="row-progress" style="min-width: 8rem;">
           {% if row.status == "DOWNLOADED" %}
@@ -76,7 +77,7 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="5" class="p-0">
+      <tr><td colspan="6" class="p-0">
         {{ empty_state("No downloads yet", "Run a search, then download legally available PDFs from the library.", "/search", "Search papers") }}
       </td></tr>
     {% endfor %}

@@ -88,7 +88,9 @@
         <td>
           <div class="paper-title" title="{{ p.title }}">{{ p.title }}</div>
           {% if p.journal or p.publisher %}
-          <div class="paper-meta">{{ p.journal or p.publisher }}</div>
+          <div class="paper-meta">{{ p.journal or p.publisher }}{% if p.created_at %} · Added {{ p.created_at|localdt }}{% endif %}</div>
+          {% elif p.created_at %}
+          <div class="paper-meta">Added {{ p.created_at|localdt }}</div>
           {% endif %}
         </td>
         <td>

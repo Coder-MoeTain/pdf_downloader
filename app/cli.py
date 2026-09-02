@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app import __app_name__, __version__
-from app.config import load_config, parse_size
+from app.config import get_runtime_config, load_config, parse_size
 from app.database.connection import init_db, session_scope
 from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuery
 from app.database.repository import (
@@ -295,7 +295,7 @@ def _interactive_search(download: bool) -> None:
     query = Prompt.ask("Research topic")
     year_from = Prompt.ask("Year from (blank to skip)", default="")
     year_to = Prompt.ask("Year to (blank to skip)", default="")
-    max_results = IntPrompt.ask("Max results", default=load_config().default_max_results)
+    max_results = IntPrompt.ask("Max results", default=get_runtime_config().default_max_results)
     oa_only = Confirm.ask("Open access only?", default=False)
     filters = filters_from_cli(
         query,
@@ -338,7 +338,7 @@ def _print_stats() -> None:
 
 
 async def _download_pending(download_limit: int | None, max_file_size: str | None) -> None:
-    cfg = load_config()
+    cfg = get_runtime_config()
     limit = download_limit or cfg.download_limit
     max_size = parse_size(max_file_size, cfg.max_file_size_bytes) if max_file_size else cfg.max_file_size_bytes
     async with AsyncHttpClient(cfg) as client:
@@ -366,7 +366,7 @@ async def _download_pending(download_limit: int | None, max_file_size: str | Non
 
 
 async def _retry_failed() -> None:
-    cfg = load_config()
+    cfg = get_runtime_config()
     async with AsyncHttpClient(cfg) as client:
         downloader = DownloadService(client, cfg)
         with session_scope() as session:
@@ -388,7 +388,7 @@ async def _retry_failed() -> None:
 async def _update_topics() -> None:
     from sqlalchemy import select as sel
 
-    cfg = load_config()
+    cfg = get_runtime_config()
     service = SearchService(cfg)
     for topic in cfg.topics:
         console.print(f"\n[bold]Updating topic:[/] {topic.name}")

@@ -5,42 +5,115 @@
   <div>
     <div class="page-kicker">Providers</div>
     <h1 class="h2 mb-1">Academic sources</h1>
-    <p class="lede mb-0">Each provider uses its official API. Sources that need a key stay skipped until you add credentials in <code>.env</code>.</p>
+    <p class="lede mb-0">Official APIs used during search. Enable, edit, or add sources — records are stored in MySQL.</p>
   </div>
-  <a class="btn btn-outline-primary" href="/settings">Open settings</a>
+  <div class="d-flex flex-wrap gap-2">
+    <button class="btn btn-primary" type="button" data-source-create>Add source</button>
+    <a class="btn btn-outline-primary" href="/settings?section=sources">Open in settings</a>
+  </div>
 </div>
-<div class="table-responsive card">
-  <table class="table align-middle mb-0">
-    <thead><tr><th>Provider</th><th>Status</th><th>API key</th><th>Rate</th></tr></thead>
-    <tbody>
-    {% for p in providers %}
-      <tr class="{% if not p.available %}text-muted{% endif %}">
-        <td>
-          <span class="provider-dot {% if p.available %}on{% else %}off{% endif %}" aria-hidden="true"></span>
-          <strong>{{ p.display_name }}</strong>
-        </td>
-        <td>
-          {% if p.available %}
-          <span class="status-badge status-success">Available</span>
-          {% elif not p.enabled %}
-          <span class="status-badge status-secondary">Disabled</span>
-          {% else %}
-          <span class="status-badge status-warning">Skipped</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if not p.requires_key %}
-          <span class="text-muted">Not required</span>
-          {% elif p.has_key %}
-          <span class="status-badge status-info">Present</span>
-          {% else %}
-          <span class="status-badge status-secondary">Missing</span>
-          {% endif %}
-        </td>
-        <td class="text-nowrap">{{ p.requests_per_second }} req/s</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="stat-card h-100">
+      <div class="card-body">
+        <div class="stat-label">Configured</div>
+        <div class="stat-value tone-primary">{{ sources|length }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card h-100">
+      <div class="card-body">
+        <div class="stat-label">Available now</div>
+        <div class="stat-value tone-success">{{ sources|selectattr('available')|list|length }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card h-100">
+      <div class="card-body">
+        <div class="stat-label">Settings store</div>
+        <div class="stat-value" style="font-size:1.15rem">{{ store.label }}</div>
+        <div class="paper-meta mt-1">{{ store.host }} · {{ store.database }}</div>
+      </div>
+    </div>
+  </div>
 </div>
+
+<div class="card">
+  <div class="source-toolbar">
+    <input class="form-control" id="sourceFilter" type="search" placeholder="Filter by name or id" aria-label="Filter sources">
+  </div>
+  <div class="table-responsive">
+    <table class="table align-middle mb-0" id="sourcesTable">
+      <thead>
+        <tr>
+          <th>Source</th>
+          <th>Status</th>
+          <th>API key</th>
+          <th>Rate</th>
+          <th class="text-end">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for s in sources %}
+        <tr class="source-row {% if not s.enabled %}is-disabled{% endif %}" data-filter="{{ s.display_name }} {{ s.slug }}">
+          <td>
+            <div class="source-name">
+              <span class="provider-dot {% if s.available %}on{% else %}off{% endif %}" aria-hidden="true"></span>
+              <div>
+                <strong>{{ s.display_name }}</strong>
+                <div class="paper-meta">
+                  {{ s.slug }} · {{ s.kind }}
+                  {% if s.homepage_url %} · <a href="{{ s.homepage_url }}" target="_blank" rel="noopener">site</a>{% endif %}
+                  {% if not s.searchable %} · catalog only{% endif %}
+                  {% if s.updated_at %} · Updated {{ s.updated_at }}{% endif %}
+                </div>
+                {% if s.description %}<div class="paper-meta mt-1">{{ s.description }}</div>{% endif %}
+              </div>
+            </div>
+          </td>
+          <td>
+            {% if s.available %}
+            <span class="status-badge status-success">Available</span>
+            {% elif not s.enabled %}
+            <span class="status-badge status-secondary">Disabled</span>
+            {% elif s.requires_key and not s.has_key %}
+            <span class="status-badge status-warning">Needs key</span>
+            {% else %}
+            <span class="status-badge status-secondary">Inactive</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if not s.requires_key %}
+            <span class="text-muted">Not required</span>
+            {% elif s.has_key %}
+            <span class="status-badge status-info">Stored</span>
+            {% else %}
+            <span class="status-badge status-secondary">Missing</span>
+            {% endif %}
+          </td>
+          <td class="text-nowrap">{{ s.requests_per_second }} req/s</td>
+          <td class="text-end text-nowrap">
+            <form method="post" action="/settings/sources/{{ s.id }}/toggle" class="d-inline">
+              <input type="hidden" name="next" value="/sources">
+              <button class="btn btn-sm btn-outline-secondary" type="submit">{{ 'Disable' if s.enabled else 'Enable' }}</button>
+            </form>
+            <button class="btn btn-sm btn-outline-primary" type="button" data-source-edit data-source-id="{{ s.id }}">Edit</button>
+            {% if not s.builtin %}
+            <form method="post" action="/settings/sources/{{ s.id }}/delete" class="d-inline" data-confirm="Remove {{ s.display_name }}?">
+              <input type="hidden" name="next" value="/sources">
+              <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% set source_next = '/sources' %}
+{% include "_source_modal.html" %}
 {% endblock %}

@@ -1,58 +1,163 @@
 {% extends "base.html" %}
 {% block title %}Search · {{ app_name }}{% endblock %}
+{% block extra_js %}
+<script src="/static/search.js?v={{ version }}"></script>
+{% endblock %}
 {% block content %}
+{% set phase_rank = {"idle": -1, "starting": 0, "searching": 1, "merging": 2, "oa": 3, "storing": 4, "downloading": 5, "done": 6, "error": 6} %}
+{% set rank = phase_rank.get(job.phase, -1) %}
 <div class="page-head">
   <div>
     <div class="page-kicker">Discover</div>
     <h1 class="h2 mb-1">Search academic sources</h1>
-    <p class="lede mb-0">Queries official APIs only. After results appear, preview or download legally available PDFs. Paywalled items are recorded, never bypassed.</p>
+    <p class="lede mb-0">Stay on this page while official APIs respond. Paywalled records are kept; PDFs download only when a legal open-access copy exists.</p>
+  </div>
+  <a class="store-pill is-mysql" href="/sources">
+    <span class="store-dot" aria-hidden="true"></span>
+    <div>
+      <strong>{{ available_sources|length }} sources ready</strong>
+      <div class="store-meta">Manage in Settings</div>
+    </div>
+  </a>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <form method="post" action="/search" class="card search-form" data-busy="Starting…">
+      <div class="card-header">New search</div>
+      <fieldset {% if job.active %}disabled{% endif %}>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label fw-semibold" for="query">Research topic</label>
+          <input class="form-control form-control-lg" id="query" name="query" required autocomplete="off"
+                 placeholder="e.g. reinforcement learning for intrusion detection"
+                 value="{{ job.query if job.query else '' }}">
+          <div class="form-hint">Try a saved topic or type a precise query. Sources run in parallel.</div>
+          <div class="chip-row mt-2">
+            {% for topic in topics %}
+            <button class="topic-chip" type="button" data-query="{{ topic.query }}">{{ topic.name }}</button>
+            {% else %}
+            {% for example in ["web application security", "reinforcement learning penetration testing", "satellite cybersecurity", "machine learning IDS"] %}
+            <button class="topic-chip" type="button" data-query="{{ example }}">{{ example }}</button>
+            {% endfor %}
+            {% endfor %}
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-sm-6 col-xl-3 mb-3">
+            <label class="form-label" for="year_from">Year from</label>
+            <input class="form-control" id="year_from" name="year_from" inputmode="numeric" placeholder="Optional">
+          </div>
+          <div class="col-sm-6 col-xl-3 mb-3">
+            <label class="form-label" for="year_to">Year to</label>
+            <input class="form-control" id="year_to" name="year_to" inputmode="numeric" placeholder="Optional">
+          </div>
+          <div class="col-sm-6 col-xl-3 mb-3">
+            <label class="form-label" for="max_results">Max results</label>
+            <input class="form-control" id="max_results" type="number" name="max_results" value="{{ config.default_max_results }}" min="1" max="500">
+          </div>
+          <div class="col-sm-6 col-xl-3 mb-3">
+            <label class="form-label" for="sort">Sort</label>
+            <select class="form-select" id="sort" name="sort">
+              <option value="relevance" {% if config.default_sort == "relevance" %}selected{% endif %}>Relevance</option>
+              <option value="citations" {% if config.default_sort == "citations" %}selected{% endif %}>Citations</option>
+              <option value="newest" {% if config.default_sort == "newest" %}selected{% endif %}>Newest</option>
+            </select>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="source">Academic source</label>
+          <select class="form-select" id="source" name="source">
+            <option value="">All available sources ({{ available_sources|length }})</option>
+            {% for src in available_sources %}
+            <option value="{{ src.name }}">{{ src.display_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="search-options">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="open_access_only" id="oa" value="1">
+            <label class="form-check-label" for="oa">Open access only</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="download" id="dl" value="1">
+            <label class="form-check-label" for="dl">Download legal PDFs during this run</label>
+          </div>
+        </div>
+      </div>
+      </fieldset>
+      <div class="card-footer settings-footer d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <span class="paper-meta mb-0" id="searchFormHint">{% if job.active %}A job is running — watch the live log.{% else %}Typical run: 1–3 minutes depending on sources.{% endif %}</span>
+        <button class="btn btn-primary btn-lg" type="submit" {% if job.active %}disabled{% endif %}>
+          {{ "Search running…" if job.active else "Run search" }}
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card search-job {% if job.active %}is-live{% elif job.phase == 'done' %}is-done{% elif job.phase == 'error' %}is-error{% endif %}" id="searchJob" data-active="{{ 'true' if job.active else 'false' }}">
+      <div class="card-header d-flex justify-content-between align-items-baseline gap-2">
+        <span class="job-live-mark" id="jobTitleWrap">
+          {% if job.active %}<span class="nav-live-dot" aria-hidden="true"></span>{% endif %}
+          <span id="jobTitle">{{ "Live search" if job.active else "Search activity" }}</span>
+        </span>
+        <span class="paper-meta mb-0 job-query" id="jobQuery" title="{{ job.query }}">{{ job.query }}</span>
+      </div>
+      <div class="card-body">
+        <ol class="job-steps" id="jobSteps">
+          {% for key, label in [("searching", "Sources"), ("merging", "Merge"), ("oa", "Open access"), ("storing", "Save"), ("downloading", "PDFs")] %}
+          <li data-phase="{{ key }}" class="{% if rank == loop.index or (job.phase == 'starting' and key == 'searching') %}is-current{% elif rank > loop.index %}is-done{% endif %}">{{ label }}</li>
+          {% endfor %}
+        </ol>
+        <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
+          <strong id="jobMessage">{{ job.message or "Submit a topic to watch sources respond in real time." }}</strong>
+          <span class="paper-meta mb-0" id="jobCounts">{% if job.total %}{{ job.current }}/{{ job.total }}{% endif %}</span>
+        </div>
+        <div class="progress search-progress" role="progressbar" aria-valuenow="{{ job.percent or 0 }}" aria-valuemin="0" aria-valuemax="100">
+          <div id="jobBar" class="progress-bar {% if job.active %}progress-bar-striped progress-bar-animated{% endif %}" style="width: {{ job.percent or 0 }}%">
+            {% if job.percent is not none %}{{ job.percent|int }}%{% endif %}
+          </div>
+        </div>
+        <div class="log-panel mt-3" id="jobLogs" aria-live="polite">
+          {% for entry in job.logs %}
+          <div class="log-line log-{{ entry.level }}"><time>{{ entry.time }}</time><span>{{ entry.message }}</span></div>
+          {% else %}
+          <div class="log-line log-muted">Waiting for a search to start…</div>
+          {% endfor %}
+        </div>
+        <div class="job-result {% if job.phase != 'done' %}d-none{% endif %}" id="jobResult">
+          <div class="row g-2 mt-3" id="jobStats">
+            {% for label, key in [("Unique", "unique_papers"), ("Open access", "open_access_papers"), ("Paywalled", "paywalled"), ("PDFs", "pdfs_downloaded")] %}
+            <div class="col-6">
+              <div class="result-stat">
+                <div class="stat-label">{{ label }}</div>
+                <div class="stat-value tone-primary">{{ job.stats.get(key, 0) if job.stats else 0 }}</div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          <a class="btn btn-primary w-100 mt-3" href="/library?latest=1">View results in library</a>
+        </div>
+      </div>
+    </div>
+
+    {% if recent_searches %}
+    <div class="card mt-4">
+      <div class="card-header">Recent searches</div>
+      <ul class="list-group list-group-flush">
+        {% for row in recent_searches %}
+        <li class="list-group-item d-flex justify-content-between gap-3 align-items-center">
+          <div>
+            <button class="recent-query" type="button" data-query="{{ row.original_query }}">{{ row.original_query }}</button>
+            {% if row.created_at %}<div class="paper-meta mb-0">{{ row.created_at|localdt }}</div>{% endif %}
+          </div>
+          <span class="status-badge status-{{ 'success' if row.status == 'completed' else 'primary' }}">{{ row.status }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
   </div>
 </div>
-<form method="post" class="card p-4" data-busy="Searching…">
-  <div class="mb-3">
-    <label class="form-label fw-semibold" for="query">Research topic</label>
-    <input class="form-control form-control-lg" id="query" name="query" required autocomplete="off" placeholder="e.g. reinforcement learning for intrusion detection">
-    <div class="chip-row mt-2">
-      {% for example in [
-        "web application security",
-        "reinforcement learning penetration testing",
-        "satellite cybersecurity",
-        "machine learning IDS"
-      ] %}
-      <button class="topic-chip" type="button" data-query="{{ example }}">{{ example }}</button>
-      {% endfor %}
-    </div>
-  </div>
-  <div class="row">
-    <div class="col-md-3 mb-3">
-      <label class="form-label" for="year_from">Year from</label>
-      <input class="form-control" id="year_from" name="year_from" inputmode="numeric" placeholder="Optional">
-    </div>
-    <div class="col-md-3 mb-3">
-      <label class="form-label" for="year_to">Year to</label>
-      <input class="form-control" id="year_to" name="year_to" inputmode="numeric" placeholder="Optional">
-    </div>
-    <div class="col-md-3 mb-3">
-      <label class="form-label" for="max_results">Max results</label>
-      <input class="form-control" id="max_results" type="number" name="max_results" value="50" min="1" max="500">
-    </div>
-    <div class="col-md-3 mb-3">
-      <label class="form-label" for="sort">Sort</label>
-      <select class="form-select" id="sort" name="sort">
-        <option value="relevance">Relevance</option>
-        <option value="citations">Citations</option>
-        <option value="newest">Newest</option>
-      </select>
-    </div>
-  </div>
-  <div class="form-check mb-2">
-    <input class="form-check-input" type="checkbox" name="open_access_only" id="oa">
-    <label class="form-check-label" for="oa">Open access only</label>
-  </div>
-  <div class="form-check mb-4">
-    <input class="form-check-input" type="checkbox" name="download" id="dl">
-    <label class="form-check-label" for="dl">Download PDFs during search (you can also do this from results)</label>
-  </div>
-  <button class="btn btn-primary btn-lg" type="submit">Run search</button>
-</form>
 {% endblock %}

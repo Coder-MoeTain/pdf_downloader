@@ -73,6 +73,12 @@ def init_db(url: str | None = None) -> None:
         conn.execute(text("SELECT 1"))
         conn.commit()
     logger.info("Database initialized")
+    try:
+        from app.database.settings_store import init_settings_store
+
+        init_settings_store()
+    except Exception as exc:
+        logger.warning("Settings store failed to initialize: %s", exc)
 
 
 def _ensure_columns(engine: Engine) -> None:

@@ -21,6 +21,12 @@ def status_meta(code: str | None) -> dict[str, str]:
     return STATUS_META.get(code, {"label": str(code).replace("_", " ").title(), "tone": "secondary"})
 
 
+def share(count: int, total: int) -> float:
+    if not total:
+        return 0.0
+    return round((count / total) * 100, 1)
+
+
 def active_page(path: str) -> str:
     mapping = (
         ("/search", "search"),

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, Form, Request
@@ -13,11 +12,26 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import selectinload
 
 from app import __app_name__, __version__
-from app.config import ROOT_DIR, load_config
+from app.config import ROOT_DIR, get_runtime_config
 from app.database.connection import init_db, session_scope
 from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuery, SearchResult
 from app.database.repository import apply_paper_filters, downloadable_clause, library_search, set_paper_rating
-from app.providers import provider_status
+from app.database.settings_repository import (
+    SettingsError,
+    create_academic_source,
+    delete_academic_source,
+    get_academic_source,
+    list_academic_sources,
+    save_credential_settings,
+    save_search_settings,
+    save_workspace_settings,
+    source_to_dict,
+    toggle_academic_source,
+    update_academic_source,
+)
+from app.database.settings_store import store_status
+from app.database.source_catalog import BUILTIN_SOURCES, SOURCE_KEY_FIELDS
+from app.providers import PROVIDER_CLASSES, provider_status
 from app.services.download_service import (
     DownloadError,
     download_open_access_papers,
@@ -29,7 +43,8 @@ from app.services.download_service import (
 from app.services.progress import tracker
 from app.services.search_service import SearchService, filters_from_cli
 from app.utils.logger import setup_logging
-from app.web.ui import active_page, status_meta
+from app.utils.time import format_local, now_local, timezone_abbrev, timezone_choices, timezone_offset_label
+from app.web.ui import active_page, share, status_meta
 
 WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
@@ -37,6 +52,7 @@ templates.env.globals["pdf_button_state"] = pdf_button_state
 templates.env.globals["status_meta"] = status_meta
 templates.env.globals["can_preview"] = lambda paper: existing_pdf_path(paper) is not None
 templates.env.filters["filesize"] = lambda value: _format_bytes(value)
+templates.env.filters["localdt"] = lambda value, fmt="%Y-%m-%d %H:%M": format_local(value, fmt)
 
 app = FastAPI(title=__app_name__, version=__version__)
 app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
@@ -51,7 +67,7 @@ def _startup() -> None:
 
 
 def _ctx(request: Request, **extra):
-    cfg = load_config()
+    cfg = get_runtime_config()
     payload = {
         "request": request,
         "app_name": cfg.name,
@@ -59,6 +75,9 @@ def _ctx(request: Request, **extra):
         "flash": _search_message,
         "page": active_page(request.url.path),
         "progress": tracker.snapshot(),
+        "timezone": cfg.timezone,
+        "timezone_abbrev": timezone_abbrev(cfg.timezone),
+        "timezone_offset": timezone_offset_label(cfg.timezone),
     }
     payload.update(extra)
     payload["page"] = active_page(request.url.path)
@@ -75,6 +94,7 @@ def dashboard(request: Request):
         paywalled = session.scalar(select(func.count(Paper.id)).where(Paper.status == "PAYWALLED")) or 0
         failed = session.scalar(select(func.count(Download.id)).where(Download.status == "FAILED")) or 0
         searches = session.scalar(select(func.count(SearchQuery.id))) or 0
+        no_year = session.scalar(select(func.count(Paper.id)).where(Paper.publication_year.is_(None))) or 0
         years = session.execute(
             select(Paper.publication_year, func.count(Paper.id))
             .where(Paper.publication_year.is_not(None))
@@ -83,49 +103,114 @@ def dashboard(request: Request):
         ).all()
         publishers = session.execute(
             select(Paper.publisher, func.count(Paper.id))
-            .where(Paper.publisher.is_not(None))
+            .where(Paper.publisher.is_not(None), Paper.publisher != "")
             .group_by(Paper.publisher)
             .order_by(func.count(Paper.id).desc())
-            .limit(8)
+            .limit(6)
         ).all()
         journals = session.execute(
             select(Paper.journal, func.count(Paper.id))
-            .where(Paper.journal.is_not(None))
+            .where(Paper.journal.is_not(None), Paper.journal != "")
             .group_by(Paper.journal)
             .order_by(func.count(Paper.id).desc())
-            .limit(8)
+            .limit(6)
+        ).all()
+        status_rows = session.execute(
+            select(Paper.status, func.count(Paper.id)).group_by(Paper.status)
         ).all()
         top_cited = session.scalars(
-            select(Paper).where(Paper.citation_count.is_not(None)).order_by(Paper.citation_count.desc()).limit(8)
+            select(Paper).where(Paper.citation_count.is_not(None)).order_by(Paper.citation_count.desc()).limit(6)
         ).all()
         recent = session.scalars(select(SearchQuery).order_by(SearchQuery.created_at.desc()).limit(6)).all()
-        topics = Counter()
-        for q in session.scalars(select(SearchQuery)).all():
-            topics[q.original_query] += 1
+        topics = session.execute(
+            select(SearchQuery.original_query, func.count(SearchQuery.id))
+            .group_by(SearchQuery.original_query)
+            .order_by(func.count(SearchQuery.id).desc())
+            .limit(6)
+        ).all()
+
+    year_counts = [
+        {"year": year, "yy": f"{year % 100:02d}", "count": count}
+        for year, count in years
+    ]
+    year_max = max((row["count"] for row in year_counts), default=0)
+    year_chart = year_counts[-16:]
+    for row in year_chart:
+        row["bar"] = round((row["count"] / year_max) * 100, 1) if year_max else 0
+    peak = max(year_counts, key=lambda row: row["count"]) if year_counts else None
+    statuses = [
+        {
+            "code": code,
+            "count": count,
+            "pct": share(count, total),
+            **status_meta(code),
+        }
+        for code, count in status_rows
+        if code
+    ]
+    statuses.sort(key=lambda row: (-row["count"], row["label"]))
+    available = [row for row in provider_status() if row.get("available")]
+    kpis = [
+        {"href": "/library", "label": "Papers in library", "value": total, "tone": "primary", "hint": f"{searches} search{'es' if searches != 1 else ''} run"},
+        {"href": "/library?pdf=1", "label": "Downloadable PDFs", "value": downloadable, "tone": "success", "hint": f"{share(downloadable, total)}% of library"},
+        {"href": "/downloads?status=DOWNLOADED", "label": "Downloaded", "value": downloaded, "tone": "info", "hint": "Saved to disk"},
+        {"href": "/library?status=PAYWALLED", "label": "Paywalled", "value": paywalled, "tone": "warning", "hint": f"{share(paywalled, total)}% of library"},
+        {"href": "/downloads?status=FAILED", "label": "Failed downloads", "value": failed, "tone": "danger", "hint": "Retry from Downloads"},
+        {"href": "/library?status=OA_AVAILABLE", "label": "Open access", "value": oa, "tone": "secondary", "hint": f"{share(oa, total)}% of library"},
+    ]
+    insights = []
+    if year_counts:
+        insights.append(f"Coverage {year_counts[0]['year']}–{year_counts[-1]['year']}")
+    if peak:
+        insights.append(f"Peak year {peak['year']} ({peak['count']})")
+    if total:
+        insights.append(f"{share(downloadable, total)}% legally downloadable")
+        insights.append(f"{share(paywalled, total)}% paywalled")
+    insights.append(f"{len(available)} academic sources ready")
+    store = store_status()
     return templates.TemplateResponse(
         "dashboard.html",
         _ctx(
             request,
             total=total,
-            oa=oa,
-            downloadable=downloadable,
-            downloaded=downloaded,
-            paywalled=paywalled,
-            failed=failed,
-            searches=searches,
-            years=[{"year": y, "count": c} for y, c in years],
-            publishers=publishers,
-            journals=journals,
+            kpis=kpis,
+            insights=insights,
+            year_chart=year_chart,
+            years=year_counts,
+            no_year=no_year,
+            statuses=statuses,
+            publishers=[{"name": name, "count": count, "pct": share(count, total)} for name, count in publishers],
+            journals=[{"name": name, "count": count, "pct": share(count, total)} for name, count in journals],
             top_cited=top_cited,
             recent=recent,
-            topics=topics.most_common(10),
+            latest_search=recent[0] if recent else None,
+            topics=[{"name": name, "count": count} for name, count in topics],
+            available_sources=available,
+            store=store,
+            searches=searches,
+            downloadable=downloadable,
+            failed=failed,
         ),
     )
 
 
 @app.get("/search", response_class=HTMLResponse)
 def search_page(request: Request):
-    return templates.TemplateResponse("search.html", _ctx(request))
+    cfg = get_runtime_config()
+    with session_scope() as session:
+        recent = session.scalars(select(SearchQuery).order_by(SearchQuery.created_at.desc()).limit(8)).all()
+    available = [row for row in provider_status() if row.get("available")]
+    return templates.TemplateResponse(
+        "search.html",
+        _ctx(
+            request,
+            config=cfg,
+            recent_searches=recent,
+            available_sources=available,
+            job=tracker.snapshot(),
+            topics=cfg.topics[:6],
+        ),
+    )
 
 
 @app.post("/search")
@@ -138,7 +223,13 @@ async def search_submit(
     open_access_only: str | None = Form(None),
     download: str | None = Form(None),
     sort: str = Form("relevance"),
+    source: str = Form(""),
 ):
+    snap = tracker.snapshot()
+    if snap.get("active"):
+        _search_message["text"] = "A search or download is already running. Watch the live log on this page."
+        _search_message["level"] = "warning"
+        return RedirectResponse("/search?live=1", status_code=303)
     filters = filters_from_cli(
         query,
         year_from=int(year_from) if year_from.strip() else None,
@@ -147,8 +238,10 @@ async def search_submit(
         open_access_only=bool(open_access_only),
         no_download=not bool(download),
         sort=sort,
+        source=source.strip() or None,
     )
-    _search_message["text"] = f"Search running for “{query}”. This can take a few minutes."
+    tracker.start_search(query.strip())
+    _search_message["text"] = ""
     _search_message["level"] = "info"
 
     async def _job():
@@ -164,7 +257,7 @@ async def search_submit(
             _search_message["level"] = "danger"
 
     background_tasks.add_task(_job)
-    return RedirectResponse("/library?latest=1", status_code=303)
+    return RedirectResponse("/search?live=1", status_code=303)
 
 
 @app.get("/library", response_class=HTMLResponse)
@@ -328,22 +421,28 @@ def preview_paper_pdf(paper_id: int):
         )
         if paper is None:
             return HTMLResponse("Paper not found", status_code=404)
-        path = existing_pdf_from_paper(paper)
+        path = existing_pdf_path(paper)
     if path is None:
-        _search_message["text"] = "No downloaded PDF is available to preview."
-        _search_message["level"] = "warning"
-        return RedirectResponse("/downloads", status_code=303)
+        return HTMLResponse("No downloaded PDF is available to preview.", status_code=404)
     return FileResponse(
         path=str(path),
         media_type="application/pdf",
-        filename=path.name,
-        content_disposition_type="inline",
+        headers={
+            "Content-Disposition": "inline",
+            "Cache-Control": "private, max-age=120",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
 @app.get("/api/download-progress")
 def download_progress():
-    return JSONResponse(tracker.snapshot())
+    return JSONResponse(tracker.snapshot(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/search-progress")
+def search_progress():
+    return JSONResponse(tracker.snapshot(), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/downloads", response_class=HTMLResponse)
@@ -374,12 +473,276 @@ def downloads_page(request: Request, status: str = ""):
 
 @app.get("/sources", response_class=HTMLResponse)
 def sources_page(request: Request):
-    return templates.TemplateResponse("sources.html", _ctx(request, providers=provider_status()))
+    searchable = {cls.name for cls in PROVIDER_CLASSES}
+    sources = []
+    for row in list_academic_sources():
+        item = source_to_dict(row)
+        item["searchable"] = row.slug in searchable
+        sources.append(item)
+    return templates.TemplateResponse("sources.html", _ctx(request, sources=sources, store=store_status().as_dict()))
+
+
+def _settings_ctx(request: Request, section: str = "workspace"):
+    cfg = get_runtime_config()
+    searchable = {cls.name for cls in PROVIDER_CLASSES}
+    sources = []
+    for row in list_academic_sources():
+        item = source_to_dict(row)
+        item["searchable"] = row.slug in searchable
+        sources.append(item)
+    credentials = []
+    for slug, field in SOURCE_KEY_FIELDS.items():
+        match = next((s for s in sources if s["slug"] == slug), None)
+        credentials.append(
+            {
+                "slug": slug,
+                "field": field,
+                "label": (match or {}).get("display_name") or slug.replace("_", " ").title(),
+                "has_key": bool(match and match["has_key"]),
+                "env_name": (match or {}).get("api_key_env") or field.upper(),
+                "requires_key": bool(match and match["requires_key"]),
+            }
+        )
+    available = sum(1 for s in sources if s["available"])
+    return _ctx(
+        request,
+        config=cfg,
+        root=str(ROOT_DIR),
+        store=store_status().as_dict(),
+        sources=sources,
+        credentials=credentials,
+        section=section,
+        source_stats={"total": len(sources), "available": available, "disabled": sum(1 for s in sources if not s["enabled"])},
+        timezones=timezone_choices(cfg.timezone),
+        now_local=now_local(cfg.timezone).strftime("%Y-%m-%d %H:%M:%S"),
+    )
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request, section: str = "workspace"):
+    allowed = {"workspace", "search", "credentials", "sources"}
+    if section not in allowed:
+        section = "workspace"
+    return templates.TemplateResponse("settings.html", _settings_ctx(request, section))
+
+
+def _safe_next(next_url: str | None, fallback: str) -> str:
+    text = (next_url or "").strip()
+    if text.startswith("/settings") or text.startswith("/sources"):
+        return text
+    return fallback
+
+
+def _settings_redirect(section: str, message: str, level: str = "success", next_url: str | None = None) -> RedirectResponse:
+    _search_message["text"] = message
+    _search_message["level"] = level
+    return RedirectResponse(_safe_next(next_url, f"/settings?section={section}"), status_code=303)
+
+
+def _form_bool(value: str | None) -> bool:
+    return str(value or "").lower() in {"1", "true", "on", "yes"}
+
+
+@app.post("/settings/workspace")
+def settings_save_workspace(
+    contact_email: str = Form(""),
+    unpaywall_email: str = Form(""),
+    library_dir: str = Form("research_library"),
+    timezone: str = Form("UTC"),
+    check_robots_txt: str | None = Form(None),
+    prefer_https: str | None = Form(None),
+):
+    try:
+        save_workspace_settings(
+            {
+                "contact_email": contact_email,
+                "unpaywall_email": unpaywall_email,
+                "library_dir": library_dir,
+                "timezone": timezone,
+                "check_robots_txt": _form_bool(check_robots_txt),
+                "prefer_https": _form_bool(prefer_https),
+            }
+        )
+        return _settings_redirect("workspace", "Workspace settings saved to MySQL.")
+    except SettingsError as exc:
+        return _settings_redirect("workspace", str(exc), "danger")
+
+
+@app.post("/settings/search")
+def settings_save_search(
+    download_limit: int = Form(100),
+    default_max_results: int = Form(50),
+    max_concurrent_requests: int = Form(5),
+    max_concurrent_downloads: int = Form(3),
+    request_timeout_seconds: float = Form(30),
+    download_timeout_seconds: float = Form(120),
+    max_redirects: int = Form(5),
+):
+    try:
+        save_search_settings(
+            {
+                "download_limit": download_limit,
+                "default_max_results": default_max_results,
+                "max_concurrent_requests": max_concurrent_requests,
+                "max_concurrent_downloads": max_concurrent_downloads,
+                "request_timeout_seconds": request_timeout_seconds,
+                "download_timeout_seconds": download_timeout_seconds,
+                "max_redirects": max_redirects,
+            }
+        )
+        return _settings_redirect("search", "Search and download settings saved to MySQL.")
+    except SettingsError as exc:
+        return _settings_redirect("search", str(exc), "danger")
+
+
+@app.post("/settings/credentials")
+async def settings_save_credentials(request: Request):
+    form = await request.form()
+    data = {str(k): str(v) for k, v in form.items()}
+    try:
+        save_credential_settings(data)
+        return _settings_redirect("credentials", "API credentials saved to MySQL.")
+    except SettingsError as exc:
+        return _settings_redirect("credentials", str(exc), "danger")
+
+
+@app.get("/api/sources/{source_id}")
+def api_source_get(source_id: int):
+    row = get_academic_source(source_id)
+    if row is None:
+        return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+    return {"ok": True, "source": source_to_dict(row)}
+
+
+@app.post("/settings/sources")
+def settings_create_source(
+    slug: str = Form(""),
+    display_name: str = Form(...),
+    description: str = Form(""),
+    homepage_url: str = Form(""),
+    api_base_url: str = Form(""),
+    docs_url: str = Form(""),
+    notes: str = Form(""),
+    api_key: str = Form(""),
+    api_key_env: str = Form(""),
+    requests_per_second: float = Form(5),
+    requests_per_second_with_key: str = Form(""),
+    enabled: str | None = Form(None),
+    requires_key: str | None = Form(None),
+    next: str = Form(""),
+):
+    try:
+        create_academic_source(
+            {
+                "slug": slug,
+                "display_name": display_name,
+                "description": description,
+                "homepage_url": homepage_url,
+                "api_base_url": api_base_url,
+                "docs_url": docs_url,
+                "notes": notes,
+                "api_key": api_key,
+                "api_key_env": api_key_env,
+                "requests_per_second": requests_per_second,
+                "requests_per_second_with_key": requests_per_second_with_key,
+                "enabled": enabled,
+                "requires_key": requires_key,
+            }
+        )
+        return _settings_redirect("sources", f"Added academic source “{display_name}”.", next_url=next)
+    except SettingsError as exc:
+        return _settings_redirect("sources", str(exc), "danger", next_url=next)
+
+
+@app.post("/settings/sources/{source_id}")
+def settings_update_source(
+    source_id: int,
+    display_name: str = Form(...),
+    description: str = Form(""),
+    homepage_url: str = Form(""),
+    api_base_url: str = Form(""),
+    docs_url: str = Form(""),
+    notes: str = Form(""),
+    api_key: str = Form(""),
+    requests_per_second: float = Form(5),
+    requests_per_second_with_key: str = Form(""),
+    enabled: str | None = Form(None),
+    requires_key: str | None = Form(None),
+    clear_api_key: str | None = Form(None),
+    next: str = Form(""),
+):
+    try:
+        update_academic_source(
+            source_id,
+            {
+                "display_name": display_name,
+                "description": description,
+                "homepage_url": homepage_url,
+                "api_base_url": api_base_url,
+                "docs_url": docs_url,
+                "notes": notes,
+                "api_key": api_key,
+                "requests_per_second": requests_per_second,
+                "requests_per_second_with_key": requests_per_second_with_key,
+                "enabled": enabled,
+                "requires_key": requires_key,
+                "clear_api_key": clear_api_key,
+            },
+        )
+        return _settings_redirect("sources", "Academic source updated.", next_url=next)
+    except SettingsError as exc:
+        return _settings_redirect("sources", str(exc), "danger", next_url=next)
+
+
+@app.post("/settings/sources/{source_id}/delete")
+def settings_delete_source(source_id: int, next: str = Form("")):
+    try:
+        delete_academic_source(source_id)
+        return _settings_redirect("sources", "Academic source removed.", next_url=next)
+    except SettingsError as exc:
+        return _settings_redirect("sources", str(exc), "danger", next_url=next)
+
+
+@app.post("/settings/sources/{source_id}/toggle")
+def settings_toggle_source(source_id: int, request: Request, next: str = Form("")):
+    try:
+        row = toggle_academic_source(source_id)
+        wants_json = "application/json" in (request.headers.get("accept") or "")
+        if wants_json:
+            return {"ok": True, "source": source_to_dict(row)}
+        state = "enabled" if row.enabled else "disabled"
+        return _settings_redirect("sources", f"{row.display_name} {state}.", next_url=next)
+    except SettingsError as exc:
+        if "application/json" in (request.headers.get("accept") or ""):
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        return _settings_redirect("sources", str(exc), "danger", next_url=next)
+
+
+def _named_counts(rows, total: int) -> list[dict]:
+    return [{"name": name, "count": count, "pct": share(count, total)} for name, count in rows if name]
 
 
 @app.get("/statistics", response_class=HTMLResponse)
 def statistics_page(request: Request):
+    source_names = {str(item["slug"]): str(item["display_name"]) for item in BUILTIN_SOURCES}
     with session_scope() as session:
+        total = session.scalar(select(func.count(Paper.id))) or 0
+        oa = session.scalar(select(func.count(Paper.id)).where(Paper.open_access.is_(True))) or 0
+        downloadable = session.scalar(select(func.count(Paper.id)).where(downloadable_clause())) or 0
+        downloaded = session.scalar(select(func.count(Download.id)).where(Download.status == "DOWNLOADED")) or 0
+        paywalled = session.scalar(select(func.count(Paper.id)).where(Paper.status == "PAYWALLED")) or 0
+        failed = session.scalar(select(func.count(Download.id)).where(Download.status == "FAILED")) or 0
+        rated = session.scalar(select(func.count(Paper.id)).where(Paper.user_rating.is_not(None))) or 0
+        searches = session.scalar(select(func.count(SearchQuery.id))) or 0
+        avg_citations = session.scalar(
+            select(func.avg(Paper.citation_count)).where(Paper.citation_count.is_not(None))
+        )
+        avg_rating = session.scalar(select(func.avg(Paper.user_rating)).where(Paper.user_rating.is_not(None)))
+        year_bounds = session.execute(
+            select(func.min(Paper.publication_year), func.max(Paper.publication_year)).where(
+                Paper.publication_year.is_not(None)
+            )
+        ).one()
         years = session.execute(
             select(Paper.publication_year, func.count(Paper.id))
             .where(Paper.publication_year.is_not(None))
@@ -388,57 +751,124 @@ def statistics_page(request: Request):
         ).all()
         publishers = session.execute(
             select(Paper.publisher, func.count(Paper.id))
-            .where(Paper.publisher.is_not(None))
+            .where(Paper.publisher.is_not(None), Paper.publisher != "")
             .group_by(Paper.publisher)
             .order_by(func.count(Paper.id).desc())
-            .limit(15)
+            .limit(10)
         ).all()
         journals = session.execute(
             select(Paper.journal, func.count(Paper.id))
-            .where(Paper.journal.is_not(None))
+            .where(Paper.journal.is_not(None), Paper.journal != "")
             .group_by(Paper.journal)
             .order_by(func.count(Paper.id).desc())
-            .limit(15)
+            .limit(10)
         ).all()
         authors = session.execute(
             select(Author.name, func.count(PaperAuthor.id))
             .join(PaperAuthor, PaperAuthor.author_id == Author.id)
             .group_by(Author.name)
             .order_by(func.count(PaperAuthor.id).desc())
-            .limit(15)
+            .limit(10)
         ).all()
-        statuses = session.execute(select(Paper.status, func.count(Paper.id)).group_by(Paper.status)).all()
+        sources = session.execute(
+            select(Paper.source, func.count(Paper.id))
+            .where(Paper.source.is_not(None), Paper.source != "")
+            .group_by(Paper.source)
+            .order_by(func.count(Paper.id).desc())
+            .limit(10)
+        ).all()
+        status_rows = session.execute(
+            select(Paper.status, func.count(Paper.id)).group_by(Paper.status)
+        ).all()
+        rating_rows = session.execute(
+            select(Paper.user_rating, func.count(Paper.id))
+            .where(Paper.user_rating.is_not(None))
+            .group_by(Paper.user_rating)
+            .order_by(Paper.user_rating.desc())
+        ).all()
+        top_cited = session.scalars(
+            select(Paper).where(Paper.citation_count.is_not(None)).order_by(Paper.citation_count.desc()).limit(8)
+        ).all()
+        topics = session.execute(
+            select(SearchQuery.original_query, func.count(SearchQuery.id))
+            .group_by(SearchQuery.original_query)
+            .order_by(func.count(SearchQuery.id).desc())
+            .limit(6)
+        ).all()
+
+    year_counts = [
+        {"year": year, "yy": f"{year % 100:02d}", "count": count, "pct": share(count, total)}
+        for year, count in years
+    ]
+    year_max = max((row["count"] for row in year_counts), default=0)
+    year_chart = year_counts[-16:]
+    for row in year_chart:
+        row["bar"] = round((row["count"] / year_max) * 100, 1) if year_max else 0
+    peak = max(year_counts, key=lambda row: row["count"]) if year_counts else None
+    statuses = [
+        {
+            "code": code,
+            "count": count,
+            "pct": share(count, total),
+            **status_meta(code),
+        }
+        for code, count in status_rows
+        if code
+    ]
+    statuses.sort(key=lambda row: (-row["count"], row["label"]))
+    source_rows = [
+        {
+            "name": source_names.get(slug, (slug or "").replace("_", " ").title()),
+            "slug": slug,
+            "count": count,
+            "pct": share(count, total),
+        }
+        for slug, count in sources
+        if slug
+    ]
+    kpis = [
+        {"href": "/library", "label": "Papers in library", "value": total, "tone": "primary", "hint": "All stored records"},
+        {"href": "/library?pdf=1", "label": "Downloadable PDFs", "value": downloadable, "tone": "success", "hint": f"{share(downloadable, total)}% of library"},
+        {"href": "/downloads?status=DOWNLOADED", "label": "Downloaded", "value": downloaded, "tone": "info", "hint": "Saved to disk"},
+        {"href": "/library?status=PAYWALLED", "label": "Paywalled", "value": paywalled, "tone": "warning", "hint": f"{share(paywalled, total)}% of library"},
+        {"href": "/library?status=OA_AVAILABLE", "label": "Open access", "value": oa, "tone": "secondary", "hint": f"{share(oa, total)}% of library"},
+        {"href": "/library?min_rating=1", "label": "Rated papers", "value": rated, "tone": "primary", "hint": f"Avg {avg_rating:.1f}" if avg_rating else "No ratings yet"},
+    ]
+    insights = []
+    if year_bounds[0] and year_bounds[1]:
+        insights.append(f"Coverage {year_bounds[0]}–{year_bounds[1]}")
+    if peak:
+        insights.append(f"Peak year {peak['year']} · {peak['count']} papers")
+    if total:
+        insights.append(f"{share(paywalled, total)}% paywalled")
+        insights.append(f"{share(downloadable, total)}% have a legal PDF")
+    if avg_citations:
+        insights.append(f"Avg citations {avg_citations:.0f}")
+    if failed:
+        insights.append(f"{failed} failed download{'s' if failed != 1 else ''}")
     return templates.TemplateResponse(
         "statistics.html",
         _ctx(
             request,
-            years=[{"year": y, "count": c} for y, c in years],
-            publishers=[{"name": n, "count": c} for n, c in publishers],
-            journals=[{"name": n, "count": c} for n, c in journals],
-            authors=[{"name": n, "count": c} for n, c in authors],
-            statuses=[{"code": s, "count": c} for s, c in statuses],
+            total=total,
+            failed=failed,
+            avg_citations=avg_citations,
+            year_span=year_bounds,
+            years=year_counts,
+            year_chart=year_chart,
+            year_max=year_max,
+            no_year=max(total - sum(row["count"] for row in year_counts), 0),
+            publishers=_named_counts(publishers, total),
+            journals=_named_counts(journals, total),
+            authors=_named_counts(authors, total),
+            sources=source_rows,
+            statuses=statuses,
+            ratings=[{"rating": rating, "count": count, "pct": share(count, rated)} for rating, count in rating_rows],
+            top_cited=top_cited,
+            topics=[{"name": name, "count": count} for name, count in topics],
+            kpis=kpis,
+            insights=insights,
         ),
-    )
-
-
-@app.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request):
-    cfg = load_config()
-    env = cfg.env
-    masked = {
-        "CONTACT_EMAIL": env.contact_email,
-        "UNPAYWALL_EMAIL": env.unpaywall_email or env.contact_email,
-        "SEMANTIC_SCHOLAR_API_KEY": _mask(env.semantic_scholar_api_key),
-        "CORE_API_KEY": _mask(env.core_api_key),
-        "SPRINGER_API_KEY": _mask(env.springer_api_key),
-        "ELSEVIER_API_KEY": _mask(env.elsevier_api_key),
-        "IEEE_API_KEY": _mask(env.ieee_api_key),
-        "NCBI_API_KEY": _mask(env.ncbi_api_key),
-        "NASA_ADS_TOKEN": _mask(env.nasa_ads_token),
-    }
-    return templates.TemplateResponse(
-        "settings.html",
-        _ctx(request, env=masked, config=cfg, root=str(ROOT_DIR)),
     )
 
 

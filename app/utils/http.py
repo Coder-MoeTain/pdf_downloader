@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from app.config import AppConfig, load_config
+from app.config import AppConfig, get_runtime_config
 from app.utils.logger import get_logger
 from app.utils.rate_limit import RateLimiter
 from app.utils.retry import backoff_delay
@@ -25,7 +25,7 @@ class HttpError(RuntimeError):
 
 class AsyncHttpClient:
     def __init__(self, config: AppConfig | None = None) -> None:
-        self.config = config or load_config()
+        self.config = config or get_runtime_config()
         env = self.config.env
         timeout = httpx.Timeout(env.request_timeout_seconds, connect=15.0)
         self._client = httpx.AsyncClient(

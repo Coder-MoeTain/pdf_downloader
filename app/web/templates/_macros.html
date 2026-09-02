@@ -24,6 +24,79 @@
   </div>
 {%- endmacro %}
 
+{% macro ranked_list(rows, empty, query_param="") -%}
+  {% if rows %}
+  <ol class="rank-list">
+    {% for row in rows %}
+    <li class="rank-item">
+      <span class="rank-index">{{ "%02d"|format(loop.index) }}</span>
+      <div class="rank-body">
+        {% if query_param %}
+        <a class="rank-name" href="/library?q={{ row.name|urlencode }}" title="{{ row.name }}">{{ row.name }}</a>
+        {% else %}
+        <span class="rank-name" title="{{ row.name }}">{{ row.name }}</span>
+        {% endif %}
+        <div class="progress rank-bar" role="progressbar" aria-valuenow="{{ row.count }}" aria-valuemax="{{ rows[0].count }}">
+          <div class="progress-bar" style="width: {{ ((row.count / rows[0].count * 100) if rows[0].count else 0) }}%"></div>
+        </div>
+      </div>
+      <div class="rank-meta">
+        <strong>{{ row.count }}</strong>
+        <span>{{ row.pct }}%</span>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="text-muted mb-0">{{ empty }}</p>
+  {% endif %}
+{%- endmacro %}
+
+{% macro nav_icon(name) -%}
+  {%- if name == "dashboard" -%}
+  <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect x="3.5" y="3.5" width="7" height="8" rx="1.6" stroke="currentColor" stroke-width="1.75"/>
+    <rect x="13.5" y="3.5" width="7" height="5" rx="1.6" stroke="currentColor" stroke-width="1.75"/>
+    <rect x="13.5" y="11.5" width="7" height="9" rx="1.6" stroke="currentColor" stroke-width="1.75"/>
+    <rect x="3.5" y="14.5" width="7" height="6" rx="1.6" stroke="currentColor" stroke-width="1.75"/>
+  </svg>
+  {%- elif name == "search" -%}
+  <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <circle cx="11" cy="11" r="6.25" stroke="currentColor" stroke-width="1.75"/>
+    <path d="M16.2 16.2 20 20" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+  </svg>
+  {%- elif name == "library" -%}
+  <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M5 5.5h9.5A2.5 2.5 0 0 1 17 8v11.5H7.5A2.5 2.5 0 0 0 5 22V5.5Z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/>
+    <path d="M5 5.5V22" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+    <path d="M17 8h2a2 2 0 0 1 2 2v9.5h-4" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/>
+  </svg>
+  {%- elif name == "downloads" -%}
+  <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M12 4v11" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+    <path d="m8.2 11.5 3.8 3.8 3.8-3.8" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M5 19.5h14" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+  </svg>
+  {%- elif name == "sources" -%}
+  <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <ellipse cx="12" cy="7" rx="7.25" ry="3.1" stroke="currentColor" stroke-width="1.75"/>
+    <path d="M4.75 7v5c0 1.7 3.25 3.1 7.25 3.1s7.25-1.4 7.25-3.1V7" stroke="currentColor" stroke-width="1.75"/>
+    <path d="M4.75 12v5c0 1.7 3.25 3.1 7.25 3.1s7.25-1.4 7.25-3.1v-5" stroke="currentColor" stroke-width="1.75"/>
+  </svg>
+  {%- elif name == "statistics" -%}
+  <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M5 19V10.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+    <path d="M12 19V5.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+    <path d="M19 19v-6.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+  </svg>
+  {%- elif name == "settings" -%}
+  <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Z" stroke="currentColor" stroke-width="1.75"/>
+    <path d="M12 3.5v2M12 18.5v2M4.9 7.1l1.5.9M17.6 16l1.5.9M4.9 16.9l1.5-.9M17.6 8l1.5-.9M3.5 12h2M18.5 12h2" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+  </svg>
+  {%- endif -%}
+{%- endmacro %}
+
 {% macro star_rating(paper) -%}
   {%- set current = paper.user_rating or 0 -%}
   <div class="star-rating" data-paper-id="{{ paper.id }}" data-rating="{{ current }}" role="group" aria-label="Your rating">

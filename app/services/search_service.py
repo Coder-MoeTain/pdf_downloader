@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from sqlalchemy.orm import Session
 
-from app.config import AppConfig, load_config, parse_size
+from app.config import AppConfig, get_runtime_config, load_config, parse_size
 from app.database.connection import init_db, session_scope
 from app.database.repository import (
     attach_search_result,
@@ -41,10 +41,20 @@ console = Console()
 
 class SearchService:
     def __init__(self, config: AppConfig | None = None) -> None:
-        self.config = config or load_config()
+        self.config = config or get_runtime_config()
 
     async def run(self, filters: SearchFilters) -> SearchStats:
         init_db()
+        snap = tracker.snapshot()
+        if not (snap.get("active") and snap.get("kind") == "search"):
+            tracker.start_search(filters.query)
+        try:
+            return await self._run(filters)
+        except Exception as exc:
+            tracker.finish_search(error=str(exc))
+            raise
+
+    async def _run(self, filters: SearchFilters) -> SearchStats:
         stats = SearchStats(query=filters.query)
         expanded = expand_query(filters.query, self.config.query_expansion)
         stats.expanded_queries = expanded
@@ -57,7 +67,18 @@ class SearchService:
             stats.sources_searched = len(providers)
             if not providers:
                 console.print("[yellow]No providers available. Check config.yaml and API keys.[/]")
+                tracker.log("No providers available. Check Settings → Academic sources and API keys.", "warning")
+                tracker.finish_search(error="No academic sources are available.")
                 return stats
+
+            tracker.set_providers_total(len(providers))
+            tracker.set_phase(
+                "searching",
+                f"Querying {len(providers)} academic source{'s' if len(providers) != 1 else ''}…",
+                current=0,
+                total=len(providers),
+                percent=8,
+            )
 
             raw: list[PaperRecord] = []
             console.print()
@@ -65,6 +86,8 @@ class SearchService:
 
             stats.raw_records = len(raw)
             console.print(f"[cyan]\\[MERGE][/] Total records............{stats.raw_records}")
+            tracker.update_stats(raw_records=stats.raw_records, sources_searched=stats.sources_searched)
+            tracker.set_phase("merging", f"Merging {stats.raw_records} records…", percent=48)
 
             unique, removed = deduplicate(raw, self.config.dedup)
             stats.duplicates_removed = removed
@@ -74,8 +97,17 @@ class SearchService:
             stats.unique_papers = len(unique)
             stats.relevant_papers = len(unique)
             console.print(f"[cyan]\\[DEDUP][/] Unique papers............{stats.unique_papers}")
+            tracker.update_stats(unique_papers=stats.unique_papers, duplicates_removed=removed)
+            tracker.log(f"Deduplicated to {stats.unique_papers} unique papers ({removed} duplicates removed).")
 
             oa = OpenAccessService(client, self.config)
+            tracker.set_phase(
+                "oa",
+                f"Checking open-access copies for {len(unique)} papers…",
+                current=0,
+                total=len(unique),
+                percent=52,
+            )
             with Progress(
                 SpinnerColumn(),
                 TextColumn("{task.description}"),
@@ -84,12 +116,20 @@ class SearchService:
                 transient=True,
             ) as progress:
                 task = progress.add_task("[OA] Resolving open access", total=len(unique))
-                for paper in unique:
+                for index, paper in enumerate(unique, start=1):
                     try:
                         await oa.resolve(paper)
                     except Exception as exc:
                         logger.warning("OA resolve failed for %s: %s", paper.title[:60], exc)
                     progress.advance(task)
+                    if index == len(unique) or index % 8 == 0:
+                        tracker.set_phase(
+                            "oa",
+                            f"Open access {index}/{len(unique)}",
+                            current=index,
+                            total=len(unique),
+                            percent=round(52 + (index / max(len(unique), 1)) * 22, 1),
+                        )
 
             stats.open_access_papers = sum(1 for p in unique if p.status == PaperStatus.OA_AVAILABLE or p.open_access)
             stats.paywalled = sum(1 for p in unique if p.status == PaperStatus.PAYWALLED)
@@ -97,7 +137,16 @@ class SearchService:
             console.print(f"[green]\\[OA][/] Open access..................{stats.open_access_papers}")
             console.print(f"[yellow]\\[PAYWALL][/].........................{stats.paywalled}")
             console.print(f"[magenta]\\[NO PDF][/]..........................{stats.no_pdf}")
+            tracker.update_stats(
+                open_access_papers=stats.open_access_papers,
+                paywalled=stats.paywalled,
+                no_pdf=stats.no_pdf,
+            )
+            tracker.log(
+                f"Open access {stats.open_access_papers} · paywalled {stats.paywalled} · no PDF {stats.no_pdf}"
+            )
 
+            tracker.set_phase("storing", f"Saving {len(unique)} papers to the library…", percent=78)
             with session_scope() as session:
                 search_row = create_search_query(
                     session,
@@ -151,6 +200,7 @@ class SearchService:
                         tracker.finish_batch()
                 elif not filters.download:
                     console.print("[dim]Skipping downloads (--no-download).[/]")
+                    tracker.log("PDF download skipped (disabled for this run).")
 
                 complete_search_query(session, search_row.id)
                 unique = [p for _, p in persisted]
@@ -160,6 +210,23 @@ class SearchService:
             paths = exporter.export_all(unique, stats)
             stats.library_path = str(self.config.resolve_path(self.config.library_dir) / filters.topic_slug)
             stats.report_path = str(paths["xlsx"])
+            tracker.update_stats(
+                pdfs_downloaded=stats.pdfs_downloaded,
+                failed_downloads=stats.failed_downloads,
+                unique_papers=stats.unique_papers,
+            )
+            tracker.finish_search(
+                stats={
+                    "unique_papers": stats.unique_papers,
+                    "raw_records": stats.raw_records,
+                    "open_access_papers": stats.open_access_papers,
+                    "paywalled": stats.paywalled,
+                    "pdfs_downloaded": stats.pdfs_downloaded,
+                    "failed_downloads": stats.failed_downloads,
+                    "duplicates_removed": stats.duplicates_removed,
+                    "sources_searched": stats.sources_searched,
+                }
+            )
             self._print_summary(stats)
             return stats
 
@@ -178,18 +245,21 @@ class SearchService:
                 logger.exception("Provider %s failed", provider.name)
                 return provider.display_name, exc
 
-        gathered = await asyncio.gather(*[_one(p) for p in providers])
+        gathered_tasks = [asyncio.create_task(_one(p), name=p.display_name) for p in providers]
         raw: list[PaperRecord] = []
         with session_scope() as session:
-            for name, result in gathered:
+            for fut in asyncio.as_completed(gathered_tasks):
+                name, result = await fut
                 if isinstance(result, Exception):
                     console.print(f"[red]\\[SEARCH][/] {name:.<28} error: {result}")
                     upsert_provider(session, name.lower().replace(" ", "_"), error=str(result))
                     stats.provider_counts[name] = 0
+                    tracker.provider_finished(name, error=str(result))
                     continue
                 console.print(f"[green]\\[SEARCH][/] {name:.<28} {len(result)} results")
                 stats.provider_counts[name] = stats.provider_counts.get(name, 0) + len(result)
                 upsert_provider(session, name.lower().replace(" ", "_"))
+                tracker.provider_finished(name, count=len(result))
                 raw.extend(result)
         return raw
 
@@ -262,7 +332,7 @@ def filters_from_cli(
 ) -> SearchFilters:
     from app.models.search import SortMode
 
-    cfg = load_config()
+    cfg = get_runtime_config()
     try:
         sort_mode = SortMode(sort)
     except ValueError:

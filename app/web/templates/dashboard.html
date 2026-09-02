@@ -1,94 +1,243 @@
 {% extends "base.html" %}
-{% from "_macros.html" import empty_state, rank_bar %}
+{% from "_macros.html" import empty_state, ranked_list, status_badge %}
 {% block title %}Dashboard · {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
     <div class="page-kicker">Overview</div>
-    <h1 class="h2 mb-1">Library at a glance</h1>
-    <p class="lede mb-0">Search trusted academic APIs, keep paywalled records, and download only legally available PDFs.</p>
+    <h1 class="h2 mb-1">Collection home</h1>
+    <p class="lede mb-0">Search official academic APIs, keep paywalled records, and download only legally available open-access PDFs.</p>
   </div>
-  <a class="btn btn-primary" href="/search">Start a search</a>
+  <div class="dash-head-actions">
+    <a class="store-pill {% if store.backend == 'mysql' %}is-mysql{% endif %}" href="/sources">
+      <span class="store-dot" aria-hidden="true"></span>
+      <div>
+        <strong>{{ available_sources|length }} sources ready</strong>
+        <div class="store-meta">{{ store.label }}</div>
+      </div>
+    </a>
+    <a class="btn btn-outline-primary" href="/statistics">Analytics</a>
+    <a class="btn btn-primary" href="/search">New search</a>
+  </div>
 </div>
 
+{% if progress and progress.active %}
+<a class="card dash-live mb-4" href="{{ '/search?live=1' if progress.kind == 'search' else '/downloads' }}">
+  <div class="card-body d-flex flex-wrap align-items-center gap-3">
+    <span class="nav-live-dot" aria-hidden="true"></span>
+    <div class="flex-grow-1">
+      <strong>{{ "Search in progress" if progress.kind == "search" else "Download in progress" }}</strong>
+      <div class="paper-meta mb-0">{{ progress.message or progress.query }}</div>
+    </div>
+    <div class="dash-live-meter">
+      <div class="progress" role="progressbar" aria-valuenow="{{ progress.percent or 0 }}">
+        <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: {{ progress.percent or 12 }}%"></div>
+      </div>
+      <span class="paper-meta mb-0">{% if progress.percent is not none %}{{ progress.percent|int }}%{% else %}Live{% endif %}</span>
+    </div>
+  </div>
+</a>
+{% endif %}
+
+{% if insights %}
+<div class="insight-row mb-4">
+  {% for item in insights %}
+  <span class="insight-chip">{{ item }}</span>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if not total %}
+  {{ empty_state("No papers in the library yet", "Run a topic search to collect metadata and open-access PDFs from official academic sources.", "/search", "Search papers") }}
+{% else %}
 <div class="row g-3 mb-4">
-  {% for href, label, value, tone in [
-    ("/library", "Total papers", total, "primary"),
-    ("/library?pdf=1", "Downloadable PDFs", downloadable, "success"),
-    ("/downloads?status=DOWNLOADED", "PDFs downloaded", downloaded, "info"),
-    ("/library?status=PAYWALLED", "Paywalled", paywalled, "warning"),
-    ("/downloads?status=FAILED", "Failed downloads", failed, "danger"),
-    ("/library?status=OA_AVAILABLE", "Open access", oa, "secondary")
-  ] %}
-  <div class="col-6 col-md-4 col-xl-2">
-    <a class="stat-card h-100" href="{{ href }}">
+  {% for card in kpis %}
+  <div class="col-6 col-lg-4 col-xl-2">
+    <a class="stat-card h-100" href="{{ card.href }}">
       <div class="card-body">
-        <div class="stat-label">{{ label }}</div>
-        <div class="stat-value tone-{{ tone }}">{{ value }}</div>
+        <div class="stat-label">{{ card.label }}</div>
+        <div class="stat-value tone-{{ card.tone }}">{{ card.value }}</div>
+        <div class="stat-hint">{{ card.hint }}</div>
       </div>
     </a>
   </div>
   {% endfor %}
 </div>
 
-{% if not total %}
-  {{ empty_state("No papers in the library yet", "Run a topic search to collect metadata and open-access PDFs from official academic sources.", "/search", "Search papers") }}
-{% else %}
 <div class="row g-4">
   <div class="col-lg-7">
     <div class="card">
-      <div class="card-header">Papers by year</div>
-      <div class="card-body">
-        {% if years %}
-        {% set maxc = years | map(attribute='count') | max %}
-        {% for row in years %}
-        <div class="d-flex align-items-center mb-2 gap-2">
-          <div class="year-label">{{ row.year }}</div>
-          {{ rank_bar(row.count, maxc) }}
+      <div class="card-header d-flex flex-wrap justify-content-between gap-2 align-items-baseline">
+        <div>
+          <div>Papers by year</div>
+          <div class="card-sub">
+            {% if year_chart %}
+            {{ year_chart[0].year }}–{{ year_chart[-1].year }}{% if years|length > year_chart|length %} · last {{ year_chart|length }} of {{ years|length }} years{% endif %}
+            {% else %}
+            No dated papers
+            {% endif %}
+          </div>
         </div>
-        {% endfor %}
+        <a class="paper-meta mb-0" href="/statistics">Full analytics</a>
+      </div>
+      <div class="card-body">
+        {% if year_chart %}
+        <div class="year-chart" role="img" aria-label="Papers published by year">
+          {% for row in year_chart %}
+          <a class="year-col" href="/library?q={{ row.year }}" title="{{ row.year }}: {{ row.count }} papers">
+            <span class="year-col-count">{{ row.count }}</span>
+            <div class="year-col-bar" style="height: {{ row.bar }}%"></div>
+            <span class="year-col-label">{{ row.yy }}</span>
+          </a>
+          {% endfor %}
+        </div>
+        {% if no_year %}
+        <p class="paper-meta mb-0 mt-3">{{ no_year }} paper{{ 's' if no_year != 1 else '' }} have no publication year.</p>
+        {% endif %}
         {% else %}
         <p class="text-muted mb-0">No publication years recorded.</p>
         {% endif %}
       </div>
     </div>
+
     <div class="card mt-4">
-      <div class="card-header">Top cited papers</div>
-      <ul class="list-group list-group-flush">
-        {% for p in top_cited %}
-        <li class="list-group-item d-flex justify-content-between align-items-start gap-3">
-          <span class="paper-title">{{ p.title }}</span>
-          <span class="badge text-bg-dark">{{ p.citation_count }}</span>
-        </li>
+      <div class="card-header">
+        <div>Access mix</div>
+        <div class="card-sub">Click a status to open the matching library filter.</div>
+      </div>
+      <div class="card-body">
+        {% if statuses %}
+        <div class="status-mix" role="img" aria-label="Library access mix">
+          {% for row in statuses %}
+          <span class="status-mix-seg tone-{{ row.tone }}" style="width: {{ row.pct }}%" title="{{ row.label }} {{ row.count }}"></span>
+          {% endfor %}
+        </div>
+        <ul class="status-breakdown mb-0">
+          {% for row in statuses[:5] %}
+          <li>
+            <a href="/library?status={{ row.code }}">{{ status_badge(row.code) }}</a>
+            <div class="progress rank-bar" role="progressbar" aria-valuenow="{{ row.pct }}">
+              <div class="progress-bar tone-fill-{{ row.tone }}" style="width: {{ row.pct }}%"></div>
+            </div>
+            <div class="rank-meta">
+              <strong>{{ row.count }}</strong>
+              <span>{{ row.pct }}%</span>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
         {% else %}
-        <li class="list-group-item text-muted">No citation data yet.</li>
-        {% endfor %}
-      </ul>
+        <p class="text-muted mb-0">No status data.</p>
+        {% endif %}
+      </div>
     </div>
+
+    {% if top_cited %}
+    <div class="card mt-4">
+      <div class="card-header d-flex justify-content-between align-items-baseline gap-2">
+        <span>Most cited in this library</span>
+        <a class="paper-meta mb-0" href="/statistics">See more</a>
+      </div>
+      <ol class="cited-list">
+        {% for paper in top_cited %}
+        <li>
+          <span class="rank-index">{{ "%02d"|format(loop.index) }}</span>
+          <div>
+            <a class="paper-title dash-cited-title" href="/library?q={{ (paper.doi or paper.title)|urlencode }}">{{ paper.title }}</a>
+            <div class="paper-meta">{{ paper.publication_year or "n.d." }}{% if paper.journal %} · {{ paper.journal }}{% endif %}</div>
+          </div>
+          <span class="cite-count">{{ paper.citation_count }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+    </div>
+    {% endif %}
   </div>
+
   <div class="col-lg-5">
     <div class="card">
-      <div class="card-header">Recent topics</div>
+      <div class="card-header">Continue</div>
+      <div class="card-body shortcut-grid">
+        <a class="shortcut-link" href="/search">
+          <div>
+            <strong>New search</strong>
+            <span>Query official academic APIs</span>
+          </div>
+          <span class="shortcut-go" aria-hidden="true">→</span>
+        </a>
+        <a class="shortcut-link" href="/library?pdf=1">
+          <div>
+            <strong>Downloadable PDFs</strong>
+            <span>{{ downloadable }} papers with a legal copy</span>
+          </div>
+          <span class="shortcut-go" aria-hidden="true">→</span>
+        </a>
+        <a class="shortcut-link" href="/downloads?status=FAILED">
+          <div>
+            <strong>Failed downloads</strong>
+            <span>{{ failed }} to review or retry</span>
+          </div>
+          <span class="shortcut-go" aria-hidden="true">→</span>
+        </a>
+        {% if latest_search %}
+        <a class="shortcut-link" href="/library?latest=1">
+          <div>
+            <strong>Latest search</strong>
+            <span>{{ latest_search.original_query }}</span>
+          </div>
+          <span class="shortcut-go" aria-hidden="true">→</span>
+        </a>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mt-4">
+      <div class="card-header">
+        <div>Recent searches</div>
+        <div class="card-sub">Open matching papers in the library</div>
+      </div>
       <ul class="list-group list-group-flush">
-        {% for topic, count in topics %}
-        <li class="list-group-item d-flex justify-content-between gap-3">
-          <a href="/library?q={{ topic|urlencode }}">{{ topic }}</a>
-          <span class="status-badge status-primary">{{ count }}</span>
+        {% for row in recent %}
+        <li class="list-group-item d-flex justify-content-between gap-3 align-items-center">
+          <div class="min-w-0">
+            <a class="rank-name" href="/library?q={{ row.original_query|urlencode }}">{{ row.original_query }}</a>
+            {% if row.created_at %}<div class="paper-meta mb-0">{{ row.created_at|localdt }}</div>{% endif %}
+          </div>
+          <span class="status-badge status-{{ 'success' if row.status == 'completed' else 'primary' }}">{{ row.status }}</span>
         </li>
         {% else %}
         <li class="list-group-item text-muted">No saved searches.</li>
         {% endfor %}
       </ul>
     </div>
+
+    {% if topics %}
     <div class="card mt-4">
-      <div class="card-header">Top publishers</div>
-      <ul class="list-group list-group-flush">
-        {% for name, count in publishers %}
-        <li class="list-group-item d-flex justify-content-between"><span>{{ name }}</span><span class="rank-count">{{ count }}</span></li>
-        {% else %}
-        <li class="list-group-item text-muted">No publisher data.</li>
-        {% endfor %}
-      </ul>
+      <div class="card-header">Frequent topics</div>
+      <div class="card-body">
+        <div class="chip-row">
+          {% for row in topics %}
+          <a class="chip" href="/library?q={{ row.name|urlencode }}">{{ row.name }} · {{ row.count }}</a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card mt-4">
+      <div class="card-header">
+        <div>Top journals</div>
+        <div class="card-sub">Share of the current library</div>
+      </div>
+      <div class="card-body">{{ ranked_list(journals, "No journal data.", "q") }}</div>
+    </div>
+
+    <div class="card mt-4">
+      <div class="card-header">
+        <div>Top publishers</div>
+        <div class="card-sub">As reported by academic APIs</div>
+      </div>
+      <div class="card-body">{{ ranked_list(publishers, "No publisher data.", "q") }}</div>
     </div>
   </div>
 </div>

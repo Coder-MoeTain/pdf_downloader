@@ -4,6 +4,46 @@ from app.services.download_service import safe_library_pdf
 from app.services.progress import ProgressTracker
 
 
+def test_search_logs_and_nested_download():
+    tracker = ProgressTracker()
+    tracker.start_search("machine learning IDS")
+    snap = tracker.snapshot()
+    assert snap["active"] is True
+    assert snap["kind"] == "search"
+    assert snap["phase"] == "starting"
+    assert snap["logs"]
+    tracker.set_providers_total(2)
+    tracker.set_phase("searching", "Querying 2 academic sources…", percent=8)
+    tracker.provider_finished("OpenAlex", 12)
+    tracker.provider_finished("arXiv", 4)
+    searching = tracker.snapshot()
+    assert searching["providers_done"] == 2
+    assert any("OpenAlex: 12 results" in entry["message"] for entry in searching["logs"])
+
+    tracker.start_batch(1, "Downloading open-access PDFs")
+    nested = tracker.snapshot()
+    assert nested["kind"] == "search"
+    assert nested["active"] is True
+    assert nested["phase"] == "downloading"
+    assert nested["percent"] == 82
+    assert any("Queued search" in entry["message"] for entry in nested["logs"])
+    tracker.begin_item(1, "A paper", 1)
+    tracker.update_bytes(50, 100)
+    bytes_snap = tracker.snapshot()
+    assert 82 <= bytes_snap["percent"] <= 96
+    tracker.finish_item("DOWNLOADED")
+    tracker.finish_batch()
+    after_pdfs = tracker.snapshot()
+    assert after_pdfs["active"] is True
+    assert after_pdfs["kind"] == "search"
+    tracker.finish_search(stats={"unique_papers": 3, "pdfs_downloaded": 1})
+    done = tracker.snapshot()
+    assert done["active"] is False
+    assert done["phase"] == "done"
+    assert done["percent"] == 100
+    assert done["stats"]["unique_papers"] == 3
+
+
 def test_progress_percent_and_batch():
     tracker = ProgressTracker()
     tracker.start_batch(2, "Downloading")

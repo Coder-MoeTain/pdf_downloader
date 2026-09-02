@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.config import AppConfig, load_config
+from app.config import AppConfig, get_runtime_config, load_config
 from app.providers.arxiv import ArxivProvider
 from app.providers.base import ResearchProvider
 from app.providers.core import CoreProvider
@@ -34,7 +34,7 @@ PROVIDER_CLASSES: list[type[ResearchProvider]] = [
 
 
 def build_providers(client: AsyncHttpClient, config: AppConfig | None = None) -> list[ResearchProvider]:
-    cfg = config or load_config()
+    cfg = config or get_runtime_config()
     providers: list[ResearchProvider] = []
     for cls in PROVIDER_CLASSES:
         pcfg = cfg.providers.get(cls.name)
@@ -47,7 +47,7 @@ def build_providers(client: AsyncHttpClient, config: AppConfig | None = None) ->
 
 
 def provider_status(config: AppConfig | None = None) -> list[dict[str, object]]:
-    cfg = config or load_config()
+    cfg = config or get_runtime_config()
     rows = []
     dummy = None
     for cls in PROVIDER_CLASSES:

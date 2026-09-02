@@ -6,9 +6,16 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+from datetime import datetime, timezone
+
 from app.config import ROOT_DIR, load_config
+from app.utils.time import zone_info
 
 _CONFIGURED = False
+
+
+def _local_time_tuple(timestamp: float):
+    return datetime.fromtimestamp(timestamp, timezone.utc).astimezone(zone_info()).timetuple()
 
 
 def setup_logging(logs_dir: Path | None = None) -> None:
@@ -24,6 +31,7 @@ def setup_logging(logs_dir: Path | None = None) -> None:
         "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    formatter.converter = _local_time_tuple
 
     root = logging.getLogger("app")
     root.setLevel(logging.INFO)
