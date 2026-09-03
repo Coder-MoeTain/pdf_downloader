@@ -124,29 +124,24 @@
   </div>
 </div>
 <div class="modal fade" id="pdfPreviewModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-fullscreen-lg-down modal-xl pdf-modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-lg-down modal-xl pdf-modal-dialog">
     <div class="modal-content pdf-modal-content">
       <div class="modal-header">
         <h2 class="modal-title h5 text-truncate" id="pdfPreviewTitle">PDF preview</h2>
         <div class="d-flex align-items-center gap-2">
-          <div class="pdf-toolbar" role="group" aria-label="PDF page controls">
-            <button class="btn btn-sm btn-outline-secondary" type="button" id="pdfPrevPage">Previous</button>
-            <span class="small text-muted" id="pdfPageInfo">–</span>
-            <button class="btn btn-sm btn-outline-secondary" type="button" id="pdfNextPage">Next</button>
-          </div>
+          <span class="small text-muted" id="pdfPageHint">Scroll to view all pages</span>
           <a class="btn btn-sm btn-primary" id="pdfDownloadLink" href="#" hidden>Download</a>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close preview"></button>
         </div>
       </div>
       <div class="modal-body p-0 pdf-modal-body">
-        <div id="pdfViewerStatus" class="pdf-viewer-status">Loading PDF…</div>
-        <div id="pdfCanvasWrap" class="pdf-canvas-wrap" hidden></div>
+        <div id="pdfViewerStatus" class="pdf-viewer-status" hidden>Loading PDF…</div>
+        <iframe id="pdfPreviewFrame" class="pdf-preview-frame" title="PDF preview"></iframe>
       </div>
     </div>
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="/static/app.js?v={{ version }}"></script>
 {% block extra_js %}{% endblock %}
 </body>
