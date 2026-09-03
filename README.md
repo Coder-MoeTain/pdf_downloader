@@ -270,6 +270,14 @@ Pages: **Dashboard**, **Search**, **Library**, **Downloads**, **Sources**, **Sta
 
 Open [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login) to create the first **admin** account (email and password). After that, every visitor must log in. **User** accounts can search and use the library; **admin** accounts also open Sources, Settings, and User settings people/roles. Signed-in accounts see **User settings** and **Log out** in the header. Google sign-in is optional when `GOOGLE_CLIENT_ID` is set.
 
+On a server you can seed the default admin instead:
+
+```bash
+python main.py seed-admin
+```
+
+Default login is `admin@localhost` / `Admin@123`. Override with `--email`, `--password`, `--name`, or `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_NAME` in `.env`. Use `--reset-password` if the account already exists.
+
 ## Database
 
 SQLite file: `data/research.db`

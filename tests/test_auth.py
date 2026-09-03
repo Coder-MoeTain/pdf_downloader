@@ -176,3 +176,39 @@ def test_local_admin_login_logout_and_user_settings(tmp_db):
     assert 'href="/sources"' not in home.text
     assert client.get("/settings", follow_redirects=False).status_code == 302
     assert client.get("/account").status_code == 200
+
+
+def test_seed_admin_creates_default_account(tmp_db):
+    from app.auth import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD, authenticate_local, seed_admin_account
+
+    result = seed_admin_account()
+    assert result["status"] == "created"
+    assert result["email"] == DEFAULT_ADMIN_EMAIL
+    with session_scope() as session:
+        row = authenticate_local(session, DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD)
+        assert row is not None
+        assert row.role == "admin"
+        assert row.is_admin is True
+    again = seed_admin_account()
+    assert again["status"] == "exists"
+    with session_scope() as session:
+        assert session.scalar(select(func.count(User.id))) == 1
+
+
+def test_seed_admin_reset_password(tmp_db):
+    from app.auth import authenticate_local, seed_admin_account
+
+    seed_admin_account(email="ops@lab.test", password="secret123", name="Ops")
+    updated = seed_admin_account(
+        email="ops@lab.test",
+        password="newpass123",
+        name="Ops Admin",
+        reset_password=True,
+    )
+    assert updated["status"] == "updated"
+    with session_scope() as session:
+        assert authenticate_local(session, "ops@lab.test", "secret123") is None
+        row = authenticate_local(session, "ops@lab.test", "newpass123")
+        assert row is not None
+        assert row.name == "Ops Admin"
+        assert row.role == "admin"

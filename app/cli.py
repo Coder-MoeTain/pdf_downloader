@@ -239,6 +239,35 @@ def fulltext_search_cmd(query: str = typer.Argument(...)) -> None:
         console.print()
 
 
+@app.command("seed-admin")
+def seed_admin(
+    email: Optional[str] = typer.Option(None, "--email", help="Admin email (or ADMIN_EMAIL)"),
+    password: Optional[str] = typer.Option(None, "--password", help="Admin password (or ADMIN_PASSWORD)"),
+    name: Optional[str] = typer.Option(None, "--name", help="Display name (or ADMIN_NAME)"),
+    reset_password: bool = typer.Option(False, "--reset-password", help="Reset the password if the account already exists"),
+) -> None:
+    """Create the local admin account if it is missing."""
+    from app.auth import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD, seed_admin_account
+
+    try:
+        result = seed_admin_account(email=email, password=password, name=name, reset_password=reset_password)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+
+    account_email = result["email"]
+    if result["status"] == "created":
+        console.print(f"[green]Created admin[/] {account_email}")
+        if not email and not password:
+            console.print(f"[dim]Default login:[/] {DEFAULT_ADMIN_EMAIL}  /  {DEFAULT_ADMIN_PASSWORD}")
+            console.print("[yellow]Change this password after the first sign-in.[/]")
+    elif result["status"] == "updated":
+        console.print(f"[green]Updated admin[/] {account_email}")
+    else:
+        console.print(f"[dim]Admin already exists:[/] {account_email}")
+        console.print("Use [bold]--reset-password[/] to set a new password.")
+
+
 @app.command("update-library")
 def update_library() -> None:
     """Search saved topics from config.yaml and skip papers already stored."""

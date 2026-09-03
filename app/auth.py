@@ -20,6 +20,9 @@ ADMIN_PREFIXES = ("/sources", "/settings", "/api/sources", "/account/users")
 ROLE_USER = "user"
 ROLE_ADMIN = "admin"
 PASSWORD_MIN_LENGTH = 8
+DEFAULT_ADMIN_EMAIL = "admin@localhost"
+DEFAULT_ADMIN_PASSWORD = "Admin@123"
+DEFAULT_ADMIN_NAME = "Administrator"
 _PBKDF2_ITERATIONS = 120_000
 
 _oauth = None
@@ -248,6 +251,48 @@ def create_local_user(
     session.add(row)
     session.flush()
     return row
+
+
+def seed_admin_account(
+    email: str | None = None,
+    password: str | None = None,
+    name: str | None = None,
+    *,
+    reset_password: bool = False,
+) -> dict[str, Any]:
+    """Create the local admin if missing. Idempotent unless reset_password is set."""
+    from app.database.connection import session_scope
+
+    cfg = get_runtime_config()
+    email = (email or cfg.env.admin_email or DEFAULT_ADMIN_EMAIL).strip().lower()
+    password = password or cfg.env.admin_password or DEFAULT_ADMIN_PASSWORD
+    name = (name or cfg.env.admin_name or DEFAULT_ADMIN_NAME).strip() or DEFAULT_ADMIN_NAME
+    if not email or "@" not in email:
+        raise ValueError("Enter a valid email address.")
+    if len(password) < PASSWORD_MIN_LENGTH:
+        raise ValueError(f"Password must be at least {PASSWORD_MIN_LENGTH} characters.")
+
+    with session_scope() as session:
+        row = session.scalar(select(User).where(func.lower(User.email) == email))
+        if row is None:
+            row = create_local_user(session, email=email, password=password, name=name, role=ROLE_ADMIN)
+            apply_role(row, ROLE_ADMIN)
+            return {"status": "created", "email": row.email, "name": row.name}
+
+        changed = False
+        if row.role != ROLE_ADMIN or not row.is_admin:
+            apply_role(row, ROLE_ADMIN)
+            changed = True
+        if name and row.name != name:
+            row.name = name
+            changed = True
+        if reset_password or not row.password_hash:
+            row.password_hash = hash_password(password)
+            changed = True
+        if not changed:
+            return {"status": "exists", "email": row.email, "name": row.name}
+        session.flush()
+        return {"status": "updated", "email": row.email, "name": row.name}
 
 
 def authenticate_local(session: Session, email: str, password: str) -> User | None:

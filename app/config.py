@@ -47,6 +47,9 @@ class EnvSettings(BaseSettings):
     google_client_secret: str = ""
     google_admin_emails: str = ""
     session_secret: str = "change-me-in-production-please-use-a-long-random-string"
+    admin_email: str = ""
+    admin_password: str = ""
+    admin_name: str = ""
 
     @property
     def polite_email(self) -> str:
