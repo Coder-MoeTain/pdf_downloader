@@ -97,3 +97,54 @@ def test_rating_api_and_downloadable_page(tmp_db):
     empty = client.get("/library?min_rating=5&status=PAYWALLED")
     assert empty.status_code == 200
     assert "Nothing matches this filter" in empty.text
+
+
+def test_hide_paywalled_filters_library_unless_explicit(tmp_db):
+    from app.database.repository import upsert_download
+    from app.database.settings_repository import save_workspace_settings
+
+    with session_scope() as session:
+        open_paper = save_paper(
+            session,
+            PaperRecord(title="Open visible paper", doi="10.1000/open-visible", status=PaperStatus.OA_AVAILABLE),
+        )
+        closed = save_paper(
+            session,
+            PaperRecord(title="Closed paywalled paper", doi="10.1000/closed-hidden", status=PaperStatus.PAYWALLED),
+        )
+        upsert_download(session, open_paper.id, pdf_url="https://arxiv.org/pdf/1.pdf", status=PaperStatus.OA_AVAILABLE.value)
+        upsert_download(session, closed.id, pdf_url=None, status=PaperStatus.PAYWALLED.value)
+    save_workspace_settings(
+        {
+            "contact_email": "lab@university.edu",
+            "library_dir": "research_library",
+            "timezone": "UTC",
+            "check_robots_txt": True,
+            "prefer_https": True,
+            "show_paywalled": False,
+        }
+    )
+    client = TestClient(app)
+    library = client.get("/library")
+    assert library.status_code == 200
+    assert "Open visible paper" in library.text
+    assert "Closed paywalled paper" not in library.text
+    assert "Paywalled papers are hidden" in library.text
+    explicit = client.get("/library?status=PAYWALLED")
+    assert explicit.status_code == 200
+    assert "Closed paywalled paper" in explicit.text
+    downloads = client.get("/downloads")
+    assert downloads.status_code == 200
+    assert "Open visible paper" in downloads.text
+    assert "Closed paywalled paper" not in downloads.text
+    assert "Paywalled papers are hidden" in downloads.text
+    assert "/downloads?status=PAYWALLED" not in downloads.text
+    paywalled_downloads = client.get("/downloads?status=PAYWALLED")
+    assert paywalled_downloads.status_code == 200
+    assert "Closed paywalled paper" in paywalled_downloads.text
+    home = client.get("/")
+    assert home.status_code == 200
+    settings = client.get("/settings?section=workspace")
+    assert settings.status_code == 200
+    assert "Show paywalled papers" in settings.text
+    assert 'name="show_paywalled"' in settings.text

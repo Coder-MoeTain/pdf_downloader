@@ -19,6 +19,8 @@ def test_settings_store_seeds_builtin_sources(tmp_db):
     slugs = {row.slug for row in rows}
     assert "openalex" in slugs
     assert "crossref" in slugs
+    assert "nasa_ntrs" in slugs
+    assert "nasa_ads" in slugs
     assert store_status().connected is True
     assert store_status().backend == "sqlite"
 
@@ -88,6 +90,24 @@ def test_workspace_settings_overlay(tmp_db):
     assert Path(cfg.library_dir).as_posix().endswith("custom_library")
     assert cfg.check_robots_txt is False
     assert cfg.timezone == "Asia/Yangon"
+    assert cfg.show_paywalled is True
+    load_config.cache_clear()
+
+
+def test_hide_paywalled_workspace_setting(tmp_db):
+    save_workspace_settings(
+        {
+            "contact_email": "lab@university.edu",
+            "unpaywall_email": "oa@university.edu",
+            "library_dir": "custom_library",
+            "check_robots_txt": True,
+            "prefer_https": True,
+            "timezone": "UTC",
+            "show_paywalled": False,
+        }
+    )
+    cfg = get_runtime_config()
+    assert cfg.show_paywalled is False
     load_config.cache_clear()
 
 

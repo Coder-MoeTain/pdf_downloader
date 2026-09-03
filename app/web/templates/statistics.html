@@ -15,7 +15,7 @@
   </div>
 </div>
 
-{% if not total %}
+{% if not stored_total %}
   {{ empty_state("No statistics yet", "Search a topic first. Coverage charts and rankings appear after papers are stored.", "/search", "Start a search") }}
 {% else %}
 {% if insights %}

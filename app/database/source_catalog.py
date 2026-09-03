@@ -135,6 +135,17 @@ BUILTIN_SOURCES: list[dict[str, object]] = [
         "api_key_env": "NASA_ADS_TOKEN",
         "sort_order": 120,
     },
+    {
+        "slug": "nasa_ntrs",
+        "display_name": "NASA NTRS",
+        "description": "NASA Scientific and Technical Information repository. Public API, no key required.",
+        "homepage_url": "https://ntrs.nasa.gov",
+        "api_base_url": "https://ntrs.nasa.gov/api/citations/search",
+        "docs_url": "https://sti.nasa.gov/harvesting-data-from-ntrs/",
+        "requires_key": False,
+        "api_key_env": None,
+        "sort_order": 130,
+    },
 ]
 
 SOURCE_KEY_FIELDS: dict[str, str] = {

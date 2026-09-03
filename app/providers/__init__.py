@@ -8,7 +8,14 @@ from app.providers.base import ResearchProvider
 from app.providers.core import CoreProvider
 from app.providers.crossref import CrossrefProvider
 from app.providers.europe_pmc import EuropePMCProvider
-from app.providers.extra import DoajProvider, ElsevierProvider, IeeeProvider, NasaAdsProvider, SpringerProvider
+from app.providers.extra import (
+    DoajProvider,
+    ElsevierProvider,
+    IeeeProvider,
+    NasaAdsProvider,
+    NasaNtrsProvider,
+    SpringerProvider,
+)
 from app.providers.openalex import OpenAlexProvider
 from app.providers.pubmed import PubMedProvider
 from app.providers.semantic_scholar import SemanticScholarProvider
@@ -30,6 +37,7 @@ PROVIDER_CLASSES: list[type[ResearchProvider]] = [
     SpringerProvider,
     ElsevierProvider,
     NasaAdsProvider,
+    NasaNtrsProvider,
 ]
 
 

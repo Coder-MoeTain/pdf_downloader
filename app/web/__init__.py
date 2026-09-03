@@ -8,14 +8,34 @@ from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import selectinload
 
 from app import __app_name__, __version__
+from app.auth import (
+    current_user,
+    get_oauth,
+    google_login_enabled,
+    is_admin_path,
+    is_public_path,
+    safe_next_path,
+    session_secret,
+    upsert_google_user,
+    user_is_admin,
+    user_to_session,
+)
 from app.config import ROOT_DIR, get_runtime_config
 from app.database.connection import init_db, session_scope
 from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuery, SearchResult
-from app.database.repository import apply_paper_filters, downloadable_clause, library_search, set_paper_rating
+from app.database.repository import (
+    apply_paper_filters,
+    downloadable_clause,
+    library_search,
+    set_paper_rating,
+    visible_download_clauses,
+    visible_paper_clauses,
+)
 from app.database.settings_repository import (
     SettingsError,
     create_academic_source,
@@ -60,10 +80,98 @@ app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="stati
 _search_message = {"text": "", "level": "info"}
 
 
+@app.middleware("http")
+async def _auth_gate(request: Request, call_next):
+    path = request.url.path
+    if is_public_path(path) or not google_login_enabled():
+        return await call_next(request)
+    user = current_user(request)
+    if user is None:
+        if path.startswith("/api/"):
+            return JSONResponse({"ok": False, "error": "Sign in required"}, status_code=401)
+        nxt = path
+        if request.url.query:
+            nxt = f"{path}?{request.url.query}"
+        return RedirectResponse(f"/login?next={nxt}", status_code=302)
+    if is_admin_path(path) and not user.get("is_admin"):
+        if path.startswith("/api/"):
+            return JSONResponse({"ok": False, "error": "Admin access required"}, status_code=403)
+        _search_message["text"] = "Sources and Settings are limited to admin accounts."
+        _search_message["level"] = "warning"
+        return RedirectResponse("/", status_code=302)
+    return await call_next(request)
+
+
+app.add_middleware(SessionMiddleware, secret_key=session_secret(), same_site="lax", https_only=False)
+
+
 @app.on_event("startup")
 def _startup() -> None:
     setup_logging()
     init_db()
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, next: str = "/"):
+    if current_user(request):
+        return RedirectResponse(safe_next_path(next), status_code=302)
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        _ctx(request, next_url=safe_next_path(next), google_ready=google_login_enabled()),
+    )
+
+
+@app.get("/auth/google")
+async def auth_google(request: Request, next: str = "/"):
+    if not google_login_enabled():
+        _search_message["text"] = "Google sign-in is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env."
+        _search_message["level"] = "warning"
+        return RedirectResponse("/login", status_code=302)
+    request.session["oauth_next"] = safe_next_path(next)
+    redirect_uri = str(request.url_for("auth_google_callback"))
+    return await get_oauth().google.authorize_redirect(request, redirect_uri)
+
+
+@app.get("/auth/google/callback", name="auth_google_callback")
+async def auth_google_callback(request: Request):
+    nxt = safe_next_path(request.session.pop("oauth_next", "/"))
+    try:
+        token = await get_oauth().google.authorize_access_token(request)
+    except Exception:
+        _search_message["text"] = "Google sign-in failed. Try again."
+        _search_message["level"] = "danger"
+        return RedirectResponse("/login", status_code=302)
+    info = token.get("userinfo") or {}
+    email = str(info.get("email") or "").strip().lower()
+    google_id = str(info.get("sub") or "").strip()
+    if not email or not google_id:
+        _search_message["text"] = "Google did not return an email address for this account."
+        _search_message["level"] = "danger"
+        return RedirectResponse("/login", status_code=302)
+    with session_scope() as session:
+        row = upsert_google_user(
+            session,
+            google_id=google_id,
+            email=email,
+            name=str(info.get("name") or ""),
+            picture=str(info.get("picture") or "") or None,
+        )
+        request.session["user"] = user_to_session(row)
+        is_admin = bool(row.is_admin)
+    if is_admin_path(nxt) and not is_admin:
+        nxt = "/"
+    _search_message["text"] = f"Signed in as {email}."
+    _search_message["level"] = "success"
+    return RedirectResponse(nxt, status_code=302)
+
+
+@app.get("/logout")
+def logout(request: Request):
+    request.session.clear()
+    _search_message["text"] = "Signed out."
+    _search_message["level"] = "info"
+    return RedirectResponse("/login" if google_login_enabled() else "/", status_code=302)
 
 
 def _ctx(request: Request, **extra):
@@ -78,6 +186,10 @@ def _ctx(request: Request, **extra):
         "timezone": cfg.timezone,
         "timezone_abbrev": timezone_abbrev(cfg.timezone),
         "timezone_offset": timezone_offset_label(cfg.timezone),
+        "show_paywalled": cfg.show_paywalled,
+        "user": current_user(request),
+        "is_admin": user_is_admin(request),
+        "auth_enabled": google_login_enabled(),
     }
     payload.update(extra)
     payload["page"] = active_page(request.url.path)
@@ -86,40 +198,47 @@ def _ctx(request: Request, **extra):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
+    visible = visible_paper_clauses()
     with session_scope() as session:
-        total = session.scalar(select(func.count(Paper.id))) or 0
-        oa = session.scalar(select(func.count(Paper.id)).where(Paper.open_access.is_(True))) or 0
-        downloadable = session.scalar(select(func.count(Paper.id)).where(downloadable_clause())) or 0
+        stored_total = session.scalar(select(func.count(Paper.id))) or 0
+        total = session.scalar(select(func.count(Paper.id)).where(*visible)) or 0
+        oa = session.scalar(select(func.count(Paper.id)).where(Paper.open_access.is_(True), *visible)) or 0
+        downloadable = session.scalar(select(func.count(Paper.id)).where(downloadable_clause(), *visible)) or 0
         downloaded = session.scalar(select(func.count(Download.id)).where(Download.status == "DOWNLOADED")) or 0
         paywalled = session.scalar(select(func.count(Paper.id)).where(Paper.status == "PAYWALLED")) or 0
         failed = session.scalar(select(func.count(Download.id)).where(Download.status == "FAILED")) or 0
         searches = session.scalar(select(func.count(SearchQuery.id))) or 0
-        no_year = session.scalar(select(func.count(Paper.id)).where(Paper.publication_year.is_(None))) or 0
+        no_year = session.scalar(
+            select(func.count(Paper.id)).where(Paper.publication_year.is_(None), *visible)
+        ) or 0
         years = session.execute(
             select(Paper.publication_year, func.count(Paper.id))
-            .where(Paper.publication_year.is_not(None))
+            .where(Paper.publication_year.is_not(None), *visible)
             .group_by(Paper.publication_year)
             .order_by(Paper.publication_year)
         ).all()
         publishers = session.execute(
             select(Paper.publisher, func.count(Paper.id))
-            .where(Paper.publisher.is_not(None), Paper.publisher != "")
+            .where(Paper.publisher.is_not(None), Paper.publisher != "", *visible)
             .group_by(Paper.publisher)
             .order_by(func.count(Paper.id).desc())
             .limit(6)
         ).all()
         journals = session.execute(
             select(Paper.journal, func.count(Paper.id))
-            .where(Paper.journal.is_not(None), Paper.journal != "")
+            .where(Paper.journal.is_not(None), Paper.journal != "", *visible)
             .group_by(Paper.journal)
             .order_by(func.count(Paper.id).desc())
             .limit(6)
         ).all()
         status_rows = session.execute(
-            select(Paper.status, func.count(Paper.id)).group_by(Paper.status)
+            select(Paper.status, func.count(Paper.id)).where(*visible).group_by(Paper.status)
         ).all()
         top_cited = session.scalars(
-            select(Paper).where(Paper.citation_count.is_not(None)).order_by(Paper.citation_count.desc()).limit(6)
+            select(Paper)
+            .where(Paper.citation_count.is_not(None), *visible)
+            .order_by(Paper.citation_count.desc())
+            .limit(6)
         ).all()
         recent = session.scalars(select(SearchQuery).order_by(SearchQuery.created_at.desc()).limit(6)).all()
         topics = session.execute(
@@ -154,7 +273,7 @@ def dashboard(request: Request):
         {"href": "/library", "label": "Papers in library", "value": total, "tone": "primary", "hint": f"{searches} search{'es' if searches != 1 else ''} run"},
         {"href": "/library?pdf=1", "label": "Downloadable PDFs", "value": downloadable, "tone": "success", "hint": f"{share(downloadable, total)}% of library"},
         {"href": "/downloads?status=DOWNLOADED", "label": "Downloaded", "value": downloaded, "tone": "info", "hint": "Saved to disk"},
-        {"href": "/library?status=PAYWALLED", "label": "Paywalled", "value": paywalled, "tone": "warning", "hint": f"{share(paywalled, total)}% of library"},
+        {"href": "/library?status=PAYWALLED", "label": "Paywalled", "value": paywalled, "tone": "warning", "hint": f"{share(paywalled, stored_total)}% of library"},
         {"href": "/downloads?status=FAILED", "label": "Failed downloads", "value": failed, "tone": "danger", "hint": "Retry from Downloads"},
         {"href": "/library?status=OA_AVAILABLE", "label": "Open access", "value": oa, "tone": "secondary", "hint": f"{share(oa, total)}% of library"},
     ]
@@ -165,7 +284,8 @@ def dashboard(request: Request):
         insights.append(f"Peak year {peak['year']} ({peak['count']})")
     if total:
         insights.append(f"{share(downloadable, total)}% legally downloadable")
-        insights.append(f"{share(paywalled, total)}% paywalled")
+        if get_runtime_config().show_paywalled:
+            insights.append(f"{share(paywalled, stored_total)}% paywalled")
     insights.append(f"{len(available)} academic sources ready")
     store = store_status()
     return templates.TemplateResponse(
@@ -191,6 +311,7 @@ def dashboard(request: Request):
             searches=searches,
             downloadable=downloadable,
             failed=failed,
+            stored_total=stored_total,
         ),
     )
 
@@ -457,17 +578,22 @@ def downloads_page(request: Request, status: str = ""):
         else_=3,
     )
     with session_scope() as session:
+        hide = visible_download_clauses(status=status)
         stmt = (
             select(Download)
+            .join(Paper, Download.paper_id == Paper.id)
             .options(selectinload(Download.paper))
             .order_by(status_order, Download.id.desc())
         )
         if status:
             stmt = stmt.where(Download.status == status)
+        for clause in hide:
+            stmt = stmt.where(clause)
         rows = session.scalars(stmt.limit(200)).all()
-        counts = dict(
-            session.execute(select(Download.status, func.count(Download.id)).group_by(Download.status)).all()
-        )
+        count_stmt = select(Download.status, func.count(Download.id)).join(Paper, Download.paper_id == Paper.id)
+        for clause in hide:
+            count_stmt = count_stmt.where(clause)
+        counts = dict(session.execute(count_stmt.group_by(Download.status)).all())
     return templates.TemplateResponse(
         request,
         "downloads.html",
@@ -555,6 +681,7 @@ def settings_save_workspace(
     timezone: str = Form("UTC"),
     check_robots_txt: str | None = Form(None),
     prefer_https: str | None = Form(None),
+    show_paywalled: str | None = Form(None),
 ):
     try:
         save_workspace_settings(
@@ -565,6 +692,7 @@ def settings_save_workspace(
                 "timezone": timezone,
                 "check_robots_txt": _form_bool(check_robots_txt),
                 "prefer_https": _form_bool(prefer_https),
+                "show_paywalled": _form_bool(show_paywalled),
             }
         )
         return _settings_redirect("workspace", "Workspace settings saved to MySQL.")
@@ -729,40 +857,46 @@ def _named_counts(rows, total: int) -> list[dict]:
 @app.get("/statistics", response_class=HTMLResponse)
 def statistics_page(request: Request):
     source_names = {str(item["slug"]): str(item["display_name"]) for item in BUILTIN_SOURCES}
+    visible = visible_paper_clauses()
     with session_scope() as session:
-        total = session.scalar(select(func.count(Paper.id))) or 0
-        oa = session.scalar(select(func.count(Paper.id)).where(Paper.open_access.is_(True))) or 0
-        downloadable = session.scalar(select(func.count(Paper.id)).where(downloadable_clause())) or 0
+        stored_total = session.scalar(select(func.count(Paper.id))) or 0
+        total = session.scalar(select(func.count(Paper.id)).where(*visible)) or 0
+        oa = session.scalar(select(func.count(Paper.id)).where(Paper.open_access.is_(True), *visible)) or 0
+        downloadable = session.scalar(select(func.count(Paper.id)).where(downloadable_clause(), *visible)) or 0
         downloaded = session.scalar(select(func.count(Download.id)).where(Download.status == "DOWNLOADED")) or 0
         paywalled = session.scalar(select(func.count(Paper.id)).where(Paper.status == "PAYWALLED")) or 0
         failed = session.scalar(select(func.count(Download.id)).where(Download.status == "FAILED")) or 0
-        rated = session.scalar(select(func.count(Paper.id)).where(Paper.user_rating.is_not(None))) or 0
+        rated = session.scalar(
+            select(func.count(Paper.id)).where(Paper.user_rating.is_not(None), *visible)
+        ) or 0
         searches = session.scalar(select(func.count(SearchQuery.id))) or 0
         avg_citations = session.scalar(
-            select(func.avg(Paper.citation_count)).where(Paper.citation_count.is_not(None))
+            select(func.avg(Paper.citation_count)).where(Paper.citation_count.is_not(None), *visible)
         )
-        avg_rating = session.scalar(select(func.avg(Paper.user_rating)).where(Paper.user_rating.is_not(None)))
+        avg_rating = session.scalar(
+            select(func.avg(Paper.user_rating)).where(Paper.user_rating.is_not(None), *visible)
+        )
         year_bounds = session.execute(
             select(func.min(Paper.publication_year), func.max(Paper.publication_year)).where(
-                Paper.publication_year.is_not(None)
+                Paper.publication_year.is_not(None), *visible
             )
         ).one()
         years = session.execute(
             select(Paper.publication_year, func.count(Paper.id))
-            .where(Paper.publication_year.is_not(None))
+            .where(Paper.publication_year.is_not(None), *visible)
             .group_by(Paper.publication_year)
             .order_by(Paper.publication_year)
         ).all()
         publishers = session.execute(
             select(Paper.publisher, func.count(Paper.id))
-            .where(Paper.publisher.is_not(None), Paper.publisher != "")
+            .where(Paper.publisher.is_not(None), Paper.publisher != "", *visible)
             .group_by(Paper.publisher)
             .order_by(func.count(Paper.id).desc())
             .limit(10)
         ).all()
         journals = session.execute(
             select(Paper.journal, func.count(Paper.id))
-            .where(Paper.journal.is_not(None), Paper.journal != "")
+            .where(Paper.journal.is_not(None), Paper.journal != "", *visible)
             .group_by(Paper.journal)
             .order_by(func.count(Paper.id).desc())
             .limit(10)
@@ -770,28 +904,33 @@ def statistics_page(request: Request):
         authors = session.execute(
             select(Author.name, func.count(PaperAuthor.id))
             .join(PaperAuthor, PaperAuthor.author_id == Author.id)
+            .join(Paper, Paper.id == PaperAuthor.paper_id)
+            .where(*visible)
             .group_by(Author.name)
             .order_by(func.count(PaperAuthor.id).desc())
             .limit(10)
         ).all()
         sources = session.execute(
             select(Paper.source, func.count(Paper.id))
-            .where(Paper.source.is_not(None), Paper.source != "")
+            .where(Paper.source.is_not(None), Paper.source != "", *visible)
             .group_by(Paper.source)
             .order_by(func.count(Paper.id).desc())
             .limit(10)
         ).all()
         status_rows = session.execute(
-            select(Paper.status, func.count(Paper.id)).group_by(Paper.status)
+            select(Paper.status, func.count(Paper.id)).where(*visible).group_by(Paper.status)
         ).all()
         rating_rows = session.execute(
             select(Paper.user_rating, func.count(Paper.id))
-            .where(Paper.user_rating.is_not(None))
+            .where(Paper.user_rating.is_not(None), *visible)
             .group_by(Paper.user_rating)
             .order_by(Paper.user_rating.desc())
         ).all()
         top_cited = session.scalars(
-            select(Paper).where(Paper.citation_count.is_not(None)).order_by(Paper.citation_count.desc()).limit(8)
+            select(Paper)
+            .where(Paper.citation_count.is_not(None), *visible)
+            .order_by(Paper.citation_count.desc())
+            .limit(8)
         ).all()
         topics = session.execute(
             select(SearchQuery.original_query, func.count(SearchQuery.id))
@@ -831,10 +970,10 @@ def statistics_page(request: Request):
         if slug
     ]
     kpis = [
-        {"href": "/library", "label": "Papers in library", "value": total, "tone": "primary", "hint": "All stored records"},
+        {"href": "/library", "label": "Papers in library", "value": total, "tone": "primary", "hint": "All stored records" if get_runtime_config().show_paywalled else "Visible records"},
         {"href": "/library?pdf=1", "label": "Downloadable PDFs", "value": downloadable, "tone": "success", "hint": f"{share(downloadable, total)}% of library"},
         {"href": "/downloads?status=DOWNLOADED", "label": "Downloaded", "value": downloaded, "tone": "info", "hint": "Saved to disk"},
-        {"href": "/library?status=PAYWALLED", "label": "Paywalled", "value": paywalled, "tone": "warning", "hint": f"{share(paywalled, total)}% of library"},
+        {"href": "/library?status=PAYWALLED", "label": "Paywalled", "value": paywalled, "tone": "warning", "hint": f"{share(paywalled, stored_total)}% of library"},
         {"href": "/library?status=OA_AVAILABLE", "label": "Open access", "value": oa, "tone": "secondary", "hint": f"{share(oa, total)}% of library"},
         {"href": "/library?min_rating=1", "label": "Rated papers", "value": rated, "tone": "primary", "hint": f"Avg {avg_rating:.1f}" if avg_rating else "No ratings yet"},
     ]
@@ -844,7 +983,8 @@ def statistics_page(request: Request):
     if peak:
         insights.append(f"Peak year {peak['year']} · {peak['count']} papers")
     if total:
-        insights.append(f"{share(paywalled, total)}% paywalled")
+        if get_runtime_config().show_paywalled:
+            insights.append(f"{share(paywalled, stored_total)}% paywalled")
         insights.append(f"{share(downloadable, total)}% have a legal PDF")
     if avg_citations:
         insights.append(f"Avg citations {avg_citations:.0f}")
@@ -856,6 +996,7 @@ def statistics_page(request: Request):
         _ctx(
             request,
             total=total,
+            stored_total=stored_total,
             failed=failed,
             avg_citations=avg_citations,
             year_span=year_bounds,

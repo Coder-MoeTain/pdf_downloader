@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.config import AppConfig, get_runtime_config
 from app.database.models import Paper
-from app.database.repository import upsert_download
+from app.database.repository import find_downloaded_by_sha256, upsert_download
 from app.models.paper import PaperRecord, PaperStatus
 from app.utils.filename import paper_filename, safe_join, slugify
 from app.utils.http import AsyncHttpClient
@@ -64,6 +64,9 @@ class DownloadService:
         if dest.exists() and dest.stat().st_size >= self.config.min_pdf_size_bytes:
             digest = _sha256_file(dest)
             if dest.read_bytes()[:5] == b"%PDF-":
+                reused = self._reuse_duplicate(session, paper_id, paper, dest, digest, dest.stat().st_size)
+                if reused:
+                    return paper
                 paper.status = PaperStatus.DOWNLOADED
                 upsert_download(
                     session,
@@ -113,6 +116,9 @@ class DownloadService:
                 increment_retry=True,
             )
             logger.warning("Download failed for %s: %s", paper.title[:80], exc)
+            return paper
+
+        if self._reuse_duplicate(session, paper_id, paper, dest, digest, size):
             return paper
 
         paper.status = PaperStatus.DOWNLOADED
@@ -188,6 +194,41 @@ class DownloadService:
             raise DownloadError(f"PDF too small ({size} bytes)")
         tmp.replace(dest)
         return size, hasher.hexdigest()
+
+    def _reuse_duplicate(
+        self,
+        session: Session,
+        paper_id: int,
+        paper: PaperRecord,
+        dest: Path,
+        digest: str,
+        size: int,
+    ) -> bool:
+        """If this PDF is already stored, drop the extra copy and point at the original."""
+        existing = find_downloaded_by_sha256(session, digest, exclude_paper_id=paper_id)
+        if existing is None or not existing.local_path:
+            return False
+        other = Path(existing.local_path)
+        if not other.exists() or other.read_bytes()[:5] != b"%PDF-":
+            return False
+        other = other.resolve()
+        dest_resolved = dest.resolve() if dest.exists() else dest
+        if dest.exists() and dest_resolved != other:
+            dest.unlink(missing_ok=True)
+        paper.status = PaperStatus.DUPLICATE
+        paper.extra["local_path"] = str(other)
+        paper.extra["duplicate_of"] = existing.paper_id
+        upsert_download(
+            session,
+            paper_id,
+            pdf_url=paper.pdf_url,
+            status=PaperStatus.DUPLICATE.value,
+            local_path=str(other),
+            file_size=size,
+            sha256=digest,
+        )
+        logger.info("Skipped duplicate PDF for paper %s; reused %s", paper_id, other.name)
+        return True
 
 
 def _sha256_file(path: Path) -> str:

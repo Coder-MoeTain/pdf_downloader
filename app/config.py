@@ -43,6 +43,10 @@ class EnvSettings(BaseSettings):
     mysql_password: str = ""
     mysql_database: str = "research_collector"
     settings_sqlite_path: str = "data/settings.db"
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_admin_emails: str = ""
+    session_secret: str = "change-me-in-production-please-use-a-long-random-string"
 
     @property
     def polite_email(self) -> str:
@@ -109,6 +113,7 @@ class AppConfig(BaseModel):
     max_filename_length: int = 120
     prefer_https: bool = True
     check_robots_txt: bool = True
+    show_paywalled: bool = True
     timezone: str = "UTC"
     default_max_results: int = 50
     default_sort: str = "relevance"

@@ -20,7 +20,7 @@
   <nav class="settings-nav card" aria-label="Settings sections">
     <a class="settings-nav-link {% if section == 'workspace' %}active{% endif %}" href="/settings?section=workspace">
       <span class="settings-nav-title">Workspace</span>
-      <span class="settings-nav-copy">Contact, timezone, library path</span>
+      <span class="settings-nav-copy">Contact, timezone, library, paywalled papers</span>
     </a>
     <a class="settings-nav-link {% if section == 'search' %}active{% endif %}" href="/settings?section=search">
       <span class="settings-nav-title">Search &amp; downloads</span>
@@ -89,7 +89,12 @@
               <input class="form-check-input" type="checkbox" name="prefer_https" id="https" value="1" {% if config.prefer_https %}checked{% endif %}>
               <label class="form-check-label" for="https">Prefer HTTPS URLs</label>
             </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="show_paywalled" id="show_paywalled" value="1" {% if config.show_paywalled %}checked{% endif %}>
+              <label class="form-check-label" for="show_paywalled">Show paywalled papers</label>
+            </div>
           </div>
+          <p class="form-hint mb-0">When hidden, paywalled records stay in the database but are omitted from the library, downloads, dashboard charts, and analytics. Open them anytime with the Paywalled filter.</p>
         </div>
       </div>
       <div class="card-footer settings-footer">

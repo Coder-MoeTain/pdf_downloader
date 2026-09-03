@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_macros.html" import empty_state, ranked_list, status_badge %}
 {% block title %}Dashboard · {{ app_name }}{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
@@ -9,13 +10,13 @@
     <p class="lede mb-0">Search official academic APIs, keep paywalled records, and download only legally available open-access PDFs.</p>
   </div>
   <div class="dash-head-actions">
-    <a class="store-pill {% if store.backend == 'mysql' %}is-mysql{% endif %}" href="/sources">
+    {% if is_admin %}<a class="store-pill {% if store.backend == 'mysql' %}is-mysql{% endif %}" href="/sources">{% else %}<div class="store-pill {% if store.backend == 'mysql' %}is-mysql{% endif %}">{% endif %}
       <span class="store-dot" aria-hidden="true"></span>
       <div>
         <strong>{{ available_sources|length }} sources ready</strong>
         <div class="store-meta">{{ store.label }}</div>
       </div>
-    </a>
+    {% if is_admin %}</a>{% else %}</div>{% endif %}
     <a class="btn btn-outline-primary" href="/statistics">Analytics</a>
     <a class="btn btn-primary" href="/search">New search</a>
   </div>
@@ -47,7 +48,7 @@
 </div>
 {% endif %}
 
-{% if not total %}
+{% if not stored_total %}
   {{ empty_state("No papers in the library yet", "Run a topic search to collect metadata and open-access PDFs from official academic sources.", "/search", "Search papers") }}
 {% else %}
 <div class="row g-3 mb-4">

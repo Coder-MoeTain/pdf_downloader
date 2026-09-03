@@ -12,13 +12,13 @@
     <h1 class="h2 mb-1">Search academic sources</h1>
     <p class="lede mb-0">Stay on this page while official APIs respond. Paywalled records are kept; PDFs download only when a legal open-access copy exists.</p>
   </div>
-  <a class="store-pill is-mysql" href="/sources">
+  {% if is_admin %}<a class="store-pill is-mysql" href="/sources">{% else %}<div class="store-pill is-mysql">{% endif %}
     <span class="store-dot" aria-hidden="true"></span>
     <div>
       <strong>{{ available_sources|length }} sources ready</strong>
-      <div class="store-meta">Manage in Settings</div>
+      <div class="store-meta">{% if is_admin %}Manage in Settings{% else %}Official academic APIs{% endif %}</div>
     </div>
-  </a>
+  {% if is_admin %}</a>{% else %}</div>{% endif %}
 </div>
 
 <div class="row g-4">

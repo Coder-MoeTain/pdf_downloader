@@ -185,6 +185,36 @@ h1, h2, .brand-text, .display-6, .empty-title {
 .app-nav.navbar-dark .nav-settings.active {
   border-color: transparent;
 }
+.nav-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.15rem 0.15rem 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  max-width: 16rem;
+}
+.nav-user-pic {
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #e8f0e9;
+}
+.nav-user-name {
+  color: rgba(255,255,255,0.88);
+  font-size: 0.8rem;
+  font-weight: 600;
+  max-width: 8.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-nav.navbar-dark .nav-signout {
+  padding: 0.28rem 0.65rem;
+  font-size: 0.78rem;
+}
 .nav-version {
   display: inline-flex;
   align-items: center;
@@ -860,19 +890,31 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
   .job-steps li { font-size: 0.58rem; }
 }
 
-.page-statistics .stat-label {
+.page-dashboard .stat-card .card-body,
+.page-statistics .stat-card .card-body,
+.page-sources .stat-card .card-body {
+  text-align: center;
+}
+.page-dashboard .stat-label,
+.page-statistics .stat-label,
+.page-sources .stat-label {
   font-size: 0.8rem;
   letter-spacing: 0.01em;
 }
-.page-statistics .stat-value {
-  font-size: 2.55rem;
+.page-dashboard .stat-value,
+.page-statistics .stat-value,
+.page-sources .stat-value {
+  font-size: 1.75rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.04em;
   line-height: 1.05;
   margin-top: 0.2rem;
+  text-align: center;
 }
-.page-statistics .stat-hint {
+.page-dashboard .stat-hint,
+.page-statistics .stat-hint,
+.page-sources .stat-hint {
   font-size: 0.84rem;
 }
 .page-statistics .insight-chip {
@@ -920,10 +962,14 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
   font-size: 0.8rem;
 }
 @media (min-width: 1200px) {
-  .page-statistics .stat-value { font-size: 1.9rem; }
+  .page-dashboard .stat-value,
+  .page-statistics .stat-value,
+  .page-sources .stat-value { font-size: 1.75rem; }
 }
 @media (max-width: 767px) {
-  .page-statistics .stat-value { font-size: 1.75rem; }
+  .page-dashboard .stat-value,
+  .page-statistics .stat-value,
+  .page-sources .stat-value { font-size: 1.2rem; }
 }
 .dash-head-actions {
   display: flex;
@@ -972,3 +1018,44 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
 .shortcut-link span { color: var(--ink-soft); font-size: 0.8rem; }
 .shortcut-go { color: var(--accent); font-weight: 700; }
 .min-w-0 { min-width: 0; }
+.page-login .nav-primary,
+.page-login .nav-live { display: none; }
+.login-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 2.5rem 0 4rem;
+}
+.login-card {
+  width: min(32rem, 100%);
+  box-shadow: var(--shadow);
+}
+.login-card .lede { color: var(--ink-soft); margin-bottom: 1.35rem; }
+.btn-google {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.78rem 1rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  font-weight: 700;
+  text-decoration: none;
+}
+.btn-google:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+  background: #f7fbfc;
+}
+@media (max-width: 1199.98px) {
+  .nav-user {
+    width: 100%;
+    max-width: none;
+    justify-content: space-between;
+    border-radius: 0.85rem;
+    padding: 0.45rem 0.55rem;
+  }
+  .nav-user-name { max-width: none; }
+}

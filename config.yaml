@@ -138,6 +138,10 @@ providers:
     enabled: true
     requests_per_second: 2
     requires_key: true
+  nasa_ntrs:
+    enabled: true
+    requests_per_second: 0.5
+    requires_key: false
 
 http:
   max_concurrent_requests: 5

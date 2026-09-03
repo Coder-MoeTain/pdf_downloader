@@ -23,7 +23,7 @@
     {% elif status %}
     <p class="lede mb-0">{{ total }} {{ status_meta(status).label | lower }} paper{{ "s" if total != 1 else "" }}.</p>
     {% elif total %}
-    <p class="lede mb-0">{{ total }} papers in the local library. Rate papers and filter to those you can download.</p>
+    <p class="lede mb-0">{{ total }} papers in the local library. Rate papers and filter to those you can download.{% if not show_paywalled %} Paywalled papers are hidden.{% endif %}</p>
     {% endif %}
   </div>
   <div class="d-flex flex-wrap gap-2">
@@ -124,6 +124,8 @@
           {{ empty_state("No papers in this search", "Try a broader topic, or browse the full library.", "/library", "View library") }}
         {% elif q or status or pdf or min_rating %}
           {{ empty_state("Nothing matches this filter", "Clear the filter or try another keyword.", "/library", "Show all papers") }}
+        {% elif not show_paywalled %}
+          {{ empty_state("Paywalled papers are hidden", "Turn them back on in Settings, or filter the library by Paywalled.", "/settings?section=workspace" if is_admin else "/library?status=PAYWALLED", "Open settings" if is_admin else "View paywalled") }}
         {% else %}
           {{ empty_state("Library is empty", "Run a topic search to collect metadata and open-access PDFs.", "/search", "Start a search") }}
         {% endif %}

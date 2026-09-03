@@ -88,6 +88,7 @@ def _ensure_columns(engine: Engine) -> None:
         names = {row[1] for row in rows}
         if "user_rating" not in names:
             conn.execute(text("ALTER TABLE papers ADD COLUMN user_rating INTEGER"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_downloads_sha256 ON downloads (sha256)"))
         conn.commit()
 
 

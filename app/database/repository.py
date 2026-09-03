@@ -243,6 +243,31 @@ def upsert_download(
     return row
 
 
+def find_downloaded_by_sha256(
+    session: Session,
+    digest: str,
+    *,
+    exclude_paper_id: int | None = None,
+) -> Download | None:
+    """Return an earlier download of the same PDF bytes, if a local file was stored."""
+    digest = (digest or "").strip().lower()
+    if not digest:
+        return None
+    stmt = (
+        select(Download)
+        .where(
+            Download.sha256 == digest,
+            Download.local_path.is_not(None),
+            Download.local_path != "",
+            Download.status.in_([PaperStatus.DOWNLOADED.value, PaperStatus.DUPLICATE.value]),
+        )
+        .order_by(Download.id)
+    )
+    if exclude_paper_id is not None:
+        stmt = stmt.where(Download.paper_id != exclude_paper_id)
+    return session.scalar(stmt)
+
+
 def list_failed_downloads(session: Session) -> list[Download]:
     return list(
         session.scalars(
@@ -271,9 +296,39 @@ def downloadable_clause():
     )
 
 
+def show_paywalled_papers() -> bool:
+    """True when paywalled records should appear in library lists and analytics."""
+    try:
+        from app.config import get_runtime_config
+
+        return bool(get_runtime_config().show_paywalled)
+    except Exception:
+        return True
+
+
+def visible_paper_clauses(*, status: str = "") -> tuple:
+    """Exclude paywalled papers unless the setting shows them or the user asked for that status."""
+    if status == PaperStatus.PAYWALLED.value or show_paywalled_papers():
+        return ()
+    return (Paper.status != PaperStatus.PAYWALLED.value,)
+
+
+def visible_download_clauses(*, status: str = "") -> tuple:
+    """Exclude paywalled download rows unless the setting shows them or that status was requested."""
+    if status == PaperStatus.PAYWALLED.value or show_paywalled_papers():
+        return ()
+    return (
+        Download.status != PaperStatus.PAYWALLED.value,
+        Paper.status != PaperStatus.PAYWALLED.value,
+    )
+
+
 def apply_paper_filters(stmt, *, status: str = "", downloadable: bool = False, min_rating: int = 0):
     if status:
         stmt = stmt.where(Paper.status == status)
+    else:
+        for clause in visible_paper_clauses():
+            stmt = stmt.where(clause)
     if downloadable:
         stmt = stmt.where(downloadable_clause())
     if min_rating:

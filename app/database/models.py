@@ -137,6 +137,7 @@ class SearchResult(Base):
 
 class Download(Base):
     __tablename__ = "downloads"
+    __table_args__ = (Index("ix_downloads_sha256", "sha256"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id"), nullable=False)
@@ -150,6 +151,19 @@ class Download(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     paper: Mapped[Paper] = relationship(back_populates="downloads")
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    google_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), default="")
+    picture: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_login_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class PaperFulltext(Base):

@@ -72,6 +72,7 @@ def seed_default_settings() -> None:
             ("check_robots_txt", cfg.check_robots_txt, "workspace", False),
             ("prefer_https", cfg.prefer_https, "workspace", False),
             ("timezone", cfg.timezone, "workspace", False),
+            ("show_paywalled", cfg.show_paywalled, "workspace", False),
             ("download_limit", cfg.download_limit, "search", False),
             ("default_max_results", cfg.default_max_results, "search", False),
             ("max_concurrent_requests", cfg.env.max_concurrent_requests, "search", False),
@@ -285,6 +286,7 @@ def save_workspace_settings(data: dict[str, Any]) -> None:
         set_setting(session, "check_robots_txt", bool(data.get("check_robots_txt")), group="workspace")
         set_setting(session, "prefer_https", bool(data.get("prefer_https")), group="workspace")
         set_setting(session, "timezone", timezone_name, group="workspace")
+        set_setting(session, "show_paywalled", bool(data.get("show_paywalled", True)), group="workspace")
     set_active_timezone(timezone_name)
     clear_timezone_cache()
 
@@ -426,6 +428,7 @@ def apply_runtime_overlay(cfg: AppConfig) -> AppConfig:
     cfg.default_max_results = _int("default_max_results", cfg.default_max_results)
     cfg.check_robots_txt = _bool("check_robots_txt", cfg.check_robots_txt)
     cfg.prefer_https = _bool("prefer_https", cfg.prefer_https)
+    cfg.show_paywalled = _bool("show_paywalled", cfg.show_paywalled)
     if stored.get("timezone"):
         try:
             cfg.timezone = normalize_timezone(stored["timezone"])

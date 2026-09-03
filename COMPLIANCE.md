@@ -7,11 +7,11 @@ bypass.
 ## What this software will do
 
 1. Query official APIs (Crossref, OpenAlex, Semantic Scholar, arXiv, PubMed,
-   Europe PMC, CORE, DOAJ, and publisher APIs when you supply credentials).
+   Europe PMC, CORE, DOAJ, NASA NTRS, and publisher APIs when you supply credentials).
 2. Detect open-access copies using provider metadata and Unpaywall.
 3. Download PDFs that publishers, repositories, or authors have made public
    (gold/hybrid OA publisher PDFs, arXiv, PubMed Central, Europe PMC, CORE,
-   DOAJ, institutional repositories, and public government repositories).
+   DOAJ, NASA NTRS, institutional repositories, and public government repositories).
 4. Record paywalled items with DOI, title, and publisher URL for later lawful
    access (library subscription, author request, etc.).
 
@@ -22,7 +22,7 @@ bypass.
 3. Rotate IP addresses, use open proxies, or otherwise evade rate limits.
 4. Scrape HTML search result pages when an official API exists.
 5. Retrieve content from sites whose terms or `robots.txt` prohibit automated
-   access.
+   access (including ResearchGate, Google Scholar, and Academia.edu).
 6. Bypass subscription, institutional, or individual access restrictions.
 7. Execute downloaded files or run arbitrary commands from paper content.
 

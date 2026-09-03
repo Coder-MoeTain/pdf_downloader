@@ -1,4 +1,4 @@
-"""Additional official API providers: DOAJ, IEEE, Springer, Elsevier, NASA ADS."""
+"""Additional official API providers: DOAJ, IEEE, Springer, Elsevier, NASA ADS, NASA NTRS."""
 
 from __future__ import annotations
 
@@ -275,11 +275,10 @@ class NasaAdsProvider(ResearchProvider):
         dois = item.get("doi") or []
         doi = normalize_doi(dois[0] if dois else None)
         openaccess = item.get("openaccess") is True
-        pdf_url = None
-        if openaccess and item.get("bibcode"):
-            pdf_url = f"https://ui.adsabs.harvard.edu/link_gateway/{item['bibcode']}/PUB_PDF"
+        pdf_url = _ads_pdf_url(item)
+        openaccess = openaccess or bool(pdf_url)
         return PaperRecord(
-            title=titles[0],
+            title=titles[0] if isinstance(titles, list) else str(titles or ""),
             abstract=item.get("abstract"),
             authors=authors,
             publication_year=_year(item.get("year")),
@@ -291,8 +290,153 @@ class NasaAdsProvider(ResearchProvider):
             citation_count=item.get("citation_count"),
             open_access=openaccess,
             source_provider=self.name,
-            metadata_sources={"abstract": self.name},
+            metadata_sources={"abstract": self.name, "pdf_url": self.name} if pdf_url else {"abstract": self.name},
         )
+
+
+class NasaNtrsProvider(ResearchProvider):
+    """NASA Scientific and Technical Information repository (NTRS). No API key required."""
+
+    name = "nasa_ntrs"
+    display_name = "NASA NTRS"
+    BASE = "https://ntrs.nasa.gov/api/citations/search"
+    ORIGIN = "https://ntrs.nasa.gov"
+
+    async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
+        params: dict[str, Any] = {
+            "q": query,
+            "page.size": min(filters.max_results, 100),
+            "distribution": "PUBLIC",
+        }
+        if filters.year_from:
+            params["published.gte"] = f"{filters.year_from}-01-01"
+        if filters.year_to:
+            params["published.lte"] = f"{filters.year_to}-12-31"
+        if filters.open_access_only:
+            params["disseminated"] = "DOCUMENT_AND_METADATA"
+        data = await self.request_json(self.BASE, params=params)
+        items = (data or {}).get("results") or []
+        papers = [p for p in (self._parse(i) for i in items) if p and p.title]
+        if filters.year_from:
+            papers = [p for p in papers if not p.publication_year or p.publication_year >= filters.year_from]
+        if filters.year_to:
+            papers = [p for p in papers if not p.publication_year or p.publication_year <= filters.year_to]
+        return papers
+
+    async def get_paper(self, identifier: str) -> PaperRecord | None:
+        text = (identifier or "").strip()
+        if not text:
+            return None
+        digits = text.replace("ntrs:", "").strip()
+        if digits.isdigit():
+            data = await self.request_json(f"{self.ORIGIN}/api/citations/{digits}")
+            return self._parse(data) if data else None
+        data = await self.request_json(self.BASE, params={"q": text, "page.size": 5, "distribution": "PUBLIC"})
+        items = (data or {}).get("results") or []
+        wanted = normalize_doi(text)
+        for item in items:
+            paper = self._parse(item)
+            if paper and paper.title:
+                if wanted and paper.doi == wanted:
+                    return paper
+                if not wanted:
+                    return paper
+        return None
+
+    async def find_pdf(self, paper: PaperRecord) -> str | None:
+        return paper.pdf_url
+
+    def _parse(self, item: dict[str, Any] | None) -> PaperRecord | None:
+        if not item:
+            return None
+        cid = item.get("id")
+        authors: list[AuthorRecord] = []
+        for affiliation in item.get("authorAffiliations") or []:
+            meta = affiliation.get("meta") or {}
+            author = meta.get("author") or {}
+            name = (author.get("name") or "").strip()
+            if not name:
+                continue
+            org = (meta.get("organization") or {}).get("name")
+            authors.append(
+                AuthorRecord(
+                    name=name,
+                    affiliations=[org] if org else [],
+                    orcid=author.get("orcidId") or None,
+                )
+            )
+        publications = item.get("publications") or []
+        pub0 = publications[0] if publications else {}
+        doi = normalize_doi(pub0.get("doi")) if pub0 else None
+        if not doi:
+            for pub in publications:
+                doi = normalize_doi(pub.get("doi"))
+                if doi:
+                    break
+        pdf_url = _ntrs_pdf_url(item, self.ORIGIN)
+        has_document = str(item.get("disseminated") or "") == "DOCUMENT_AND_METADATA"
+        meetings = item.get("meetings") or []
+        sti = str(item.get("stiType") or "")
+        conference = (meetings[0].get("name") if meetings else None) if "CONFERENCE" in sti else None
+        year = _year((pub0 or {}).get("publicationDate") or item.get("distributionDate") or item.get("created"))
+        keywords = [str(k) for k in (item.get("keywords") or []) if k]
+        copyright_info = item.get("copyright") or {}
+        license_ = copyright_info.get("licenseType") or copyright_info.get("determinationType")
+        return PaperRecord(
+            title=item.get("title") or "",
+            abstract=item.get("abstract"),
+            authors=authors,
+            publication_year=year,
+            publication_date=str((pub0 or {}).get("publicationDate") or item.get("distributionDate") or "")[:10] or None,
+            journal=None if conference else (pub0.get("publicationName") or None),
+            conference=conference,
+            publisher=(item.get("center") or {}).get("name") or "NASA",
+            doi=doi,
+            url=f"{self.ORIGIN}/citations/{cid}" if cid else doi_url(doi),
+            pdf_url=pdf_url,
+            keywords=keywords,
+            research_fields=list(item.get("subjectCategories") or []),
+            open_access=bool(pdf_url) or has_document,
+            license=license_,
+            source_provider=self.name,
+            metadata_sources={"abstract": self.name, "pdf_url": self.name} if pdf_url else {"abstract": self.name},
+            extra={"ntrs_id": cid, "sti_type": item.get("stiType")},
+        )
+
+
+def _ads_pdf_url(item: dict[str, Any]) -> str | None:
+    bibcode = item.get("bibcode")
+    if not bibcode:
+        return None
+    esources = {str(e).upper() for e in (item.get("esources") or [])}
+    for key in ("EPRINT_PDF", "PUB_PDF", "ADS_PDF"):
+        if key in esources:
+            return f"https://ui.adsabs.harvard.edu/link_gateway/{bibcode}/{key}"
+    if item.get("openaccess") is True:
+        return f"https://ui.adsabs.harvard.edu/link_gateway/{bibcode}/PUB_PDF"
+    return None
+
+
+def _ntrs_pdf_url(item: dict[str, Any], origin: str) -> str | None:
+    cid = item.get("id")
+    for download in item.get("downloads") or []:
+        mime = str(download.get("mimetype") or "").lower()
+        name = str(download.get("name") or "")
+        links = download.get("links") or {}
+        href = links.get("pdf") or ""
+        if not href and (mime == "application/pdf" or name.lower().endswith(".pdf")):
+            href = links.get("original") or ""
+        if not href:
+            continue
+        if mime and mime != "application/pdf" and not name.lower().endswith(".pdf"):
+            continue
+        if href.startswith("/"):
+            return f"{origin}{href}"
+        if href.startswith("http"):
+            return href
+        if cid and name.lower().endswith(".pdf"):
+            return f"{origin}/api/citations/{cid}/downloads/{name}"
+    return None
 
 
 def _safe_int(value: Any) -> int | None:

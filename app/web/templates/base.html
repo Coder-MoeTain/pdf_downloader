@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="/static/app.css?v={{ version }}">
   {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
 {% from "_macros.html" import nav_icon %}
 <a class="skip-link" href="#main">Skip to content</a>
 <nav class="navbar navbar-expand-xl navbar-dark app-nav sticky-top" aria-label="Main">
@@ -42,7 +42,7 @@
           ("/downloads", "Downloads", "downloads"),
           ("/sources", "Sources", "sources"),
           ("/statistics", "Statistics", "statistics")
-        ] %}
+        ] if is_admin or key != "sources" %}
         <li class="nav-item">
           <a class="nav-link {% if page == key %}active{% endif %}" href="{{ href }}" title="{{ label }}" {% if page == key %}aria-current="page"{% endif %}>
             {{ nav_icon(key) }}
@@ -65,10 +65,21 @@
         </a>
         {% endif %}
         {% endif %}
+        {% if is_admin %}
         <a class="nav-link nav-settings {% if page == 'settings' %}active{% endif %}" href="/settings" title="Settings" {% if page == 'settings' %}aria-current="page"{% endif %}>
           {{ nav_icon("settings") }}
           <span class="nav-link-label">Settings</span>
         </a>
+        {% endif %}
+        {% if auth_enabled and user %}
+        <div class="nav-user">
+          {% if user.picture %}<img class="nav-user-pic" src="{{ user.picture }}" alt="" width="28" height="28">{% endif %}
+          <span class="nav-user-name" title="{{ user.email }}">{{ user.name }}</span>
+          <a class="nav-link nav-signout" href="/logout">Sign out</a>
+        </div>
+        {% elif auth_enabled %}
+        <a class="nav-link" href="/login">Sign in</a>
+        {% endif %}
         <span class="nav-version" title="Times shown in {{ timezone }} ({{ timezone_offset }})">{{ timezone_abbrev }} · v{{ version }}</span>
       </div>
     </div>
