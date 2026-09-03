@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import case, func, or_, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import selectinload
 
 from app import __app_name__, __version__
@@ -38,7 +39,7 @@ from app.auth import (
     verify_password,
 )
 from app.config import ROOT_DIR, get_runtime_config
-from app.database.connection import init_db, session_scope
+from app.database.connection import init_db, retry_on_sqlite_lock, session_scope
 from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuery, SearchResult, User
 from app.database.repository import (
     downloadable_clause,
@@ -76,6 +77,7 @@ from app.services.download_service import (
 )
 from app.services.progress import tracker
 from app.services.search_service import SearchService, filters_from_cli
+from app.utils.git_update import GitUpdateError, git_pull, git_status
 from app.utils.logger import setup_logging
 from app.utils.time import format_local, now_local, timezone_abbrev, timezone_choices, timezone_offset_label
 from app.web.ui import (
@@ -123,6 +125,7 @@ app = FastAPI(title=__app_name__, version=__version__)
 app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
 
 _search_message = {"text": "", "level": "info"}
+_git_log = {"text": ""}
 
 
 @app.middleware("http")
@@ -189,22 +192,32 @@ def login_submit(
         _search_message["level"] = "warning"
         return templates.TemplateResponse(request, "login.html", _login_ctx(request, nxt), status_code=400)
     try:
-        with session_scope() as session:
-            if user_count() == 0:
-                row = create_local_user(session, email=email, password=password, name=name, role=ROLE_ADMIN)
-            else:
-                row = authenticate_local(session, email, password)
+        def _persist_local():
+            with session_scope() as session:
+                if user_count() == 0:
+                    row = create_local_user(session, email=email, password=password, name=name, role=ROLE_ADMIN)
+                else:
+                    row = authenticate_local(session, email, password)
                 if row is None:
-                    _search_message["text"] = "Email or password is not correct."
-                    _search_message["level"] = "danger"
-                    return templates.TemplateResponse(request, "login.html", _login_ctx(request, nxt), status_code=401)
-            request.session["user"] = user_to_session(row)
-            signed_email = row.email
-            is_admin = user_role(request.session["user"]) == ROLE_ADMIN
+                    return None
+                return user_to_session(row)
+
+        payload = retry_on_sqlite_lock(_persist_local)
+        if payload is None:
+            _search_message["text"] = "Email or password is not correct."
+            _search_message["level"] = "danger"
+            return templates.TemplateResponse(request, "login.html", _login_ctx(request, nxt), status_code=401)
+        request.session["user"] = payload
+        signed_email = payload["email"]
+        is_admin = user_role(payload) == ROLE_ADMIN
     except ValueError as exc:
         _search_message["text"] = str(exc)
         _search_message["level"] = "danger"
         return templates.TemplateResponse(request, "login.html", _login_ctx(request, nxt), status_code=400)
+    except OperationalError:
+        _search_message["text"] = "The library database was busy. Wait a moment and try again."
+        _search_message["level"] = "warning"
+        return templates.TemplateResponse(request, "login.html", _login_ctx(request, nxt), status_code=503)
     if is_admin_path(nxt) and not is_admin:
         nxt = "/"
     _search_message["text"] = f"Signed in as {signed_email}."
@@ -239,16 +252,24 @@ async def auth_google_callback(request: Request):
         _search_message["text"] = "Google did not return an email address for this account."
         _search_message["level"] = "danger"
         return RedirectResponse("/login", status_code=302)
-    with session_scope() as session:
-        row = upsert_google_user(
-            session,
-            google_id=google_id,
-            email=email,
-            name=str(info.get("name") or ""),
-            picture=str(info.get("picture") or "") or None,
-        )
-        request.session["user"] = user_to_session(row)
-        is_admin = bool(row.is_admin)
+    try:
+        def _persist_google():
+            with session_scope() as session:
+                row = upsert_google_user(
+                    session,
+                    google_id=google_id,
+                    email=email,
+                    name=str(info.get("name") or ""),
+                    picture=str(info.get("picture") or "") or None,
+                )
+                return user_to_session(row), bool(row.is_admin)
+
+        payload, is_admin = retry_on_sqlite_lock(_persist_google)
+        request.session["user"] = payload
+    except OperationalError:
+        _search_message["text"] = "The library database was busy. Wait a moment and sign in again."
+        _search_message["level"] = "warning"
+        return RedirectResponse("/login", status_code=302)
     if is_admin_path(nxt) and not is_admin:
         nxt = "/"
     _search_message["text"] = f"Signed in as {email}."
@@ -964,12 +985,14 @@ def _settings_ctx(request: Request, section: str = "workspace"):
         source_stats={"total": len(sources), "available": available, "disabled": sum(1 for s in sources if not s["enabled"])},
         timezones=timezone_choices(cfg.timezone),
         now_local=now_local(cfg.timezone).strftime("%Y-%m-%d %H:%M:%S"),
+        git=git_status() if section == "updates" else {"ok": False, "dirty": True, "error": ""},
+        git_log=_git_log["text"] if section == "updates" else "",
     )
 
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, section: str = "workspace"):
-    allowed = {"workspace", "search", "credentials", "sources"}
+    allowed = {"workspace", "search", "credentials", "sources", "updates"}
     if section not in allowed:
         section = "workspace"
     return templates.TemplateResponse(request, "settings.html", _settings_ctx(request, section))
@@ -990,6 +1013,22 @@ def _settings_redirect(section: str, message: str, level: str = "success", next_
 
 def _form_bool(value: str | None) -> bool:
     return str(value or "").lower() in {"1", "true", "on", "yes"}
+
+
+@app.post("/settings/update")
+def settings_git_pull():
+    try:
+        result = git_pull()
+        _git_log["text"] = result.get("output") or ""
+        if result.get("already_current"):
+            return _settings_redirect("updates", "Already up to date.")
+        return _settings_redirect("updates", "Pulled the latest code. Restart PM2 if Python files changed.")
+    except GitUpdateError as exc:
+        _git_log["text"] = str(exc)
+        return _settings_redirect("updates", str(exc), "danger")
+    except Exception as exc:
+        _git_log["text"] = str(exc)
+        return _settings_redirect("updates", "Git pull failed.", "danger")
 
 
 @app.post("/settings/workspace")

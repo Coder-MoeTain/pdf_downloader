@@ -8,7 +8,6 @@ from typing import Any
 
 from rich.console import Console
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
-from sqlalchemy.orm import Session
 
 from app.config import AppConfig, get_runtime_config, load_config, parse_size
 from app.database.connection import init_db, session_scope
@@ -147,6 +146,12 @@ class SearchService:
             )
 
             tracker.set_phase("storing", f"Saving {len(unique)} papers to the library…", percent=78)
+            search_id = 0
+            persisted: list[tuple[int, PaperRecord]] = []
+            downloader = DownloadService(client, self.config)
+            download_limit = filters.download_limit or self.config.download_limit
+            max_size = filters.max_file_size or self.config.max_file_size_bytes
+            to_download: list[tuple[int, PaperRecord]] = []
             with session_scope() as session:
                 search_row = create_search_query(
                     session,
@@ -154,17 +159,12 @@ class SearchService:
                     expanded,
                     dataclasses.asdict(filters) | {"sort": filters.sort.value},
                 )
-                persisted: list[tuple[int, PaperRecord]] = []
+                search_id = search_row.id
                 for rank, paper in enumerate(unique, start=1):
                     db_paper = save_paper(session, paper)
                     attach_search_result(session, search_row.id, db_paper.id, rank, paper.relevance_score)
                     upsert_download(session, db_paper.id, pdf_url=paper.pdf_url, status=paper.status.value)
                     persisted.append((db_paper.id, paper))
-                session.flush()
-
-                downloader = DownloadService(client, self.config)
-                download_limit = filters.download_limit or self.config.download_limit
-                max_size = filters.max_file_size or self.config.max_file_size_bytes
                 to_download = [
                     item
                     for item in persisted
@@ -173,14 +173,17 @@ class SearchService:
                 if filters.open_access_only:
                     to_download = [item for item in to_download if item[1].open_access]
                 to_download = to_download[:download_limit]
+                if not (filters.download and to_download):
+                    complete_search_query(session, search_row.id)
 
-                if filters.download and to_download:
-                    console.print()
-                    tracker.start_batch(len(to_download), "Downloading open-access PDFs")
-                    try:
-                        for idx, (paper_id, paper) in enumerate(to_download, start=1):
-                            console.print(f"[blue]\\[DOWNLOAD][/] {idx}/{len(to_download)} {paper.title[:70]}")
-                            tracker.begin_item(paper_id, paper.title, idx)
+            if filters.download and to_download:
+                console.print()
+                tracker.start_batch(len(to_download), "Downloading open-access PDFs")
+                try:
+                    for idx, (paper_id, paper) in enumerate(to_download, start=1):
+                        console.print(f"[blue]\\[DOWNLOAD][/] {idx}/{len(to_download)} {paper.title[:70]}")
+                        tracker.begin_item(paper_id, paper.title, idx)
+                        with session_scope() as session:
                             updated = await downloader.download_paper(
                                 session,
                                 paper_id,
@@ -191,20 +194,20 @@ class SearchService:
                                 user_id=user_id,
                             )
                             save_paper(session, updated)
-                            session.commit()
-                            tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
-                            if updated.status == PaperStatus.DOWNLOADED:
-                                stats.pdfs_downloaded += 1
-                            elif updated.status == PaperStatus.FAILED:
-                                stats.failed_downloads += 1
-                    finally:
-                        tracker.finish_batch()
-                elif not filters.download:
-                    console.print("[dim]Skipping downloads (--no-download).[/]")
-                    tracker.log("PDF download skipped (disabled for this run).")
+                        tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
+                        if updated.status == PaperStatus.DOWNLOADED:
+                            stats.pdfs_downloaded += 1
+                        elif updated.status == PaperStatus.FAILED:
+                            stats.failed_downloads += 1
+                finally:
+                    tracker.finish_batch()
+                with session_scope() as session:
+                    complete_search_query(session, search_id)
+            elif not filters.download:
+                console.print("[dim]Skipping downloads (--no-download).[/]")
+                tracker.log("PDF download skipped (disabled for this run).")
 
-                complete_search_query(session, search_row.id)
-                unique = [p for _, p in persisted]
+            unique = [p for _, p in persisted]
 
             write_topic_metadata_csv(unique, filters.topic_slug, self.config)
             exporter = ExportService(self.config)
@@ -247,10 +250,13 @@ class SearchService:
                 return provider.display_name, exc
 
         gathered_tasks = [asyncio.create_task(_one(p), name=p.display_name) for p in providers]
+        outcomes: list[tuple[str, list[PaperRecord] | Exception]] = []
+        for fut in asyncio.as_completed(gathered_tasks):
+            outcomes.append(await fut)
+
         raw: list[PaperRecord] = []
         with session_scope() as session:
-            for fut in asyncio.as_completed(gathered_tasks):
-                name, result = await fut
+            for name, result in outcomes:
                 if isinstance(result, Exception):
                     console.print(f"[red]\\[SEARCH][/] {name:.<28} error: {result}")
                     upsert_provider(session, name.lower().replace(" ", "_"), error=str(result))

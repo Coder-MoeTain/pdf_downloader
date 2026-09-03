@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from typing import TypeVar
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import load_config
@@ -16,16 +19,42 @@ from app.utils.logger import get_logger
 
 logger = get_logger("app.db")
 
+SQLITE_BUSY_TIMEOUT_SECONDS = 60
+SQLITE_BUSY_TIMEOUT_MS = SQLITE_BUSY_TIMEOUT_SECONDS * 1000
+
 _engine: Engine | None = None
 _SessionFactory: sessionmaker[Session] | None = None
 _lock = threading.Lock()
+T = TypeVar("T")
 
 
 def _set_sqlite_pragma(dbapi_connection: object, _connection_record: object) -> None:
     cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+    cursor.execute("PRAGMA synchronous=NORMAL")
     cursor.close()
+
+
+def is_sqlite_lock_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return "database is locked" in message or "database is busy" in message
+
+
+def retry_on_sqlite_lock(fn: Callable[[], T], *, attempts: int = 8) -> T:
+    """Retry a short SQLite write if another request is holding the library file."""
+    delay = 0.12
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except OperationalError as exc:
+            if not is_sqlite_lock_error(exc) or attempt >= attempts:
+                raise
+            logger.warning("SQLite locked; retrying %s/%s", attempt, attempts)
+            time.sleep(delay)
+            delay = min(delay * 2, 2.0)
+    raise RuntimeError("SQLite lock retries exhausted")
 
 
 def get_engine(url: str | None = None) -> Engine:
@@ -38,7 +67,8 @@ def get_engine(url: str | None = None) -> Engine:
                 engine_url,
                 echo=False,
                 future=True,
-                connect_args={"check_same_thread": False, "timeout": 30},
+                pool_pre_ping=True,
+                connect_args={"check_same_thread": False, "timeout": SQLITE_BUSY_TIMEOUT_SECONDS},
             )
             event.listen(_engine, "connect", _set_sqlite_pragma)
             _SessionFactory = sessionmaker(bind=_engine, expire_on_commit=False, future=True)

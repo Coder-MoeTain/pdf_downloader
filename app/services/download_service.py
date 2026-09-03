@@ -432,36 +432,36 @@ async def download_open_access_papers(
                     SearchResult.search_query_id == search_id
                 )
             papers = session.scalars(stmt.limit(cap)).unique().all()
-            tracker.start_batch(len(papers), "Downloading open-access PDFs")
-            try:
-                for index, paper in enumerate(papers, start=1):
-                    record = paper_to_record(paper)
-                    if not record.pdf_url:
-                        stats["skipped"] += 1
-                        tracker.begin_item(paper.id, paper.title, index)
-                        tracker.finish_item("SKIPPED", error="No legal PDF URL")
-                        continue
-                    stats["attempted"] += 1
-                    tracker.begin_item(paper.id, paper.title, index)
+            jobs = [(paper.id, paper_to_record(paper)) for paper in papers]
+        tracker.start_batch(len(jobs), "Downloading open-access PDFs")
+        try:
+            for index, (paper_id, record) in enumerate(jobs, start=1):
+                if not record.pdf_url:
+                    stats["skipped"] += 1
+                    tracker.begin_item(paper_id, record.title, index)
+                    tracker.finish_item("SKIPPED", error="No legal PDF URL")
+                    continue
+                stats["attempted"] += 1
+                tracker.begin_item(paper_id, record.title, index)
+                with session_scope() as session:
                     updated = await downloader.download_paper(
                         session,
-                        paper.id,
+                        paper_id,
                         record,
                         topic_slug,
                         on_progress=lambda received, total: tracker.update_bytes(received, total),
                         user_id=user_id,
                     )
                     save_paper(session, updated)
-                    session.commit()
-                    tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
-                    if updated.status == PaperStatus.DOWNLOADED:
-                        stats["downloaded"] += 1
-                    elif updated.status == PaperStatus.FAILED:
-                        stats["failed"] += 1
-                    else:
-                        stats["skipped"] += 1
-            finally:
-                tracker.finish_batch()
+                tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
+                if updated.status == PaperStatus.DOWNLOADED:
+                    stats["downloaded"] += 1
+                elif updated.status == PaperStatus.FAILED:
+                    stats["failed"] += 1
+                else:
+                    stats["skipped"] += 1
+        finally:
+            tracker.finish_batch()
     return stats
 
 

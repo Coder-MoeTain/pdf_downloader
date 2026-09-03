@@ -137,7 +137,7 @@ def get_settings_engine() -> Engine:
                     _sqlite_url(),
                     echo=False,
                     future=True,
-                    connect_args={"check_same_thread": False, "timeout": 30},
+                connect_args={"check_same_thread": False, "timeout": 60},
                 )
                 if not _status.get("error"):
                     _status["error"] = ""

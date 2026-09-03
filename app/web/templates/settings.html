@@ -34,6 +34,10 @@
       <span class="settings-nav-title">Academic sources</span>
       <span class="settings-nav-copy">{{ source_stats.available }} of {{ source_stats.total }} available</span>
     </a>
+    <a class="settings-nav-link {% if section == 'updates' %}active{% endif %}" href="/settings?section=updates">
+      <span class="settings-nav-title">Updates</span>
+      <span class="settings-nav-copy">Pull the latest code from git</span>
+    </a>
   </nav>
 
   <div class="settings-main">
@@ -254,6 +258,37 @@
           {% endfor %}
           </tbody>
         </table>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if section == 'updates' %}
+    <div class="card">
+      <div class="card-header">Application updates</div>
+      <div class="card-body">
+        {% if git.ok %}
+        <div class="readonly-stack mb-3">
+          <div><span>Branch</span><code>{{ git.branch }}</code></div>
+          <div><span>Commit</span><code>{{ git.short }}</code></div>
+          {% if git.remote %}<div><span>Remote</span><code>{{ git.remote }}</code></div>{% endif %}
+        </div>
+        {% if git.subject %}<p class="paper-meta mb-3">{{ git.subject }}</p>{% endif %}
+        {% if git.dirty %}
+        <p class="form-hint mb-3">This server has local file changes. Pull is blocked until those are committed or stashed.</p>
+        {% else %}
+        <p class="form-hint mb-3">Pulls with <code>git pull --ff-only</code>. Templates apply immediately; restart PM2 after Python changes: <code>pm2 restart researchpaper</code>.</p>
+        {% endif %}
+        {% else %}
+        <p class="text-muted mb-3">{{ git.error or "Git status is unavailable." }}</p>
+        {% endif %}
+        {% if git_log %}
+        <pre class="update-log" aria-label="Git output">{{ git_log }}</pre>
+        {% endif %}
+      </div>
+      <div class="card-footer settings-footer">
+        <form method="post" action="/settings/update" data-busy="Pulling…" data-confirm="Pull the latest code onto this server?">
+          <button class="btn btn-primary" type="submit" {% if not git.ok or git.dirty %}disabled{% endif %}>Git pull</button>
+        </form>
       </div>
     </div>
     {% endif %}

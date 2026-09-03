@@ -1,11 +1,12 @@
 (function () {
   document.querySelectorAll("form[data-busy]").forEach(function (form) {
-    form.addEventListener("submit", function () {
-      var button = form.querySelector("[type=submit]");
-      if (!button) return;
-      button.dataset.originalText = button.textContent;
-      button.textContent = form.getAttribute("data-busy") || "Working…";
+    form.addEventListener("submit", function (event) {
       window.setTimeout(function () {
+        if (event.defaultPrevented) return;
+        var button = form.querySelector("[type=submit]");
+        if (!button) return;
+        button.dataset.originalText = button.textContent;
+        button.textContent = form.getAttribute("data-busy") || "Working…";
         button.disabled = true;
       }, 0);
     });
