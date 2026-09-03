@@ -56,12 +56,12 @@
         {% if progress.kind == "search" %}
         <a class="nav-live" href="/search?live=1" title="Search in progress">
           <span class="nav-live-dot" aria-hidden="true"></span>
-          Searching…
+          <span class="nav-link-label">Searching…</span>
         </a>
         {% else %}
         <a class="nav-live" href="/downloads" title="Downloads in progress">
           <span class="nav-live-dot" aria-hidden="true"></span>
-          Downloading {{ progress.current }}/{{ progress.total }}
+          <span class="nav-link-label">Downloading {{ progress.current }}/{{ progress.total }}</span>
         </a>
         {% endif %}
         {% endif %}

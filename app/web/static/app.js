@@ -310,7 +310,7 @@
     }
     existing.href = href;
     existing.title = data.kind === "search" ? "Search in progress" : "Downloads in progress";
-    existing.innerHTML = '<span class="nav-live-dot" aria-hidden="true"></span>' + label;
+    existing.innerHTML = '<span class="nav-live-dot" aria-hidden="true"></span><span class="nav-link-label">' + label + "</span>";
   }
   function pollNavLive() {
     fetch("/api/search-progress", { headers: { Accept: "application/json" } })

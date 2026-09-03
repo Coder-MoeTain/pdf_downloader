@@ -192,7 +192,7 @@ class SearchService:
                             )
                             save_paper(session, updated)
                             session.commit()
-                            tracker.finish_item(updated.status.value)
+                            tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
                             if updated.status == PaperStatus.DOWNLOADED:
                                 stats.pdfs_downloaded += 1
                             elif updated.status == PaperStatus.FAILED:

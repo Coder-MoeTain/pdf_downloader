@@ -222,6 +222,87 @@ providers:
     enabled: true
     requests_per_second: 1
     requires_key: false
+  pmc:
+    enabled: true
+    requests_per_second: 3
+    requests_per_second_with_key: 8
+    requires_key: false
+  chemrxiv:
+    enabled: true
+    requests_per_second: 4
+    requires_key: false
+  ssrn:
+    enabled: true
+    requests_per_second: 4
+    requires_key: false
+  research_square:
+    enabled: true
+    requests_per_second: 4
+    requires_key: false
+  techrxiv:
+    enabled: true
+    requests_per_second: 4
+    requires_key: false
+  peerj:
+    enabled: true
+    requests_per_second: 4
+    requires_key: false
+  f1000research:
+    enabled: true
+    requests_per_second: 4
+    requires_key: false
+  nber:
+    enabled: true
+    requests_per_second: 4
+    requires_key: false
+  eartharxiv:
+    enabled: true
+    requests_per_second: 4
+    requires_key: false
+  openreview:
+    enabled: true
+    requests_per_second: 3
+    requires_key: false
+  elife:
+    enabled: true
+    requests_per_second: 3
+    requires_key: false
+  scipost:
+    enabled: true
+    requests_per_second: 2
+    requires_key: false
+  paperswithcode:
+    enabled: true
+    requests_per_second: 3
+    requires_key: false
+  zbmath:
+    enabled: true
+    requests_per_second: 2
+    requires_key: false
+  usgs:
+    enabled: true
+    requests_per_second: 2
+    requires_key: false
+  dataverse:
+    enabled: true
+    requests_per_second: 2
+    requires_key: false
+  fao:
+    enabled: true
+    requests_per_second: 1
+    requires_key: false
+  who:
+    enabled: true
+    requests_per_second: 1
+    requires_key: false
+  cern:
+    enabled: true
+    requests_per_second: 3
+    requires_key: false
+  ndl:
+    enabled: true
+    requests_per_second: 1
+    requires_key: false
 
 http:
   max_concurrent_requests: 5

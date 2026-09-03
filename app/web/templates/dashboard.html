@@ -10,13 +10,6 @@
     <p class="lede mb-0">Search official academic APIs, keep paywalled records, and download only legally available open-access PDFs.</p>
   </div>
   <div class="dash-head-actions">
-    {% if is_admin %}<a class="store-pill {% if store.backend == 'mysql' %}is-mysql{% endif %}" href="/sources">{% else %}<div class="store-pill {% if store.backend == 'mysql' %}is-mysql{% endif %}">{% endif %}
-      <span class="store-dot" aria-hidden="true"></span>
-      <div>
-        <strong>{{ available_sources|length }} sources ready</strong>
-        <div class="store-meta">{{ store.label }}</div>
-      </div>
-    {% if is_admin %}</a>{% else %}</div>{% endif %}
     <a class="btn btn-outline-primary" href="/statistics">Analytics</a>
     <a class="btn btn-primary" href="/search">New search</a>
   </div>
@@ -38,14 +31,6 @@
     </div>
   </div>
 </a>
-{% endif %}
-
-{% if insights %}
-<div class="insight-row mb-4">
-  {% for item in insights %}
-  <span class="insight-chip">{{ item }}</span>
-  {% endfor %}
-</div>
 {% endif %}
 
 {% if not stored_total %}

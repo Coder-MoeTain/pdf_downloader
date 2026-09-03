@@ -8,7 +8,7 @@ from xml.etree import ElementTree as ET
 from app.models.paper import AuthorRecord, PaperRecord
 from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
-from app.utils.doi import normalize_doi
+from app.utils.doi import doi_url, normalize_doi
 from app.utils.logger import get_logger
 
 logger = get_logger("app.providers.pubmed")
@@ -155,3 +155,110 @@ def _parse_pubmed_xml(xml_text: str, source: str) -> list[PaperRecord]:
             )
         )
     return papers
+
+
+class PmcProvider(ResearchProvider):
+    """PubMed Central full-text corpus via NCBI E-utilities (JSON esearch + esummary)."""
+
+    name = "pmc"
+    display_name = "PubMed Central"
+    SEARCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+    SUMMARY = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+
+    def has_api_key(self) -> bool:
+        return bool(self.config.env.ncbi_api_key)
+
+    def _params(self, extra: dict[str, Any]) -> dict[str, Any]:
+        params = {
+            "db": "pmc",
+            "retmode": "json",
+            "tool": "ResearchPaperCollector",
+            "email": self.config.env.polite_email,
+            **extra,
+        }
+        if self.config.env.ncbi_api_key:
+            params["api_key"] = self.config.env.ncbi_api_key
+        return params
+
+    async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
+        term = query
+        if filters.year_from or filters.year_to:
+            start = filters.year_from or 1800
+            end = filters.year_to or 2100
+            term = f'({query}) AND ("{start}"[Publication Date] : "{end}"[Publication Date])'
+        if filters.authors:
+            term += f" AND {filters.authors}[Author]"
+        if filters.journal:
+            term += f" AND {filters.journal}[Journal]"
+        data = await self.request_json(
+            self.SEARCH,
+            params=self._params({"term": term, "retmax": min(filters.max_results, 100)}),
+        )
+        ids = [str(i) for i in ((data or {}).get("esearchresult") or {}).get("idlist") or [] if i]
+        if not ids:
+            return []
+        summary = await self.request_json(self.SUMMARY, params=self._params({"id": ",".join(ids)}))
+        result = (summary or {}).get("result") or {}
+        papers = [self._parse(result.get(uid)) for uid in (result.get("uids") or ids)]
+        return [p for p in papers if p and p.title]
+
+    async def find_pdf(self, paper: PaperRecord) -> str | None:
+        if paper.pmcid:
+            pmc = paper.pmcid if paper.pmcid.upper().startswith("PMC") else f"PMC{paper.pmcid}"
+            return f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmc}/pdf/"
+        return paper.pdf_url
+
+    def _parse(self, item: dict[str, Any] | None) -> PaperRecord | None:
+        if not item or not isinstance(item, dict):
+            return None
+        title = (item.get("title") or "").strip()
+        if not title:
+            return None
+        doi = None
+        pmid = None
+        pmcid = None
+        for aid in item.get("articleids") or []:
+            if not isinstance(aid, dict):
+                continue
+            kind = (aid.get("idtype") or "").lower()
+            value = (aid.get("value") or "").strip()
+            if kind == "doi":
+                doi = normalize_doi(value)
+            elif kind == "pmid":
+                pmid = value
+            elif kind in {"pmc", "pmcid"}:
+                pmcid = value if value.upper().startswith("PMC") else f"PMC{value}"
+        uid = str(item.get("uid") or "").strip()
+        if not pmcid and uid:
+            pmcid = uid if uid.upper().startswith("PMC") else f"PMC{uid}"
+        authors: list[AuthorRecord] = []
+        for author in item.get("authors") or []:
+            if not isinstance(author, dict):
+                continue
+            name = (author.get("name") or "").strip()
+            if name:
+                authors.append(AuthorRecord(name=name))
+        year_text = str(item.get("pubdate") or item.get("epubdate") or "")
+        digits = "".join(ch for ch in year_text[:4] if ch.isdigit())
+        year = int(digits) if len(digits) == 4 else None
+        pdf_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/pdf/" if pmcid else None
+        return PaperRecord(
+            title=title,
+            abstract=None,
+            authors=authors,
+            publication_year=year,
+            publication_date=year_text[:10] or None,
+            journal=item.get("fulljournalname") or item.get("source"),
+            volume=item.get("volume"),
+            issue=item.get("issue"),
+            pages=item.get("pages"),
+            publisher="PubMed Central",
+            doi=doi,
+            pmid=pmid,
+            pmcid=pmcid,
+            url=f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/" if pmcid else doi_url(doi),
+            pdf_url=pdf_url,
+            open_access=True,
+            source_provider=self.name,
+            metadata_sources={"pmcid": self.name, "pdf_url": self.name} if pdf_url else {"pmcid": self.name},
+        )

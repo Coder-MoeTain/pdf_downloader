@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from math import ceil
 from urllib.parse import urlencode
+
+from app.utils.time import utc_now
+
+NEW_DOWNLOAD_AGE = timedelta(hours=24)
 
 STATUS_META: dict[str, dict[str, str]] = {
     "DOWNLOADED": {"label": "Downloaded", "tone": "success"},
@@ -207,3 +212,80 @@ def library_href(current: dict | None = None, **overrides) -> str:
         pairs.append(("page", str(page)))
     query_string = urlencode(pairs)
     return f"/library?{query_string}" if query_string else "/library"
+
+
+def downloads_href(current: dict | None = None, **overrides) -> str:
+    """Build a /downloads URL, omitting default filter values."""
+    merged = {**(current or {}), **overrides}
+    pairs: list[tuple[str, str]] = []
+    query = str(merged.get("q") or "").strip()
+    if query:
+        pairs.append(("q", query))
+    status = str(merged.get("status") or "").strip()
+    if status:
+        pairs.append(("status", status))
+    per_page = clamp_page_size(merged.get("per_page") or DEFAULT_PAGE_SIZE)
+    if per_page != DEFAULT_PAGE_SIZE:
+        pairs.append(("per_page", str(per_page)))
+    try:
+        page = int(merged.get("page") or 1)
+    except (TypeError, ValueError):
+        page = 1
+    if page > 1:
+        pairs.append(("page", str(page)))
+    query_string = urlencode(pairs)
+    return f"/downloads?{query_string}" if query_string else "/downloads"
+
+
+DOWNLOAD_STATUS_ORDER = (
+    "DOWNLOADING",
+    "DOWNLOADED",
+    "FAILED",
+    "OA_AVAILABLE",
+    "FOUND",
+    "DUPLICATE",
+    "SKIPPED",
+    "NO_PDF",
+    "PAYWALLED",
+)
+
+
+def ordered_status_counts(counts: dict) -> list[dict]:
+    """Status chips in a stable, useful order."""
+    items: list[dict] = []
+    used: set[str] = set()
+    for code in DOWNLOAD_STATUS_ORDER:
+        n = counts.get(code) or 0
+        if n:
+            items.append({"code": code, "count": n, **status_meta(code)})
+            used.add(code)
+    for code, n in counts.items():
+        if code not in used and n:
+            items.append({"code": code, "count": n, **status_meta(code)})
+    return items
+
+
+def download_actor_name(row) -> str:
+    """Name of the account that saved this download row."""
+    user = getattr(row, "downloaded_by", None)
+    if not user:
+        return ""
+    return (getattr(user, "name", None) or getattr(user, "email", None) or "").strip()
+
+
+def is_new_download(row, *, now: datetime | None = None) -> bool:
+    """True when a saved PDF was downloaded within the last 24 hours."""
+    status = getattr(row, "status", None)
+    if status not in {"DOWNLOADED", "DUPLICATE"}:
+        return False
+    if not getattr(row, "local_path", None):
+        return False
+    stamp = getattr(row, "downloaded_at", None)
+    if not isinstance(stamp, datetime):
+        return False
+    current = now or utc_now()
+    if stamp.tzinfo is not None:
+        stamp = stamp.replace(tzinfo=None)
+    if current.tzinfo is not None:
+        current = current.replace(tzinfo=None)
+    return stamp >= current - NEW_DOWNLOAD_AGE

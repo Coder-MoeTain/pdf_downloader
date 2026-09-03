@@ -178,6 +178,141 @@ def test_library_pagination_controls(tmp_db):
     assert "Page 2 of 2" in second.text
 
 
+def test_downloads_pagination_and_search(tmp_db):
+    from app.database.repository import upsert_download
+
+    with session_scope() as session:
+        for index in range(12):
+            paper = save_paper(
+                session,
+                PaperRecord(
+                    title=f"Download row {index:02d}",
+                    doi=f"10.1000/dl-{index}",
+                    pdf_url="https://arxiv.org/pdf/1.pdf",
+                    status=PaperStatus.DOWNLOADED,
+                ),
+            )
+            upsert_download(
+                session,
+                paper.id,
+                pdf_url="https://arxiv.org/pdf/1.pdf",
+                status=PaperStatus.DOWNLOADED.value,
+                local_path=f"library/{index}.pdf",
+                file_size=2048,
+            )
+        match = save_paper(
+            session,
+            PaperRecord(
+                title="Satellite drought paper",
+                doi="10.1000/dl-search",
+                pdf_url="https://arxiv.org/pdf/2.pdf",
+                status=PaperStatus.DOWNLOADED,
+            ),
+        )
+        upsert_download(
+            session,
+            match.id,
+            pdf_url="https://arxiv.org/pdf/2.pdf",
+            status=PaperStatus.DOWNLOADED.value,
+            local_path="library/search.pdf",
+            file_size=4096,
+        )
+    client = TestClient(app)
+    first = client.get("/downloads?per_page=10")
+    assert first.status_code == 200
+    assert "Showing" in first.text
+    assert "1–10" in first.text
+    assert "of <strong>13</strong>" in first.text or "of 13" in first.text
+    assert 'aria-label="Download pages"' in first.text
+    assert "Per page" in first.text
+    assert "Download row 00" not in first.text
+    second = client.get("/downloads?per_page=10&page=2")
+    assert second.status_code == 200
+    assert "Page 2 of 2" in second.text
+    assert "Download row 00" in second.text
+    searched = client.get("/downloads?q=Satellite")
+    assert searched.status_code == 200
+    assert "Satellite drought paper" in searched.text
+    assert "Download row 00" not in searched.text
+    assert "Nothing matches this filter" not in searched.text
+    assert 'id="downloadLogs"' in first.text
+    assert "Saved" in first.text or "Waiting for a download" in first.text
+
+
+def test_downloads_page_marks_recent_pdfs_as_new(tmp_db):
+    from datetime import timedelta
+    from types import SimpleNamespace
+
+    from app.database.repository import upsert_download
+    from app.utils.time import utc_now
+    from app.web.ui import is_new_download
+
+    now = utc_now()
+    assert is_new_download(
+        SimpleNamespace(status="DOWNLOADED", local_path="library/a.pdf", downloaded_at=now),
+        now=now,
+    )
+    assert not is_new_download(
+        SimpleNamespace(
+            status="DOWNLOADED",
+            local_path="library/a.pdf",
+            downloaded_at=now - timedelta(hours=25),
+        ),
+        now=now,
+    )
+    assert not is_new_download(
+        SimpleNamespace(status="FAILED", local_path="library/a.pdf", downloaded_at=now),
+        now=now,
+    )
+
+    with session_scope() as session:
+        fresh = save_paper(
+            session,
+            PaperRecord(
+                title="Freshly saved paper",
+                doi="10.1000/dl-new",
+                pdf_url="https://arxiv.org/pdf/new.pdf",
+                status=PaperStatus.DOWNLOADED,
+            ),
+        )
+        upsert_download(
+            session,
+            fresh.id,
+            pdf_url="https://arxiv.org/pdf/new.pdf",
+            status=PaperStatus.DOWNLOADED.value,
+            local_path="library/new.pdf",
+            file_size=2048,
+        )
+        aged = save_paper(
+            session,
+            PaperRecord(
+                title="Older saved paper",
+                doi="10.1000/dl-old",
+                pdf_url="https://arxiv.org/pdf/old.pdf",
+                status=PaperStatus.DOWNLOADED,
+            ),
+        )
+        old_row = upsert_download(
+            session,
+            aged.id,
+            pdf_url="https://arxiv.org/pdf/old.pdf",
+            status=PaperStatus.DOWNLOADED.value,
+            local_path="library/old.pdf",
+            file_size=2048,
+        )
+        old_row.downloaded_at = utc_now() - timedelta(days=3)
+
+    client = TestClient(app)
+    page = client.get("/downloads")
+    assert page.status_code == 200
+    assert "Freshly saved paper" in page.text
+    assert "Older saved paper" in page.text
+    assert page.text.count('class="label-new"') == 1
+    assert page.text.count('class="is-new"') == 1
+    assert "label-new" in page.text.split("Freshly saved paper", 1)[1].split("</td>", 1)[0]
+    assert "label-new" not in page.text.split("Older saved paper", 1)[1].split("</td>", 1)[0]
+
+
 def test_library_hides_no_pdf_and_failed(tmp_db):
     with session_scope() as session:
         save_paper(
@@ -242,7 +377,6 @@ def test_hide_paywalled_filters_library_unless_explicit(tmp_db):
     assert library.status_code == 200
     assert "Open visible paper" in library.text
     assert "Closed paywalled paper" not in library.text
-    assert "Paywalled papers are hidden" in library.text
     explicit = client.get("/library?status=PAYWALLED")
     assert explicit.status_code == 200
     assert "Closed paywalled paper" in explicit.text
@@ -250,13 +384,17 @@ def test_hide_paywalled_filters_library_unless_explicit(tmp_db):
     assert downloads.status_code == 200
     assert "Open visible paper" in downloads.text
     assert "Closed paywalled paper" not in downloads.text
-    assert "Paywalled papers are hidden" in downloads.text
     assert "/downloads?status=PAYWALLED" not in downloads.text
     paywalled_downloads = client.get("/downloads?status=PAYWALLED")
     assert paywalled_downloads.status_code == 200
     assert "Closed paywalled paper" in paywalled_downloads.text
     home = client.get("/")
     assert home.status_code == 200
+    assert "sources ready" not in home.text
+    assert "Peak year" not in home.text
+    assert "insight-chip" not in home.text
+    assert "store-pill" not in home.text
+    assert "Analytics" in home.text
     settings = client.get("/settings?section=workspace")
     assert settings.status_code == 200
     assert "Show paywalled papers" in settings.text

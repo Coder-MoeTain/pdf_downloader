@@ -31,6 +31,7 @@ def test_search_logs_and_nested_download():
     tracker.update_bytes(50, 100)
     bytes_snap = tracker.snapshot()
     assert 82 <= bytes_snap["percent"] <= 96
+    assert any("1/1: A paper" in entry["message"] for entry in bytes_snap["logs"])
     tracker.finish_item("DOWNLOADED")
     tracker.finish_batch()
     after_pdfs = tracker.snapshot()
@@ -55,13 +56,17 @@ def test_progress_percent_and_batch():
     tracker.finish_item("DOWNLOADED")
     tracker.begin_item(2, "Second paper", 2)
     tracker.update_bytes(10, None)
-    tracker.finish_item("FAILED")
+    tracker.finish_item("FAILED", error="HTTP 403")
     tracker.finish_batch()
     done = tracker.snapshot()
     assert done["active"] is False
     assert done["downloaded"] == 1
     assert done["failed"] == 1
     assert "Finished" in done["message"]
+    messages = [entry["message"] for entry in done["logs"]]
+    assert any("1/2: First paper" in msg for msg in messages)
+    assert any("Saved" in msg and "First paper" in msg for msg in messages)
+    assert any("Failed" in msg and "HTTP 403" in msg for msg in messages)
 
 
 def test_safe_library_pdf_rejects_escape(tmp_path: Path, monkeypatch):

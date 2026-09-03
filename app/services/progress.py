@@ -10,6 +10,13 @@ MAX_LOGS = 120
 SEARCH_PHASES = ("starting", "searching", "merging", "oa", "storing", "downloading", "done", "error")
 
 
+def _clip(text: str, limit: int = 88) -> str:
+    value = " ".join(str(text or "").split())
+    if len(value) <= limit:
+        return value
+    return value[: limit - 1] + "…"
+
+
 class ProgressTracker:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -161,6 +168,7 @@ class ProgressTracker:
             self._state["percent"] = None
             total = self._state["total"] or index
             self._state["message"] = f"Downloading {index} of {total}"
+            self._append_log(f"{index}/{total}: {_clip(title)}")
             if self._state.get("kind") == "search":
                 self._state["phase"] = "downloading"
                 self._state["percent"] = round(82 + (index / max(total, 1)) * 13, 1)
@@ -180,16 +188,27 @@ class ProgressTracker:
             elif self._state.get("kind") != "search":
                 self._state["percent"] = None
 
-    def finish_item(self, status: str) -> None:
+    def finish_item(self, status: str, *, error: str | None = None) -> None:
         with self._lock:
+            title = _clip(str(self._state.get("title") or "Paper"))
+            size = int(self._state.get("bytes_downloaded") or 0)
             if status == "DOWNLOADED":
                 self._state["downloaded"] += 1
                 if self._state.get("kind") != "search":
                     self._state["percent"] = 100.0
+                extra = f" ({size:,} bytes)" if size else ""
+                self._append_log(f"Saved “{title}”{extra}", "success")
             elif status == "FAILED":
                 self._state["failed"] += 1
+                reason = f" — {error}" if error else ""
+                self._append_log(f"Failed “{title}”{reason}", "danger")
+            elif status == "DUPLICATE":
+                self._state["skipped"] += 1
+                self._append_log(f"Duplicate “{title}”, reused existing file", "info")
             else:
                 self._state["skipped"] += 1
+                reason = f" — {error}" if error else ""
+                self._append_log(f"Skipped “{title}”{reason}", "info")
 
     def finish_batch(self) -> None:
         with self._lock:

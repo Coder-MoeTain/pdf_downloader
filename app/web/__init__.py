@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app import __app_name__, __version__
@@ -85,7 +85,11 @@ from app.web.ui import (
     SORT_OPTIONS,
     active_page,
     clamp_page_size,
+    download_actor_name,
+    downloads_href,
+    is_new_download,
     library_href,
+    ordered_status_counts,
     pagination_spec,
     paper_abstract_meta,
     paper_downloader_name,
@@ -100,9 +104,12 @@ templates.env.globals["pdf_button_state"] = pdf_button_state
 templates.env.globals["status_meta"] = status_meta
 templates.env.globals["can_preview"] = lambda paper: existing_pdf_path(paper) is not None
 templates.env.globals["library_href"] = library_href
+templates.env.globals["downloads_href"] = downloads_href
 templates.env.globals["source_label"] = source_label
 templates.env.globals["paper_abstract_meta"] = paper_abstract_meta
 templates.env.globals["paper_downloader_name"] = paper_downloader_name
+templates.env.globals["download_actor_name"] = download_actor_name
+templates.env.globals["is_new_download"] = is_new_download
 templates.env.filters["filesize"] = lambda value: _format_bytes(value)
 templates.env.filters["localdt"] = lambda value, fmt="%Y-%m-%d %H:%M": format_local(value, fmt)
 templates.env.filters["tags"] = split_tags
@@ -390,7 +397,7 @@ def _ctx(request: Request, **extra):
     payload = {
         "request": request,
         "app_name": cfg.name,
-        "version": cfg.version,
+        "version": __version__,
         "flash": _search_message,
         "page": active_page(request.url.path),
         "progress": tracker.snapshot(),
@@ -470,7 +477,6 @@ def dashboard(request: Request):
     year_chart = year_counts[-16:]
     for row in year_chart:
         row["bar"] = round((row["count"] / year_max) * 100, 1) if year_max else 0
-    peak = max(year_counts, key=lambda row: row["count"]) if year_counts else None
     statuses = [
         {
             "code": code,
@@ -482,7 +488,6 @@ def dashboard(request: Request):
         if code
     ]
     statuses.sort(key=lambda row: (-row["count"], row["label"]))
-    available = [row for row in provider_status() if row.get("available")]
     kpis = [
         {"href": "/library", "label": "Papers in library", "value": total, "tone": "primary", "hint": f"{searches} search{'es' if searches != 1 else ''} run"},
         {"href": "/library?pdf=1", "label": "Downloadable PDFs", "value": downloadable, "tone": "success", "hint": f"{share(downloadable, total)}% of library"},
@@ -491,17 +496,6 @@ def dashboard(request: Request):
         {"href": "/downloads?status=FAILED", "label": "Failed downloads", "value": failed, "tone": "danger", "hint": "Retry from Downloads"},
         {"href": "/library?status=OA_AVAILABLE", "label": "Open access", "value": oa, "tone": "secondary", "hint": f"{share(oa, total)}% of library"},
     ]
-    insights = []
-    if year_counts:
-        insights.append(f"Coverage {year_counts[0]['year']}–{year_counts[-1]['year']}")
-    if peak:
-        insights.append(f"Peak year {peak['year']} ({peak['count']})")
-    if total:
-        insights.append(f"{share(downloadable, total)}% legally downloadable")
-        if get_runtime_config().show_paywalled:
-            insights.append(f"{share(paywalled, stored_total)}% paywalled")
-    insights.append(f"{len(available)} academic sources ready")
-    store = store_status()
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -509,7 +503,6 @@ def dashboard(request: Request):
             request,
             total=total,
             kpis=kpis,
-            insights=insights,
             year_chart=year_chart,
             years=year_counts,
             no_year=no_year,
@@ -520,8 +513,6 @@ def dashboard(request: Request):
             recent=recent,
             latest_search=recent[0] if recent else None,
             topics=[{"name": name, "count": count} for name, count in topics],
-            available_sources=available,
-            store=store,
             searches=searches,
             downloadable=downloadable,
             failed=failed,
@@ -811,34 +802,75 @@ def search_progress():
 
 
 @app.get("/downloads", response_class=HTMLResponse)
-def downloads_page(request: Request, status: str = ""):
+def downloads_page(
+    request: Request,
+    status: str = "",
+    q: str = "",
+    page: int = 1,
+    per_page: int = DEFAULT_PAGE_SIZE,
+):
+    status = status.strip()
+    q = q.strip()
+    per_page = clamp_page_size(per_page)
     status_order = case(
         (Download.status == "DOWNLOADING", 0),
         (Download.status == "DOWNLOADED", 1),
         (Download.status == "FAILED", 2),
         else_=3,
     )
+    search_like = f"%{q}%" if q else ""
     with session_scope() as session:
         hide = visible_download_clauses(status=status)
+        filters = [clause for clause in hide]
+        if status:
+            filters.append(Download.status == status)
+        if q:
+            filters.append(or_(Paper.title.ilike(search_like), Paper.doi.ilike(search_like)))
+        count_stmt = select(func.count(Download.id)).join(Paper, Download.paper_id == Paper.id)
+        for clause in filters:
+            count_stmt = count_stmt.where(clause)
+        total = session.scalar(count_stmt) or 0
+        pager = pagination_spec(max(page, 1), total, per_page)
         stmt = (
             select(Download)
             .join(Paper, Download.paper_id == Paper.id)
-            .options(selectinload(Download.paper))
+            .options(selectinload(Download.paper), selectinload(Download.downloaded_by))
             .order_by(status_order, Download.id.desc())
         )
-        if status:
-            stmt = stmt.where(Download.status == status)
-        for clause in hide:
+        for clause in filters:
             stmt = stmt.where(clause)
-        rows = session.scalars(stmt.limit(200)).all()
-        count_stmt = select(Download.status, func.count(Download.id)).join(Paper, Download.paper_id == Paper.id)
-        for clause in hide:
-            count_stmt = count_stmt.where(clause)
-        counts = dict(session.execute(count_stmt.group_by(Download.status)).all())
+        rows = list(
+            session.scalars(stmt.offset((pager["page"] - 1) * per_page).limit(per_page)).all()
+        )
+        chip_stmt = (
+            select(Download.status, func.count(Download.id))
+            .join(Paper, Download.paper_id == Paper.id)
+            .group_by(Download.status)
+        )
+        for clause in visible_download_clauses(status=""):
+            chip_stmt = chip_stmt.where(clause)
+        if q:
+            chip_stmt = chip_stmt.where(or_(Paper.title.ilike(search_like), Paper.doi.ilike(search_like)))
+        counts = dict(session.execute(chip_stmt).all())
+    filters_state = {"status": status, "q": q, "per_page": per_page}
+    has_filters = bool(status or q)
     return templates.TemplateResponse(
         request,
         "downloads.html",
-        _ctx(request, rows=rows, counts=counts, status=status, progress=tracker.snapshot()),
+        _ctx(
+            request,
+            rows=rows,
+            counts=counts,
+            status_chips=ordered_status_counts(counts),
+            status=status,
+            q=q,
+            per_page=per_page,
+            pager=pager,
+            filters=filters_state,
+            page_sizes=PAGE_SIZES,
+            has_filters=has_filters,
+            progress=tracker.snapshot(),
+        ),
     )
 
 

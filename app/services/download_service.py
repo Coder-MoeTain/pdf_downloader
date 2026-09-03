@@ -22,6 +22,13 @@ from app.services.progress import tracker
 logger = get_logger("app.download")
 
 
+def _clip_url(url: str, limit: int = 96) -> str:
+    value = (url or "").strip()
+    if len(value) <= limit:
+        return value
+    return value[: limit - 1] + "…"
+
+
 class DownloadError(RuntimeError):
     pass
 
@@ -84,11 +91,14 @@ class DownloadService:
                 paper.extra["local_path"] = str(dest)
                 if on_progress:
                     on_progress(dest.stat().st_size, dest.stat().st_size)
+                tracker.log(f"Already on disk: {dest.name}", "success")
                 return paper
 
         if not paper.pdf_url or not is_safe_url(paper.pdf_url, prefer_https=self.config.prefer_https):
             paper.status = PaperStatus.NO_PDF
             upsert_download(session, paper_id, pdf_url=paper.pdf_url, status=PaperStatus.NO_PDF.value, error="No safe PDF URL")
+            tracker.log("No legal PDF URL", "info")
+            paper.extra["error"] = "No legal PDF URL"
             return paper
 
         if not robots_allowed(paper.pdf_url, self.config.user_agent_header()):
@@ -100,10 +110,13 @@ class DownloadService:
                 status=PaperStatus.SKIPPED.value,
                 error="Blocked by robots.txt",
             )
+            tracker.log(f"Blocked by robots.txt: {_clip_url(paper.pdf_url)}", "info")
+            paper.extra["error"] = "Blocked by robots.txt"
             return paper
 
         upsert_download(session, paper_id, pdf_url=paper.pdf_url, status=PaperStatus.DOWNLOADING.value)
         session.commit()
+        tracker.log(f"GET {_clip_url(paper.pdf_url)}")
 
         try:
             size, digest = await self._stream_pdf(paper.pdf_url, dest, max_size, on_progress=on_progress)
@@ -120,6 +133,7 @@ class DownloadService:
                 increment_retry=True,
             )
             logger.warning("Download failed for %s: %s", paper.title[:80], exc)
+            paper.extra["error"] = str(exc)
             return paper
 
         if self._reuse_duplicate(session, paper_id, paper, dest, digest, size, user_id=user_id):
@@ -163,14 +177,24 @@ class DownloadService:
                 headers={"User-Agent": self.config.user_agent_header()},
             ) as response:
                 if response.status_code >= 400:
+                    tracker.log(f"HTTP {response.status_code}", "danger")
                     raise DownloadError(f"HTTP {response.status_code}")
                 content_type = response.headers.get("content-type", "")
                 declared = response.headers.get("content-length")
                 if declared and int(declared) > max_size:
+                    tracker.log("Remote file exceeds max size", "danger")
                     raise DownloadError("Remote file exceeds max size")
                 if "html" in content_type.lower() or "json" in content_type.lower():
+                    tracker.log(f"Not a PDF (Content-Type {content_type})", "danger")
                     raise DownloadError(f"Not a PDF (Content-Type {content_type})")
                 total = int(declared) if declared and declared.isdigit() else None
+                ctype = content_type.split(";")[0].strip()
+                header_note = f"HTTP {response.status_code}"
+                if total:
+                    header_note += f" · {total:,} bytes"
+                if ctype:
+                    header_note += f" · {ctype}"
+                tracker.log(header_note)
                 if on_progress:
                     on_progress(0, total)
 
@@ -324,17 +348,18 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
                 if row is not None and row.downloaded_by_user_id is None:
                     row.downloaded_by_user_id = user_id
             tracker.begin_item(paper_id, paper.title, 1)
+            tracker.log(f"Already on disk: {existing.name}", "success")
             tracker.update_bytes(existing.stat().st_size, existing.stat().st_size)
             tracker.finish_item("DOWNLOADED")
             tracker.finish_batch()
             return existing
         if paper.status == PaperStatus.PAYWALLED.value and not paper.pdf_url:
-            tracker.finish_item("FAILED")
+            tracker.finish_item("FAILED", error="Paywalled and no legal PDF URL")
             tracker.finish_batch()
             raise DownloadError("This paper is paywalled and has no legal PDF URL")
         record = paper_to_record(paper)
         if not record.pdf_url:
-            tracker.finish_item("FAILED")
+            tracker.finish_item("FAILED", error="No legally available PDF URL")
             tracker.finish_batch()
             raise DownloadError("No legally available PDF URL")
 
@@ -367,7 +392,7 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
                 select(Paper).options(selectinload(Paper.downloads)).where(Paper.id == paper_id)
             )
             path = existing_pdf_path(paper, library_root) if paper else None
-            tracker.finish_item(updated.status.value)
+            tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
             tracker.finish_batch()
             if path is None:
                 raise DownloadError(updated.extra.get("error") or updated.status.value)
@@ -414,7 +439,7 @@ async def download_open_access_papers(
                     if not record.pdf_url:
                         stats["skipped"] += 1
                         tracker.begin_item(paper.id, paper.title, index)
-                        tracker.finish_item("SKIPPED")
+                        tracker.finish_item("SKIPPED", error="No legal PDF URL")
                         continue
                     stats["attempted"] += 1
                     tracker.begin_item(paper.id, paper.title, index)
@@ -428,7 +453,7 @@ async def download_open_access_papers(
                     )
                     save_paper(session, updated)
                     session.commit()
-                    tracker.finish_item(updated.status.value)
+                    tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
                     if updated.status == PaperStatus.DOWNLOADED:
                         stats["downloaded"] += 1
                     elif updated.status == PaperStatus.FAILED:

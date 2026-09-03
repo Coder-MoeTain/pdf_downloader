@@ -38,8 +38,29 @@ from app.providers.free import (
     WorldbankProvider,
     ZenodoProvider,
 )
+from app.providers.more import (
+    CernProvider,
+    ChemrxivProvider,
+    DataverseProvider,
+    EartharxivProvider,
+    ElifeProvider,
+    F1000ResearchProvider,
+    FaoProvider,
+    NberProvider,
+    NdlProvider,
+    OpenreviewProvider,
+    PaperswithcodeProvider,
+    PeerjProvider,
+    ResearchSquareProvider,
+    ScipostProvider,
+    SsrnProvider,
+    TechrxivProvider,
+    UsgsProvider,
+    WhoProvider,
+    ZbmathProvider,
+)
 from app.providers.openalex import OpenAlexProvider
-from app.providers.pubmed import PubMedProvider
+from app.providers.pubmed import PmcProvider, PubMedProvider
 from app.providers.semantic_scholar import SemanticScholarProvider
 from app.utils.http import AsyncHttpClient
 from app.utils.logger import get_logger
@@ -52,6 +73,7 @@ PROVIDER_CLASSES: list[type[ResearchProvider]] = [
     SemanticScholarProvider,
     ArxivProvider,
     PubMedProvider,
+    PmcProvider,
     EuropePMCProvider,
     CoreProvider,
     DoajProvider,
@@ -80,6 +102,25 @@ PROVIDER_CLASSES: list[type[ResearchProvider]] = [
     WorldbankProvider,
     OapenProvider,
     EconstorProvider,
+    ChemrxivProvider,
+    SsrnProvider,
+    ResearchSquareProvider,
+    TechrxivProvider,
+    PeerjProvider,
+    F1000ResearchProvider,
+    NberProvider,
+    EartharxivProvider,
+    OpenreviewProvider,
+    ElifeProvider,
+    ScipostProvider,
+    PaperswithcodeProvider,
+    ZbmathProvider,
+    UsgsProvider,
+    DataverseProvider,
+    FaoProvider,
+    WhoProvider,
+    CernProvider,
+    NdlProvider,
 ]
 
 

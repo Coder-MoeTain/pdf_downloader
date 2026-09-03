@@ -11,15 +11,9 @@
 <div class="page-head">
   <div>
     <div class="page-kicker">{% if latest %}Latest search{% else %}Collection{% endif %}</div>
-    <h1 class="h2 mb-1">{% if latest %}Search results{% else %}Library{% endif %}</h1>
+    <h1 class="h2 mb-0">{% if latest %}Search results{% else %}Library{% endif %}</h1>
     {% if latest and latest_search %}
-    <p class="lede mb-0">{{ latest_search.original_query }} · {{ status_meta(latest_search.status).label }}{% if search_running %} · refreshing every 5s{% endif %}{% if total %} · {{ total }} paper{{ "s" if total != 1 else "" }}{% endif %}</p>
-    {% elif has_filters and total %}
-    <p class="lede mb-0">{{ total }} paper{{ "s" if total != 1 else "" }} match the current filters.{% if not show_paywalled %} Paywalled papers are hidden.{% endif %}</p>
-    {% elif total %}
-    <p class="lede mb-0">{{ total }} papers in the local library. Filter by category, year, or source, then download legally available PDFs.{% if not show_paywalled %} Paywalled papers are hidden.{% endif %}</p>
-    {% else %}
-    <p class="lede mb-0">Browse collected papers, rate them, and download legally available open-access PDFs.</p>
+    <p class="lede mb-0 mt-1">{{ latest_search.original_query }} · {{ status_meta(latest_search.status).label }}{% if search_running %} · refreshing every 5s{% endif %}{% if total %} · {{ total }} paper{{ "s" if total != 1 else "" }}{% endif %}</p>
     {% endif %}
   </div>
   <div class="d-flex flex-wrap gap-2">

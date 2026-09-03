@@ -1,5 +1,6 @@
 import pytest
 
+from app.models.paper import PaperRecord
 from app.models.search import SearchFilters
 from app.providers import PROVIDER_CLASSES
 from app.providers.crossref import CrossrefProvider
@@ -13,7 +14,16 @@ from app.providers.free import (
     PlosProvider,
     ZenodoProvider,
 )
+from app.providers.more import (
+    ChemrxivProvider,
+    ElifeProvider,
+    FaoProvider,
+    OpenreviewProvider,
+    PeerjProvider,
+    UsgsProvider,
+)
 from app.providers.openalex import OpenAlexProvider, inverted_index_to_text
+from app.providers.pubmed import PmcProvider
 from app.providers.semantic_scholar import SemanticScholarProvider
 from app.utils.http import HttpError
 
@@ -36,8 +46,31 @@ FREE_SOURCE_SLUGS = {
     "inspire",
     "fatcat",
     "worldbank",
-    "oapen",
-    "econstor",
+        "oapen",
+        "econstor",
+}
+
+NEW_SOURCE_SLUGS = {
+    "pmc",
+    "chemrxiv",
+    "ssrn",
+    "research_square",
+    "techrxiv",
+    "peerj",
+    "f1000research",
+    "nber",
+    "eartharxiv",
+    "openreview",
+    "elife",
+    "scipost",
+    "paperswithcode",
+    "zbmath",
+    "usgs",
+    "dataverse",
+    "fao",
+    "who",
+    "cern",
+    "ndl",
 }
 
 
@@ -217,11 +250,14 @@ def test_nasa_ads_uses_esource_pdf():
 def test_free_sources_are_registered():
     names = {cls.name for cls in PROVIDER_CLASSES}
     assert FREE_SOURCE_SLUGS <= names
+    assert NEW_SOURCE_SLUGS <= names
     assert len(FREE_SOURCE_SLUGS) == 20
+    assert len(NEW_SOURCE_SLUGS) == 20
     from app.database.source_catalog import BUILTIN_SOURCES
 
     catalog = {str(item["slug"]) for item in BUILTIN_SOURCES}
     assert FREE_SOURCE_SLUGS <= catalog
+    assert NEW_SOURCE_SLUGS <= catalog
     assert catalog == names
 
 
@@ -398,3 +434,147 @@ async def test_semantic_scholar_429_mentions_api_key():
     provider = SemanticScholarProvider(_Raise429())  # type: ignore[arg-type]
     with pytest.raises(HttpError, match="SEMANTIC_SCHOLAR_API_KEY"):
         await provider.search("mathematic", SearchFilters(query="mathematic"))
+
+
+def test_pmc_parse_pdf_and_ids():
+    provider = PmcProvider(_Dummy())  # type: ignore[arg-type]
+    paper = provider._parse(
+        {
+            "uid": "11789012",
+            "title": "Open Access Genomics",
+            "fulljournalname": "Scientific Reports",
+            "pubdate": "2024 Jan 15",
+            "authors": [{"name": "Ada Lovelace", "authtype": "Author"}],
+            "articleids": [
+                {"idtype": "doi", "value": "10.1038/s41598-024-0001"},
+                {"idtype": "pmid", "value": "38123456"},
+                {"idtype": "pmcid", "value": "PMC11789012"},
+            ],
+        }
+    )
+    assert paper is not None
+    assert paper.doi == "10.1038/s41598-024-0001"
+    assert paper.pmcid == "PMC11789012"
+    assert paper.pmid == "38123456"
+    assert paper.pdf_url == "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11789012/pdf/"
+    assert paper.open_access is True
+    assert paper.authors[0].name == "Ada Lovelace"
+
+
+def test_peerj_builds_pdf_from_doi():
+    provider = PeerjProvider(_Dummy())  # type: ignore[arg-type]
+    paper = provider._after_parse(
+        PaperRecord(title="PeerJ Methods", doi="10.7717/peerj.1234", source_provider="peerj")
+    )
+    assert paper.pdf_url == "https://peerj.com/articles/1234.pdf"
+
+
+def test_usgs_parse_pdf_link():
+    provider = UsgsProvider(_Dummy())  # type: ignore[arg-type]
+    paper = provider._parse(
+        {
+            "id": 70150299,
+            "indexId": "ofr20151076",
+            "title": "Oil-particle interactions",
+            "docAbstract": "<p>A review of the science.</p>",
+            "publicationYear": "2015",
+            "publisher": "U.S. Geological Survey",
+            "doi": "10.3133/ofr20151076",
+            "seriesTitle": {"text": "Open-File Report"},
+            "contributors": {"authors": [{"given": "Faith A.", "family": "Fitzpatrick", "text": "Fitzpatrick, Faith A. fafitzpa@usgs.gov"}]},
+            "links": [
+                {
+                    "url": "https://pubs.usgs.gov/of/2015/1076/pdf/ofr2015-1076.pdf",
+                    "linkFileType": {"text": "pdf"},
+                },
+                {
+                    "url": "https://pubs.usgs.gov/of/2015/1076/",
+                    "type": {"text": "Index Page"},
+                },
+            ],
+        }
+    )
+    assert paper is not None
+    assert paper.doi == "10.3133/ofr20151076"
+    assert paper.pdf_url.endswith(".pdf")
+    assert paper.authors[0].name == "Faith A. Fitzpatrick"
+    assert "review of the science" in (paper.abstract or "")
+    assert paper.open_access is True
+
+
+def test_elife_parse_pdf():
+    provider = ElifeProvider(_Dummy())  # type: ignore[arg-type]
+    paper = provider._parse(
+        {
+            "id": "85537",
+            "title": "Cell signalling",
+            "authorLine": "A. Smith, B. Jones",
+            "published": "2024-03-01",
+            "doi": "10.7554/eLife.85537",
+            "impactStatement": "A study of signalling.",
+            "pdf": {"uri": "https://cdn.elifesciences.org/articles/85537/elife-85537-v1.pdf"},
+        }
+    )
+    assert paper is not None
+    assert paper.doi == "10.7554/elife.85537"
+    assert paper.pdf_url.endswith(".pdf")
+    assert paper.open_access is True
+    assert paper.journal == "eLife"
+
+
+def test_openreview_parse_forum_pdf():
+    provider = OpenreviewProvider(_Dummy())  # type: ignore[arg-type]
+    paper = provider._parse(
+        {
+            "id": "abc123",
+            "forum": "abc123",
+            "pdate": 1_709_251_200_000,
+            "content": {
+                "title": {"value": "Learning to Search"},
+                "abstract": {"value": "A conference paper."},
+                "authors": {"value": ["Grace Hopper"]},
+                "venue": {"value": "ICLR 2024"},
+            },
+        }
+    )
+    assert paper is not None
+    assert paper.title == "Learning to Search"
+    assert paper.authors[0].name == "Grace Hopper"
+    assert paper.pdf_url == "https://openreview.net/pdf?id=abc123"
+    assert paper.publication_year == 2024
+    assert paper.open_access is True
+
+
+def test_fao_parses_dspace7_metadata():
+    provider = FaoProvider(_Dummy())  # type: ignore[arg-type]
+    paper = provider._parse(
+        {
+            "_embedded": {
+                "indexableObject": {
+                    "name": "The State of Food Security",
+                    "handle": "20.500.14283/cc123en",
+                    "metadata": {
+                        "dc.title": [{"value": "The State of Food Security"}],
+                        "dc.contributor.author": [{"value": "FAO"}],
+                        "dc.date.issued": [{"value": "2023"}],
+                        "dc.identifier.doi": [{"value": "10.4060/cc123en"}],
+                        "dc.description.abstract": [{"value": "A global report."}],
+                    },
+                }
+            }
+        }
+    )
+    assert paper is not None
+    assert paper.doi == "10.4060/cc123en"
+    assert paper.authors[0].name == "FAO"
+    assert paper.url.endswith("/handle/20.500.14283/cc123en")
+    assert paper.open_access is True
+
+
+@pytest.mark.asyncio
+async def test_chemrxiv_uses_crossref_container_filter():
+    client = _CaptureJson({"message": {"items": []}})
+    provider = ChemrxivProvider(client)  # type: ignore[arg-type]
+    await provider.search("catalysis", SearchFilters(query="catalysis", max_results=20))
+    assert client.params["filter"].startswith("container-title:ChemRxiv")
+    assert client.params["rows"] == 20

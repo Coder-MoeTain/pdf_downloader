@@ -106,7 +106,7 @@ Providers share a common `ResearchProvider` interface (`search`, `get_paper`, `f
 | Crossref | No | Polite pool via contact email |
 | Semantic Scholar | Optional | Higher rate limit with a key |
 | arXiv | No | Preprint PDFs are public |
-| PubMed / PMC | Optional NCBI key | PMC PDFs when a PMCID exists |
+| PubMed | Optional NCBI key | Biomedical literature (E-utilities) |
 | Europe PMC | No | OA full-text URLs when provided |
 | CORE | **Required** | Institutional-repository OA |
 | DOAJ | No | Directory of Open Access Journals |
@@ -135,6 +135,26 @@ Providers share a common `ResearchProvider` interface (`search`, `get_paper`, `f
 | World Bank OKR | No | World Bank Open Knowledge Repository |
 | OAPEN | No | Open-access scholarly books |
 | EconStor | No | Economics working papers and articles |
+| PubMed Central | Optional NCBI key | Full-text archive; PMC PDFs when a PMCID exists |
+| ChemRxiv | No | Chemistry preprints (Crossref container filter) |
+| SSRN | No | Working papers via Crossref DOI prefix |
+| Research Square | No | Preprints via Crossref DOI prefix |
+| TechRxiv | No | IEEE TechRxiv preprints (Crossref DOI prefix) |
+| PeerJ | No | Fully open-access journals |
+| F1000Research | No | Open-access articles (Crossref container filter) |
+| NBER | No | Working papers via Crossref DOI prefix |
+| EarthArXiv | No | Earth-science preprints (Crossref container filter) |
+| OpenReview | No | Open peer review; public PDFs when listed |
+| eLife | No | Fully open-access life-science journal |
+| SciPost | No | Diamond OA journals; publisher PDFs when listed |
+| Papers with Code | No | ML papers; arXiv PDFs when an arXiv id is listed |
+| zbMATH Open | No | Mathematics bibliography (metadata) |
+| USGS Publications | No | USGS reports; public PDFs when listed |
+| Harvard Dataverse | No | Research datasets and related outputs |
+| FAO Knowledge Repository | No | FAO open publications |
+| WHO IRIS | No | WHO institutional repository |
+| CERN CDS | No | CERN repository; public files when listed |
+| NDL Search | No | National Diet Library (Japan) article index |
 | Unpaywall | Email required | OA PDF discovery, not a search index |
 
 ResearchGate, Google Scholar, and Academia.edu have no public search APIs and prohibit automated access, so they are not connectors. Papers that also appear on those sites are still found through Crossref, OpenAlex, Unpaywall, and CORE when a DOI or repository copy exists.

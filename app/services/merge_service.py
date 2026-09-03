@@ -11,9 +11,9 @@ FIELD_PRIORITY: dict[str, list[str]] = {
     "doi": ["crossref", "openalex", "elsevier", "springer", "ieee", "europe_pmc", "pubmed", "semantic_scholar"],
     "publisher": ["crossref", "springer", "elsevier", "ieee", "openalex"],
     "journal": ["crossref", "pubmed", "europe_pmc", "openalex", "springer"],
-    "abstract": ["semantic_scholar", "openalex", "europe_pmc", "pubmed", "arxiv", "core", "doaj", "nasa_ntrs", "nasa_ads", "hal", "inspire", "eric", "osti"],
+    "abstract": ["semantic_scholar", "openalex", "europe_pmc", "pubmed", "arxiv", "core", "doaj", "nasa_ntrs", "nasa_ads", "hal", "inspire", "eric", "osti", "elife", "scipost", "openreview", "usgs", "fao", "who"],
     "citation_count": ["semantic_scholar", "openalex", "crossref", "nasa_ads", "elsevier", "inspire"],
-    "pdf_url": ["unpaywall", "arxiv", "europe_pmc", "pubmed", "openalex", "semantic_scholar", "core", "doaj", "nasa_ntrs", "plos", "zenodo", "hal", "osti", "inspire", "biorxiv", "medrxiv", "osf", "fatcat"],
+    "pdf_url": ["unpaywall", "arxiv", "europe_pmc", "pubmed", "pmc", "openalex", "semantic_scholar", "core", "doaj", "nasa_ntrs", "plos", "zenodo", "hal", "osti", "inspire", "biorxiv", "medrxiv", "osf", "fatcat", "elife", "peerj", "scipost", "openreview", "chemrxiv", "usgs", "cern"],
 }
 
 

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status_badge, empty_state %}
+{% from "_macros.html" import status_badge, empty_state, downloads_pager %}
 {% block title %}Downloads · {{ app_name }}{% endblock %}
+{% block body_class %}page-downloads{% endblock %}
 {% block extra_js %}
 <script src="/static/downloads.js"></script>
 {% endblock %}
@@ -8,66 +9,131 @@
 <div class="page-head">
   <div>
     <div class="page-kicker">Files</div>
-    <h1 class="h2 mb-1">Downloads</h1>
-    <p class="lede mb-0">Preview and save PDFs that were retrieved from legal open-access sources. In-progress jobs appear at the top.{% if not show_paywalled %} Paywalled papers are hidden.{% endif %}</p>
+    <h1 class="h2 mb-0">Downloads</h1>
   </div>
+  <a class="btn btn-outline-secondary" href="/library">Open library</a>
 </div>
 
-<div id="download-progress" class="card mb-3 {% if not progress.active or progress.kind == 'search' %}d-none{% endif %}" data-active="{{ 'true' if progress.active and progress.kind != 'search' else 'false' }}">
+<div id="download-progress" class="card dl-progress mb-3 {% if progress.kind == 'search' or not (progress.active or progress.logs) %}d-none{% endif %}" data-active="{{ 'true' if progress.active and progress.kind != 'search' else 'false' }}">
   <div class="card-body">
     <div class="d-flex justify-content-between align-items-baseline gap-2">
       <strong id="progress-label">{{ progress.message or "Downloading…" }}</strong>
-      <span id="progress-counts" class="text-muted small">{{ progress.current }}/{{ progress.total }}</span>
+      <span id="progress-counts" class="text-muted small">{% if progress.total %}{{ progress.current }}/{{ progress.total }}{% endif %}</span>
     </div>
     <div class="progress mt-2" role="progressbar" aria-valuenow="{{ progress.percent or 0 }}">
-      <div id="progress-bar" class="progress-bar progress-bar-striped {% if progress.active %}progress-bar-animated{% endif %}" style="width: {{ progress.percent or 0 }}%">
+      <div id="progress-bar" class="progress-bar progress-bar-striped {% if progress.active and progress.kind != 'search' %}progress-bar-animated{% endif %}" style="width: {{ progress.percent or 0 }}%">
         {% if progress.percent is not none %}{{ progress.percent }}%{% endif %}
       </div>
     </div>
     <div class="small text-muted mt-2" id="progress-detail">{{ progress.title }}</div>
+    <div class="dl-log-meta mt-2" id="downloadLogMeta">
+      <span>Saved {{ progress.downloaded or 0 }}</span>
+      <span>Failed {{ progress.failed or 0 }}</span>
+      <span>Skipped {{ progress.skipped or 0 }}</span>
+    </div>
+    <div class="log-panel mt-3" id="downloadLogs" aria-live="polite" aria-label="Download log">
+      {% for entry in progress.logs %}
+      <div class="log-line log-{{ entry.level }}"><time>{{ entry.time }}</time><span>{{ entry.message }}</span></div>
+      {% else %}
+      <div class="log-line log-muted">Waiting for a download to start…</div>
+      {% endfor %}
+    </div>
   </div>
 </div>
 
-<div class="chip-row mb-3">
-  <a class="chip {% if not status %}active{% endif %}" href="/downloads">All{% if counts %} · {{ counts.values()|sum }}{% endif %}</a>
-  {% for code, count in counts.items() %}
-  <a class="chip {% if status == code %}active{% endif %}" href="/downloads?status={{ code }}">{{ status_meta(code).label }} · {{ count }}</a>
-  {% endfor %}
-</div>
+<section class="dl-filters" aria-label="Download filters">
+  <form class="dl-search" method="get" action="/downloads">
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    {% if per_page != 25 %}<input type="hidden" name="per_page" value="{{ per_page }}">{% endif %}
+    <label class="lib-filter-label" for="dl-q">Search</label>
+    <div class="dl-search-row">
+      <input class="form-control" id="dl-q" name="q" value="{{ q }}" placeholder="Title or DOI" autocomplete="off">
+      <button class="btn btn-primary" type="submit">Search</button>
+      {% if q %}
+      <a class="btn btn-outline-secondary" href="{{ downloads_href(filters, q='', page=1) }}">Clear</a>
+      {% endif %}
+    </div>
+  </form>
+  <div class="chip-row" role="list">
+    <a class="chip {% if not status %}active{% endif %}" href="{{ downloads_href(filters, status='', page=1) }}">All{% if counts %} · {{ counts.values()|sum }}{% endif %}</a>
+    {% for item in status_chips %}
+    <a class="chip {% if status == item.code %}active{% endif %}" href="{{ downloads_href(filters, status=item.code, page=1) }}">{{ item.label }} · {{ item.count }}</a>
+    {% endfor %}
+  </div>
+</section>
 
-<div class="table-responsive card">
-  <table class="table table-hover align-middle mb-0">
-    <thead><tr><th>Status</th><th>Paper</th><th>When</th><th>Size</th><th>Progress</th><th></th></tr></thead>
+{% if rows %}
+<div class="lib-toolbar">
+  <div class="lib-count" aria-live="polite">
+    Showing <strong>{{ pager.start }}–{{ pager.end }}</strong> of <strong>{{ pager.total }}</strong>
+  </div>
+  <form class="lib-page-size" method="get" action="/downloads">
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    <label class="lib-filter-label mb-0" for="per_page">Per page</label>
+    <select class="form-select form-select-sm" id="per_page" name="per_page" onchange="this.form.submit()" aria-label="Results per page">
+      {% for size in page_sizes %}
+      <option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% if pager.total_pages > 1 %}
+  {{ downloads_pager(pager, filters) }}
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="table-responsive card lib-table-card">
+  <table class="table table-hover align-middle mb-0 lib-table">
+    <thead>
+      <tr>
+        <th class="dl-col-status">Status</th>
+        <th>Paper</th>
+        <th class="dl-col-size">Size</th>
+        <th class="dl-col-user">Downloaded by</th>
+        <th class="dl-col-when">When</th>
+        <th class="dl-col-actions"></th>
+      </tr>
+    </thead>
     <tbody>
     {% for row in rows %}
-      <tr data-paper-id="{{ row.paper_id }}" data-status="{{ row.status }}">
+      {% set paper = row.paper %}
+      {% set actor = download_actor_name(row) %}
+      <tr data-paper-id="{{ row.paper_id }}" data-status="{{ row.status }}" {% if is_new_download(row) %}class="is-new"{% endif %}>
         <td>{{ status_badge(row.status) }}</td>
         <td>
-          <div class="paper-title" title="{{ row.paper.title if row.paper else row.paper_id }}">
-            {{ row.paper.title if row.paper else row.paper_id }}
+          <div class="paper-title-row">
+            <div class="paper-title" title="{{ paper.title if paper else row.paper_id }}">
+              {{ paper.title if paper else row.paper_id }}
+            </div>
+            {% if is_new_download(row) %}
+            <span class="label-new" title="Downloaded in the last 24 hours">New</span>
+            {% endif %}
           </div>
-          {% if row.error_message and row.status == "FAILED" %}
-          <div class="paper-meta text-danger">{{ row.error_message[:90] }}</div>
+          <div class="paper-meta">
+            {% if paper and paper.publication_year %}{{ paper.publication_year }}{% endif %}
+            {% if paper and (paper.journal or paper.publisher) %}{% if paper.publication_year %} · {% endif %}{{ paper.journal or paper.publisher }}{% endif %}
+            {% if paper and paper.source %}{% if paper.publication_year or paper.journal or paper.publisher %} · {% endif %}{{ source_label(paper.source) }}{% endif %}
+          </div>
+          {% if paper and paper.doi %}
+          <a class="doi-link" href="https://doi.org/{{ paper.doi }}" target="_blank" rel="noopener">{{ paper.doi }}</a>
+          {% endif %}
+          {% if row.status == "DOWNLOADING" %}
+          <div class="row-progress mt-2">
+            <div class="progress"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:40%">…</div></div>
+          </div>
+          {% elif row.error_message and row.status == "FAILED" %}
+          <div class="paper-meta text-danger mt-1">{{ row.error_message[:140] }}</div>
           {% endif %}
         </td>
+        <td class="text-nowrap dl-size">{{ row.file_size|filesize or "—" }}</td>
+        <td class="lib-downloader">{% if actor %}{{ actor }}{% else %}—{% endif %}</td>
         <td class="text-nowrap paper-meta">{{ row.downloaded_at|localdt or "—" }}</td>
-        <td class="text-nowrap text-muted">{{ row.file_size|filesize or "—" }}</td>
-        <td class="row-progress" style="min-width: 8rem;">
-          {% if row.status == "DOWNLOADED" %}
-          <div class="progress"><div class="progress-bar" style="width:100%">100%</div></div>
-          {% elif row.status == "DOWNLOADING" %}
-          <div class="progress"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width:40%">…</div></div>
-          {% elif row.status == "FAILED" %}
-          <span class="text-danger small">Failed</span>
-          {% else %}
-          <span class="text-muted small">{{ status_meta(row.status).label }}</span>
-          {% endif %}
-        </td>
-        <td class="text-nowrap">
+        <td class="dl-actions">
           {% if row.status == "DOWNLOADED" and row.local_path %}
           <button class="btn btn-sm btn-outline-primary preview-btn" type="button"
                   data-preview-url="/papers/{{ row.paper_id }}/preview"
-                  data-preview-title="{{ (row.paper.title if row.paper else 'PDF')|e }}">Preview</button>
+                  data-preview-title="{{ (paper.title if paper else 'PDF')|e }}">Preview</button>
           <a class="btn btn-sm btn-primary" href="/papers/{{ row.paper_id }}/pdf">Download</a>
           {% elif row.status == "FAILED" %}
           <a class="btn btn-sm btn-outline-secondary" href="/papers/{{ row.paper_id }}/pdf">Retry</a>
@@ -78,10 +144,21 @@
       </tr>
     {% else %}
       <tr><td colspan="6" class="p-0">
-        {{ empty_state("No downloads yet", "Run a search, then download legally available PDFs from the library.", "/search", "Search papers") }}
+        {% if has_filters %}
+          {{ empty_state("Nothing matches this filter", "Clear the search or choose another status.", downloads_href({'per_page': per_page}), "Show all downloads") }}
+        {% else %}
+          {{ empty_state("No downloads yet", "Run a search, then download legally available PDFs from the library.", "/search", "Search papers") }}
+        {% endif %}
       </td></tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
+
+{% if rows and pager.total_pages > 1 %}
+<div class="lib-toolbar lib-toolbar-bottom">
+  <div class="lib-count">Page {{ pager.page }} of {{ pager.total_pages }}</div>
+  {{ downloads_pager(pager, filters, "Download pages footer") }}
+</div>
+{% endif %}
 {% endblock %}
