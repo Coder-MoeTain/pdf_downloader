@@ -142,3 +142,7 @@
 {% macro downloads_pager(pager, filters, aria_label="Download pages") -%}
 {{ collection_pager(pager, downloads_href, filters, aria_label) }}
 {%- endmacro %}
+
+{% macro sources_pager(pager, filters, aria_label="Source pages") -%}
+{{ collection_pager(pager, sources_href, filters, aria_label) }}
+{%- endmacro %}

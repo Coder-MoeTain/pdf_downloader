@@ -89,12 +89,16 @@ from app.web.ui import (
     downloads_href,
     is_new_download,
     library_href,
+    ordered_source_status_counts,
     ordered_status_counts,
     pagination_spec,
+    source_matches,
     paper_abstract_meta,
     paper_downloader_name,
     share,
     source_label,
+    source_row_status,
+    sources_href,
     status_meta,
 )
 
@@ -105,6 +109,7 @@ templates.env.globals["status_meta"] = status_meta
 templates.env.globals["can_preview"] = lambda paper: existing_pdf_path(paper) is not None
 templates.env.globals["library_href"] = library_href
 templates.env.globals["downloads_href"] = downloads_href
+templates.env.globals["sources_href"] = sources_href
 templates.env.globals["source_label"] = source_label
 templates.env.globals["paper_abstract_meta"] = paper_abstract_meta
 templates.env.globals["paper_downloader_name"] = paper_downloader_name
@@ -875,9 +880,49 @@ def downloads_page(
 
 
 @app.get("/sources", response_class=HTMLResponse)
-def sources_page(request: Request):
-    sources = _source_rows()
-    return templates.TemplateResponse(request, "sources.html", _ctx(request, sources=sources, store=store_status().as_dict()))
+def sources_page(
+    request: Request,
+    status: str = "",
+    q: str = "",
+    page: int = 1,
+    per_page: int = DEFAULT_PAGE_SIZE,
+):
+    status = status.strip()
+    q = q.strip()
+    per_page = clamp_page_size(per_page)
+    all_sources = _source_rows()
+    searched = [item for item in all_sources if source_matches(item, q=q)]
+    counts: dict[str, int] = {}
+    for item in searched:
+        code = source_row_status(item)
+        counts[code] = counts.get(code, 0) + 1
+    rows = [item for item in searched if source_matches(item, status=status)]
+    pager = pagination_spec(max(page, 1), len(rows), per_page)
+    start = (pager["page"] - 1) * per_page
+    page_rows = rows[start : start + per_page]
+    filters_state = {"status": status, "q": q, "per_page": per_page}
+    return templates.TemplateResponse(
+        request,
+        "sources.html",
+        _ctx(
+            request,
+            sources=page_rows,
+            store=store_status().as_dict(),
+            counts=counts,
+            status_chips=ordered_source_status_counts(counts),
+            status=status,
+            q=q,
+            per_page=per_page,
+            pager=pager,
+            filters=filters_state,
+            page_sizes=PAGE_SIZES,
+            has_filters=bool(status or q),
+            source_stats={
+                "total": len(all_sources),
+                "available": sum(1 for item in all_sources if item["available"]),
+            },
+        ),
+    )
 
 
 def _source_rows() -> list[dict]:

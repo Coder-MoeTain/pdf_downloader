@@ -82,7 +82,7 @@ h1, h2, .brand-text, .display-6, .empty-title {
 .app-nav-inner {
   display: flex;
   align-items: center;
-  min-height: calc(3.35rem + 2pt);
+  min-height: calc(3.35rem + 5pt);
 }
 .app-nav .navbar-brand {
   display: flex;
@@ -153,7 +153,7 @@ h1, h2, .brand-text, .display-6, .empty-title {
   font-size: 0.86rem;
   line-height: 1;
   border-radius: 999px;
-  padding: calc(0.46rem + 1pt) 0.72rem;
+  padding: calc(0.46rem + 2.5pt) 0.72rem;
   white-space: nowrap;
   transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
@@ -255,7 +255,7 @@ h1, h2, .brand-text, .display-6, .empty-title {
 .nav-logout-form { margin: 0; }
 .app-nav.navbar-dark .nav-signout,
 .app-nav.navbar-dark .nav-login {
-  padding: calc(0.28rem + 1pt) 0.7rem;
+  padding: calc(0.28rem + 2.5pt) 0.7rem;
   font-size: 0.78rem;
   border: 0;
   line-height: 1.2;
@@ -310,7 +310,7 @@ h1, h2, .brand-text, .display-6, .empty-title {
   font-weight: 650;
   font-size: 0.86rem;
   line-height: 1;
-  padding: calc(0.46rem + 1pt) 0.72rem;
+  padding: calc(0.46rem + 2.5pt) 0.72rem;
   border-radius: 999px;
   white-space: nowrap;
   background: rgba(47, 158, 138, 0.18);
@@ -733,7 +733,7 @@ a.paper-meta:hover { color: var(--accent); }
     width: 100%;
     margin: 0.08rem 0;
     border-radius: 0.85rem;
-    padding: calc(0.72rem + 1pt) 0.9rem;
+    padding: calc(0.72rem + 2.5pt) 0.9rem;
     min-height: 0;
   }
   .nav-aside {
@@ -1144,6 +1144,118 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
 .page-statistics .stat-hint,
 .page-sources .stat-hint {
   font-size: 0.84rem;
+}
+.page-sources .lib-filter-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 0.28rem;
+}
+.page-sources .src-filters {
+  background: var(--glass);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: var(--glass-highlight), var(--shadow);
+  padding: 1rem 1.05rem 0.95rem;
+  margin-bottom: 1rem;
+}
+.page-sources .src-search { margin-bottom: 0.85rem; }
+.page-sources .src-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.page-sources .src-search-row .form-control {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+}
+.page-sources .lib-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+.page-sources .lib-toolbar-bottom {
+  margin-top: 0.9rem;
+  margin-bottom: 0;
+}
+.page-sources .lib-count {
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+}
+.page-sources .lib-count strong { color: var(--ink); font-weight: 700; }
+.page-sources .lib-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: auto;
+}
+.page-sources .lib-page-size .form-select {
+  width: auto;
+  min-width: 4.5rem;
+}
+.page-sources .lib-pager {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.28rem;
+}
+.page-sources .lib-page {
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--ink);
+  font-size: 0.88rem;
+  font-weight: 650;
+  text-decoration: none;
+  line-height: 1;
+}
+.page-sources a.lib-page:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.page-sources .lib-page.is-current {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+}
+.page-sources .lib-page.is-disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+.page-sources .lib-page.is-ellipsis {
+  border: 0;
+  background: transparent;
+  min-width: 1.2rem;
+}
+.page-sources .lib-table-card { overflow: hidden; }
+.page-sources .lib-table-card thead th {
+  position: sticky;
+  top: 0;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 1;
+}
+@media (max-width: 767.98px) {
+  .page-sources .lib-toolbar { justify-content: flex-start; }
+  .page-sources .lib-page-size { margin-left: 0; }
 }
 .page-statistics .insight-chip {
   font-size: 0.88rem;

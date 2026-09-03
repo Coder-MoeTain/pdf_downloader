@@ -237,6 +237,69 @@ def downloads_href(current: dict | None = None, **overrides) -> str:
     return f"/downloads?{query_string}" if query_string else "/downloads"
 
 
+def sources_href(current: dict | None = None, **overrides) -> str:
+    """Build a /sources URL, omitting default filter values."""
+    merged = {**(current or {}), **overrides}
+    pairs: list[tuple[str, str]] = []
+    query = str(merged.get("q") or "").strip()
+    if query:
+        pairs.append(("q", query))
+    status = str(merged.get("status") or "").strip()
+    if status:
+        pairs.append(("status", status))
+    per_page = clamp_page_size(merged.get("per_page") or DEFAULT_PAGE_SIZE)
+    if per_page != DEFAULT_PAGE_SIZE:
+        pairs.append(("per_page", str(per_page)))
+    try:
+        page = int(merged.get("page") or 1)
+    except (TypeError, ValueError):
+        page = 1
+    if page > 1:
+        pairs.append(("page", str(page)))
+    query_string = urlencode(pairs)
+    return f"/sources?{query_string}" if query_string else "/sources"
+
+
+SOURCE_STATUS_ORDER = ("available", "disabled", "needs_key", "inactive")
+SOURCE_STATUS_META = {
+    "available": {"label": "Available", "tone": "success"},
+    "disabled": {"label": "Disabled", "tone": "secondary"},
+    "needs_key": {"label": "Needs key", "tone": "warning"},
+    "inactive": {"label": "Inactive", "tone": "secondary"},
+}
+
+
+def source_row_status(item: dict) -> str:
+    if item.get("available"):
+        return "available"
+    if not item.get("enabled"):
+        return "disabled"
+    if item.get("requires_key") and not item.get("has_key"):
+        return "needs_key"
+    return "inactive"
+
+
+def source_matches(item: dict, q: str = "", status: str = "") -> bool:
+    if status and source_row_status(item) != status:
+        return False
+    needle = (q or "").strip().lower()
+    if not needle:
+        return True
+    hay = " ".join(
+        str(item.get(key) or "") for key in ("display_name", "slug", "kind", "description")
+    ).lower()
+    return needle in hay
+
+
+def ordered_source_status_counts(counts: dict) -> list[dict]:
+    items: list[dict] = []
+    for code in SOURCE_STATUS_ORDER:
+        n = counts.get(code) or 0
+        if n:
+            items.append({"code": code, "count": n, **SOURCE_STATUS_META[code]})
+    return items
+
+
 DOWNLOAD_STATUS_ORDER = (
     "DOWNLOADING",
     "DOWNLOADED",

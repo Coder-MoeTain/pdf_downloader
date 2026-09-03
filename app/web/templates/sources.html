@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import empty_state, sources_pager %}
 {% block title %}Sources · {{ app_name }}{% endblock %}
 {% block body_class %}page-sources{% endblock %}
 {% block content %}
@@ -18,7 +19,7 @@
     <div class="stat-card h-100">
       <div class="card-body">
         <div class="stat-label">Configured</div>
-        <div class="stat-value tone-primary">{{ sources|length }}</div>
+        <div class="stat-value tone-primary">{{ source_stats.total }}</div>
       </div>
     </div>
   </div>
@@ -26,7 +27,7 @@
     <div class="stat-card h-100">
       <div class="card-body">
         <div class="stat-label">Available now</div>
-        <div class="stat-value tone-success">{{ sources|selectattr('available')|list|length }}</div>
+        <div class="stat-value tone-success">{{ source_stats.available }}</div>
       </div>
     </div>
   </div>
@@ -41,10 +42,49 @@
   </div>
 </div>
 
-<div class="card">
-  <div class="source-toolbar">
-    <input class="form-control" id="sourceFilter" type="search" placeholder="Filter by name or id" aria-label="Filter sources">
+<section class="src-filters" aria-label="Source filters">
+  <form class="src-search" method="get" action="/sources">
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    {% if per_page != 25 %}<input type="hidden" name="per_page" value="{{ per_page }}">{% endif %}
+    <label class="lib-filter-label" for="src-q">Search</label>
+    <div class="src-search-row">
+      <input class="form-control" id="src-q" name="q" value="{{ q }}" placeholder="Name or id" autocomplete="off">
+      <button class="btn btn-primary" type="submit">Search</button>
+      {% if q %}
+      <a class="btn btn-outline-secondary" href="{{ sources_href(filters, q='', page=1) }}">Clear</a>
+      {% endif %}
+    </div>
+  </form>
+  <div class="chip-row" role="list">
+    <a class="chip {% if not status %}active{% endif %}" href="{{ sources_href(filters, status='', page=1) }}">All{% if counts %} · {{ counts.values()|sum }}{% endif %}</a>
+    {% for item in status_chips %}
+    <a class="chip {% if status == item.code %}active{% endif %}" href="{{ sources_href(filters, status=item.code, page=1) }}">{{ item.label }} · {{ item.count }}</a>
+    {% endfor %}
   </div>
+</section>
+
+{% if sources %}
+<div class="lib-toolbar">
+  <div class="lib-count" aria-live="polite">
+    Showing <strong>{{ pager.start }}–{{ pager.end }}</strong> of <strong>{{ pager.total }}</strong>
+  </div>
+  <form class="lib-page-size" method="get" action="/sources">
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    <label class="lib-filter-label mb-0" for="per_page">Per page</label>
+    <select class="form-select form-select-sm" id="per_page" name="per_page" onchange="this.form.submit()" aria-label="Results per page">
+      {% for size in page_sizes %}
+      <option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% if pager.total_pages > 1 %}
+  {{ sources_pager(pager, filters) }}
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card lib-table-card">
   <div class="table-responsive">
     <table class="table align-middle mb-0" id="sourcesTable">
       <thead>
@@ -58,7 +98,7 @@
       </thead>
       <tbody>
       {% for s in sources %}
-        <tr class="source-row {% if not s.enabled %}is-disabled{% endif %}" data-filter="{{ s.display_name }} {{ s.slug }}">
+        <tr class="source-row {% if not s.enabled %}is-disabled{% endif %}">
           <td>
             <div class="source-name">
               <span class="provider-dot {% if s.available %}on{% else %}off{% endif %}" aria-hidden="true"></span>
@@ -97,23 +137,38 @@
           <td class="text-nowrap">{{ s.requests_per_second }} req/s</td>
           <td class="text-end text-nowrap">
             <form method="post" action="/settings/sources/{{ s.id }}/toggle" class="d-inline">
-              <input type="hidden" name="next" value="/sources">
+              <input type="hidden" name="next" value="{{ sources_href(filters, page=pager.page) }}">
               <button class="btn btn-sm btn-outline-secondary" type="submit">{{ 'Disable' if s.enabled else 'Enable' }}</button>
             </form>
             <button class="btn btn-sm btn-outline-primary" type="button" data-source-edit data-source-id="{{ s.id }}">Edit</button>
             {% if not s.builtin %}
             <form method="post" action="/settings/sources/{{ s.id }}/delete" class="d-inline" data-confirm="Remove {{ s.display_name }}?">
-              <input type="hidden" name="next" value="/sources">
+              <input type="hidden" name="next" value="{{ sources_href(filters, page=pager.page) }}">
               <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
             </form>
             {% endif %}
           </td>
         </tr>
+      {% else %}
+        <tr><td colspan="5" class="p-0">
+          {% if has_filters %}
+            {{ empty_state("Nothing matches this filter", "Clear the search or choose another status.", sources_href({'per_page': per_page}), "Show all sources") }}
+          {% else %}
+            {{ empty_state("No academic sources yet", "Add a catalog entry or seed the built-in providers from settings.", "/settings?section=sources", "Open settings") }}
+          {% endif %}
+        </td></tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
-{% set source_next = '/sources' %}
+
+{% if sources and pager.total_pages > 1 %}
+<div class="lib-toolbar lib-toolbar-bottom">
+  <div class="lib-count">Page {{ pager.page }} of {{ pager.total_pages }}</div>
+  {{ sources_pager(pager, filters, "Source pages footer") }}
+</div>
+{% endif %}
+{% set source_next = sources_href(filters, page=pager.page) %}
 {% include "_source_modal.html" %}
 {% endblock %}

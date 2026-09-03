@@ -53,10 +53,37 @@ def test_sources_page_lists_new_free_providers(tmp_db):
 
     from app.web import app
 
-    response = TestClient(app).get("/sources")
+    response = TestClient(app).get("/sources?per_page=50")
     assert response.status_code == 200
     for label in ("OpenAIRE", "Zenodo", "PLOS", "EconStor", "INSPIRE-HEP", "bioRxiv"):
         assert label in response.text
+
+
+def test_sources_pagination_and_search(tmp_db):
+    from fastapi.testclient import TestClient
+
+    from app.web import app
+
+    client = TestClient(app)
+    first = client.get("/sources?per_page=10")
+    assert first.status_code == 200
+    assert "Showing" in first.text
+    assert "1–10" in first.text
+    assert 'aria-label="Source pages"' in first.text
+    assert "Per page" in first.text
+    assert "OpenAlex" in first.text
+    assert "EconStor" not in first.text
+    second = client.get("/sources?per_page=10&page=2")
+    assert second.status_code == 200
+    assert "Page 2 of" in second.text
+    searched = client.get("/sources?q=EconStor")
+    assert searched.status_code == 200
+    assert "EconStor" in searched.text
+    assert "OpenAlex" not in searched.text
+    assert "Nothing matches this filter" not in searched.text
+    missing = client.get("/sources?q=not-a-real-source-xyz")
+    assert "Nothing matches this filter" in missing.text
+    assert 'href="/sources"' in missing.text or "Show all sources" in missing.text
 
 
 
