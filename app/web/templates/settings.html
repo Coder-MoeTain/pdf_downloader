@@ -36,7 +36,7 @@
     </a>
     <a class="settings-nav-link {% if section == 'updates' %}active{% endif %}" href="/settings?section=updates">
       <span class="settings-nav-title">Updates</span>
-      <span class="settings-nav-copy">Pull the latest code from git</span>
+      <span class="settings-nav-copy">Git pull, PM2 restart, and logs</span>
     </a>
   </nav>
 
@@ -276,7 +276,7 @@
         {% if git.dirty %}
         <p class="form-hint mb-3">This server has local file changes. Pull is blocked until those are committed or stashed.</p>
         {% else %}
-        <p class="form-hint mb-3">Pulls with <code>git pull --ff-only</code>. Templates apply immediately; restart PM2 after Python changes: <code>pm2 restart researchpaper</code>.</p>
+        <p class="form-hint mb-3">Pulls with <code>git pull --ff-only</code>. Templates apply immediately; use PM2 restart below after Python changes.</p>
         {% endif %}
         {% else %}
         <p class="text-muted mb-3">{{ git.error or "Git status is unavailable." }}</p>
@@ -288,6 +288,37 @@
       <div class="card-footer settings-footer">
         <form method="post" action="/settings/update" data-busy="Pulling…" data-confirm="Pull the latest code onto this server?">
           <button class="btn btn-primary" type="submit" {% if not git.ok or git.dirty %}disabled{% endif %}>Git pull</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card mt-4">
+      <div class="card-header">PM2 process</div>
+      <div class="card-body">
+        {% if pm2.ok %}
+        <div class="readonly-stack mb-3">
+          <div><span>Process</span><code>{{ pm2.name }}</code></div>
+          <div><span>Status</span><code>{{ pm2.status }}</code></div>
+          {% if pm2.pid %}<div><span>PID</span><code>{{ pm2.pid }}</code></div>{% endif %}
+          {% if pm2.uptime %}<div><span>Uptime</span><code>{{ pm2.uptime }}</code></div>{% endif %}
+          {% if pm2.restarts is not none %}<div><span>Restarts</span><code>{{ pm2.restarts }}</code></div>{% endif %}
+          {% if pm2.memory %}<div><span>Memory</span><code>{{ pm2.memory }}</code></div>{% endif %}
+          {% if pm2.cpu %}<div><span>CPU</span><code>{{ pm2.cpu }}</code></div>{% endif %}
+        </div>
+        <p class="form-hint mb-3">Runs <code>pm2 restart {{ pm2.name }}</code> on this server. Override the process name with <code>PM2_APP_NAME</code> in <code>.env</code>.</p>
+        {% else %}
+        <p class="text-muted mb-3">{{ pm2.error or "PM2 status is unavailable." }}</p>
+        {% endif %}
+        {% if pm2_log %}
+        <pre class="update-log pm2-log" aria-label="PM2 output">{{ pm2_log }}</pre>
+        {% endif %}
+      </div>
+      <div class="card-footer settings-footer d-flex flex-wrap gap-2">
+        <form method="post" action="/settings/pm2/restart" data-busy="Restarting…" data-confirm="Restart the PM2 process on this server?">
+          <button class="btn btn-primary" type="submit" {% if not pm2.ok %}disabled{% endif %}>PM2 restart</button>
+        </form>
+        <form method="post" action="/settings/pm2/logs" data-busy="Loading logs…">
+          <button class="btn btn-outline-primary" type="submit" {% if not pm2.ok %}disabled{% endif %}>Show PM2 logs</button>
         </form>
       </div>
     </div>

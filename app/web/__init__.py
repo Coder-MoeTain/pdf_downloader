@@ -81,6 +81,7 @@ from app.services.progress import job_registry, tracker
 from app.services.search_queue import enqueue_search, queue_snapshot, start_search_queue_worker
 from app.services.search_service import SearchService, filters_from_cli
 from app.utils.git_update import GitUpdateError, git_pull, git_status
+from app.utils.pm2_control import Pm2Error, pm2_logs, pm2_restart, pm2_status
 from app.utils.logger import setup_logging
 from app.utils.time import format_local, now_local, timezone_abbrev, timezone_choices, timezone_offset_label
 from app.web.ui import (
@@ -129,6 +130,7 @@ app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="stati
 
 _search_message = {"text": "", "level": "info"}
 _git_log = {"text": ""}
+_pm2_log = {"text": ""}
 
 
 @app.middleware("http")
@@ -1006,6 +1008,8 @@ def _settings_ctx(request: Request, section: str = "workspace"):
         now_local=now_local(cfg.timezone).strftime("%Y-%m-%d %H:%M:%S"),
         git=git_status() if section == "updates" else {"ok": False, "dirty": True, "error": ""},
         git_log=_git_log["text"] if section == "updates" else "",
+        pm2=pm2_status() if section == "updates" else {"ok": False, "error": ""},
+        pm2_log=_pm2_log["text"] if section == "updates" else "",
     )
 
 
@@ -1048,6 +1052,35 @@ def settings_git_pull():
     except Exception as exc:
         _git_log["text"] = str(exc)
         return _settings_redirect("updates", "Git pull failed.", "danger")
+
+
+@app.post("/settings/pm2/restart")
+def settings_pm2_restart():
+    try:
+        result = pm2_restart()
+        _pm2_log["text"] = result.get("output") or ""
+        name = (result.get("status") or {}).get("name") or "researchpaper"
+        return _settings_redirect("updates", f"PM2 restarted {name}.")
+    except Pm2Error as exc:
+        _pm2_log["text"] = str(exc)
+        return _settings_redirect("updates", str(exc), "danger")
+    except Exception as exc:
+        _pm2_log["text"] = str(exc)
+        return _settings_redirect("updates", "PM2 restart failed.", "danger")
+
+
+@app.post("/settings/pm2/logs")
+def settings_pm2_logs():
+    try:
+        result = pm2_logs()
+        _pm2_log["text"] = result.get("output") or ""
+        return _settings_redirect("updates", f"Loaded PM2 logs for {result.get('name', 'researchpaper')}.")
+    except Pm2Error as exc:
+        _pm2_log["text"] = str(exc)
+        return _settings_redirect("updates", str(exc), "danger")
+    except Exception as exc:
+        _pm2_log["text"] = str(exc)
+        return _settings_redirect("updates", "Could not load PM2 logs.", "danger")
 
 
 @app.post("/settings/workspace")

@@ -791,6 +791,9 @@ a.paper-meta:hover { color: var(--accent); }
   font-size: 0.78rem;
   white-space: pre-wrap;
 }
+.pm2-log {
+  max-height: 22rem;
+}
 .form-hint { color: var(--ink-soft); font-size: 0.8rem; margin-top: 0.35rem; }
 .store-pill {
   display: flex;
