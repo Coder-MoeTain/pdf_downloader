@@ -169,6 +169,7 @@ def dashboard(request: Request):
     insights.append(f"{len(available)} academic sources ready")
     store = store_status()
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         _ctx(
             request,
@@ -201,6 +202,7 @@ def search_page(request: Request):
         recent = session.scalars(select(SearchQuery).order_by(SearchQuery.created_at.desc()).limit(8)).all()
     available = [row for row in provider_status() if row.get("available")]
     return templates.TemplateResponse(
+        request,
         "search.html",
         _ctx(
             request,
@@ -333,6 +335,7 @@ def library_page(
                 )
             ) or 0
     return templates.TemplateResponse(
+        request,
         "library.html",
         _ctx(
             request,
@@ -466,6 +469,7 @@ def downloads_page(request: Request, status: str = ""):
             session.execute(select(Download.status, func.count(Download.id)).group_by(Download.status)).all()
         )
     return templates.TemplateResponse(
+        request,
         "downloads.html",
         _ctx(request, rows=rows, counts=counts, status=status, progress=tracker.snapshot()),
     )
@@ -479,7 +483,7 @@ def sources_page(request: Request):
         item = source_to_dict(row)
         item["searchable"] = row.slug in searchable
         sources.append(item)
-    return templates.TemplateResponse("sources.html", _ctx(request, sources=sources, store=store_status().as_dict()))
+    return templates.TemplateResponse(request, "sources.html", _ctx(request, sources=sources, store=store_status().as_dict()))
 
 
 def _settings_ctx(request: Request, section: str = "workspace"):
@@ -523,7 +527,7 @@ def settings_page(request: Request, section: str = "workspace"):
     allowed = {"workspace", "search", "credentials", "sources"}
     if section not in allowed:
         section = "workspace"
-    return templates.TemplateResponse("settings.html", _settings_ctx(request, section))
+    return templates.TemplateResponse(request, "settings.html", _settings_ctx(request, section))
 
 
 def _safe_next(next_url: str | None, fallback: str) -> str:
@@ -847,6 +851,7 @@ def statistics_page(request: Request):
     if failed:
         insights.append(f"{failed} failed download{'s' if failed != 1 else ''}")
     return templates.TemplateResponse(
+        request,
         "statistics.html",
         _ctx(
             request,
