@@ -42,6 +42,7 @@ from app.config import ROOT_DIR, get_runtime_config
 from app.database.connection import init_db, retry_on_sqlite_lock, session_scope
 from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuery, SearchResult, User
 from app.database.repository import (
+    active_search_job_for_user,
     downloadable_clause,
     library_facets,
     query_library,
@@ -52,6 +53,7 @@ from app.database.repository import (
 )
 from app.database.settings_repository import (
     SettingsError,
+    apply_top20_source_limits,
     create_academic_source,
     delete_academic_source,
     get_academic_source,
@@ -75,7 +77,8 @@ from app.services.download_service import (
     pdf_button_state,
     safe_library_pdf,
 )
-from app.services.progress import tracker
+from app.services.progress import job_registry, tracker
+from app.services.search_queue import enqueue_search, queue_snapshot, start_search_queue_worker
 from app.services.search_service import SearchService, filters_from_cli
 from app.utils.git_update import GitUpdateError, git_pull, git_status
 from app.utils.logger import setup_logging
@@ -155,9 +158,15 @@ app.add_middleware(SessionMiddleware, secret_key=session_secret(), same_site="la
 
 
 @app.on_event("startup")
-def _startup() -> None:
+async def _startup() -> None:
     setup_logging()
     init_db()
+    try:
+        seed_academic_sources()
+        apply_top20_source_limits()
+    except Exception:
+        pass
+    await start_search_queue_worker()
 
 
 def _login_ctx(request: Request, next_url: str = "/") -> dict:
@@ -550,9 +559,16 @@ def dashboard(request: Request):
 @app.get("/search", response_class=HTMLResponse)
 def search_page(request: Request):
     cfg = get_runtime_config()
+    user_id = _request_user_id(request)
+    is_admin = user_is_admin(request)
     with session_scope() as session:
         recent = session.scalars(select(SearchQuery).order_by(SearchQuery.created_at.desc()).limit(8)).all()
+        active_job = active_search_job_for_user(session, user_id)
     available = [row for row in provider_status() if row.get("available")]
+    job_progress = job_registry.snapshot(active_job.id) if active_job else tracker.snapshot()
+    if active_job and job_progress:
+        job_progress.setdefault("query", active_job.query)
+    queue = queue_snapshot(user_id=user_id, is_admin=is_admin)
     return templates.TemplateResponse(
         request,
         "search.html",
@@ -561,7 +577,9 @@ def search_page(request: Request):
             config=cfg,
             recent_searches=recent,
             available_sources=available,
-            job=tracker.snapshot(),
+            job=job_progress or tracker.snapshot(),
+            active_job_id=active_job.id if active_job else None,
+            search_queue=queue,
             topics=cfg.topics[:6],
         ),
     )
@@ -570,7 +588,6 @@ def search_page(request: Request):
 @app.post("/search")
 async def search_submit(
     request: Request,
-    background_tasks: BackgroundTasks,
     query: str = Form(...),
     year_from: str = Form(""),
     year_to: str = Form(""),
@@ -580,11 +597,6 @@ async def search_submit(
     sort: str = Form("relevance"),
     source: str = Form(""),
 ):
-    snap = tracker.snapshot()
-    if snap.get("active"):
-        _search_message["text"] = "A search or download is already running. Watch the live log on this page."
-        _search_message["level"] = "warning"
-        return RedirectResponse("/search?live=1", status_code=303)
     filters = filters_from_cli(
         query,
         year_from=int(year_from) if year_from.strip() else None,
@@ -595,25 +607,11 @@ async def search_submit(
         sort=sort,
         source=source.strip() or None,
     )
-    tracker.start_search(query.strip())
-    _search_message["text"] = ""
-    _search_message["level"] = "info"
     user_id = _request_user_id(request)
-
-    async def _job():
-        try:
-            stats = await SearchService().run(filters, user_id=user_id)
-            _search_message["text"] = (
-                f"Finished “{query}”: {stats.unique_papers} unique papers, "
-                f"{stats.pdfs_downloaded} PDFs downloaded."
-            )
-            _search_message["level"] = "success"
-        except Exception as exc:
-            _search_message["text"] = f"Search failed: {exc}"
-            _search_message["level"] = "danger"
-
-    background_tasks.add_task(_job)
-    return RedirectResponse("/search?live=1", status_code=303)
+    job_id = enqueue_search(user_id=user_id, query=query.strip(), filters=filters)
+    _search_message["text"] = f"Search queued (job #{job_id}). Each user runs in parallel — watch the live log."
+    _search_message["level"] = "info"
+    return RedirectResponse(f"/search?live=1&job={job_id}", status_code=303)
 
 
 @app.get("/library", response_class=HTMLResponse)
@@ -823,8 +821,29 @@ def download_progress():
 
 
 @app.get("/api/search-progress")
-def search_progress():
+def search_progress(request: Request, job_id: int | None = None):
+    user_id = _request_user_id(request)
+    target_id = job_id
+    if target_id is None and user_id is not None:
+        with session_scope() as session:
+            active = active_search_job_for_user(session, user_id)
+            if active:
+                target_id = active.id
+    if target_id is not None:
+        snap = job_registry.snapshot(target_id)
+        if snap:
+            return JSONResponse(snap, headers={"Cache-Control": "no-store"})
     return JSONResponse(tracker.snapshot(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/search-queue")
+def search_queue_api(request: Request):
+    user_id = _request_user_id(request)
+    is_admin = user_is_admin(request)
+    return JSONResponse(
+        queue_snapshot(user_id=user_id, is_admin=is_admin),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/downloads", response_class=HTMLResponse)

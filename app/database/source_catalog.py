@@ -2,6 +2,32 @@
 
 from __future__ import annotations
 
+# Top 20 sources by sort_order — all others default to disabled.
+DEFAULT_ENABLED_SOURCE_SLUGS: frozenset[str] = frozenset(
+    {
+        "openalex",
+        "crossref",
+        "semantic_scholar",
+        "arxiv",
+        "pubmed",
+        "europe_pmc",
+        "core",
+        "doaj",
+        "ieee",
+        "springer",
+        "elsevier",
+        "nasa_ads",
+        "nasa_ntrs",
+        "openaire",
+        "hal",
+        "zenodo",
+        "dblp",
+        "plos",
+        "eric",
+        "osti",
+    }
+)
+
 BUILTIN_SOURCES: list[dict[str, object]] = [
     {
         "slug": "openalex",

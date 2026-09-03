@@ -28,7 +28,7 @@ from app.services.dedup_service import deduplicate
 from app.services.download_service import DownloadService, write_topic_metadata_csv
 from app.services.export_service import ExportService
 from app.services.oa_service import OpenAccessService
-from app.services.progress import tracker
+from app.services.progress import ProgressTracker, tracker
 from app.services.query_expansion import expand_query
 from app.services.ranking_service import rank_papers
 from app.utils.http import AsyncHttpClient
@@ -39,18 +39,26 @@ console = Console()
 
 
 class SearchService:
-    def __init__(self, config: AppConfig | None = None) -> None:
+    def __init__(self, config: AppConfig | None = None, progress: ProgressTracker | None = None) -> None:
         self.config = config or get_runtime_config()
+        self._progress = progress or tracker
 
-    async def run(self, filters: SearchFilters, *, user_id: int | None = None) -> SearchStats:
+    async def run(
+        self,
+        filters: SearchFilters,
+        *,
+        user_id: int | None = None,
+        skip_progress_start: bool = False,
+    ) -> SearchStats:
         init_db()
-        snap = tracker.snapshot()
-        if not (snap.get("active") and snap.get("kind") == "search"):
-            tracker.start_search(filters.query)
+        if not skip_progress_start:
+            snap = self._progress.snapshot()
+            if not (snap.get("active") and snap.get("kind") == "search"):
+                self._progress.start_search(filters.query)
         try:
             return await self._run(filters, user_id=user_id)
         except Exception as exc:
-            tracker.finish_search(error=str(exc))
+            self._progress.finish_search(error=str(exc))
             raise
 
     async def _run(self, filters: SearchFilters, user_id: int | None = None) -> SearchStats:
@@ -66,12 +74,12 @@ class SearchService:
             stats.sources_searched = len(providers)
             if not providers:
                 console.print("[yellow]No providers available. Check config.yaml and API keys.[/]")
-                tracker.log("No providers available. Check Settings → Academic sources and API keys.", "warning")
-                tracker.finish_search(error="No academic sources are available.")
+                self._progress.log("No providers available. Check Settings → Academic sources and API keys.", "warning")
+                self._progress.finish_search(error="No academic sources are available.")
                 return stats
 
-            tracker.set_providers_total(len(providers))
-            tracker.set_phase(
+            self._progress.set_providers_total(len(providers))
+            self._progress.set_phase(
                 "searching",
                 f"Querying {len(providers)} academic source{'s' if len(providers) != 1 else ''}…",
                 current=0,
@@ -85,8 +93,8 @@ class SearchService:
 
             stats.raw_records = len(raw)
             console.print(f"[cyan]\\[MERGE][/] Total records............{stats.raw_records}")
-            tracker.update_stats(raw_records=stats.raw_records, sources_searched=stats.sources_searched)
-            tracker.set_phase("merging", f"Merging {stats.raw_records} records…", percent=48)
+            self._progress.update_stats(raw_records=stats.raw_records, sources_searched=stats.sources_searched)
+            self._progress.set_phase("merging", f"Merging {stats.raw_records} records…", percent=48)
 
             unique, removed = deduplicate(raw, self.config.dedup)
             stats.duplicates_removed = removed
@@ -96,11 +104,11 @@ class SearchService:
             stats.unique_papers = len(unique)
             stats.relevant_papers = len(unique)
             console.print(f"[cyan]\\[DEDUP][/] Unique papers............{stats.unique_papers}")
-            tracker.update_stats(unique_papers=stats.unique_papers, duplicates_removed=removed)
-            tracker.log(f"Deduplicated to {stats.unique_papers} unique papers ({removed} duplicates removed).")
+            self._progress.update_stats(unique_papers=stats.unique_papers, duplicates_removed=removed)
+            self._progress.log(f"Deduplicated to {stats.unique_papers} unique papers ({removed} duplicates removed).")
 
             oa = OpenAccessService(client, self.config)
-            tracker.set_phase(
+            self._progress.set_phase(
                 "oa",
                 f"Checking open-access copies for {len(unique)} papers…",
                 current=0,
@@ -122,7 +130,7 @@ class SearchService:
                         logger.warning("OA resolve failed for %s: %s", paper.title[:60], exc)
                     progress.advance(task)
                     if index == len(unique) or index % 8 == 0:
-                        tracker.set_phase(
+                        self._progress.set_phase(
                             "oa",
                             f"Open access {index}/{len(unique)}",
                             current=index,
@@ -136,16 +144,16 @@ class SearchService:
             console.print(f"[green]\\[OA][/] Open access..................{stats.open_access_papers}")
             console.print(f"[yellow]\\[PAYWALL][/].........................{stats.paywalled}")
             console.print(f"[magenta]\\[NO PDF][/]..........................{stats.no_pdf}")
-            tracker.update_stats(
+            self._progress.update_stats(
                 open_access_papers=stats.open_access_papers,
                 paywalled=stats.paywalled,
                 no_pdf=stats.no_pdf,
             )
-            tracker.log(
+            self._progress.log(
                 f"Open access {stats.open_access_papers} · paywalled {stats.paywalled} · no PDF {stats.no_pdf}"
             )
 
-            tracker.set_phase("storing", f"Saving {len(unique)} papers to the library…", percent=78)
+            self._progress.set_phase("storing", f"Saving {len(unique)} papers to the library…", percent=78)
             search_id = 0
             persisted: list[tuple[int, PaperRecord]] = []
             downloader = DownloadService(client, self.config)
@@ -158,8 +166,10 @@ class SearchService:
                     filters.query,
                     expanded,
                     dataclasses.asdict(filters) | {"sort": filters.sort.value},
+                    user_id=user_id,
                 )
                 search_id = search_row.id
+                stats.search_query_id = search_id
                 for rank, paper in enumerate(unique, start=1):
                     db_paper = save_paper(session, paper)
                     attach_search_result(session, search_row.id, db_paper.id, rank, paper.relevance_score)
@@ -178,11 +188,11 @@ class SearchService:
 
             if filters.download and to_download:
                 console.print()
-                tracker.start_batch(len(to_download), "Downloading open-access PDFs")
+                self._progress.start_batch(len(to_download), "Downloading open-access PDFs")
                 try:
                     for idx, (paper_id, paper) in enumerate(to_download, start=1):
                         console.print(f"[blue]\\[DOWNLOAD][/] {idx}/{len(to_download)} {paper.title[:70]}")
-                        tracker.begin_item(paper_id, paper.title, idx)
+                        self._progress.begin_item(paper_id, paper.title, idx)
                         with session_scope() as session:
                             updated = await downloader.download_paper(
                                 session,
@@ -190,22 +200,22 @@ class SearchService:
                                 paper,
                                 filters.topic_slug,
                                 max_file_size=max_size,
-                                on_progress=lambda received, total: tracker.update_bytes(received, total),
+                                on_progress=lambda received, total: self._progress.update_bytes(received, total),
                                 user_id=user_id,
                             )
                             save_paper(session, updated)
-                        tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
+                        self._progress.finish_item(updated.status.value, error=updated.extra.get("error"))
                         if updated.status == PaperStatus.DOWNLOADED:
                             stats.pdfs_downloaded += 1
                         elif updated.status == PaperStatus.FAILED:
                             stats.failed_downloads += 1
                 finally:
-                    tracker.finish_batch()
+                    self._progress.finish_batch()
                 with session_scope() as session:
                     complete_search_query(session, search_id)
             elif not filters.download:
                 console.print("[dim]Skipping downloads (--no-download).[/]")
-                tracker.log("PDF download skipped (disabled for this run).")
+                self._progress.log("PDF download skipped (disabled for this run).")
 
             unique = [p for _, p in persisted]
 
@@ -214,12 +224,12 @@ class SearchService:
             paths = exporter.export_all(unique, stats)
             stats.library_path = str(self.config.resolve_path(self.config.library_dir) / filters.topic_slug)
             stats.report_path = str(paths["xlsx"])
-            tracker.update_stats(
+            self._progress.update_stats(
                 pdfs_downloaded=stats.pdfs_downloaded,
                 failed_downloads=stats.failed_downloads,
                 unique_papers=stats.unique_papers,
             )
-            tracker.finish_search(
+            self._progress.finish_search(
                 stats={
                     "unique_papers": stats.unique_papers,
                     "raw_records": stats.raw_records,
@@ -261,12 +271,12 @@ class SearchService:
                     console.print(f"[red]\\[SEARCH][/] {name:.<28} error: {result}")
                     upsert_provider(session, name.lower().replace(" ", "_"), error=str(result))
                     stats.provider_counts[name] = 0
-                    tracker.provider_finished(name, error=str(result))
+                    self._progress.provider_finished(name, error=str(result))
                     continue
                 console.print(f"[green]\\[SEARCH][/] {name:.<28} {len(result)} results")
                 stats.provider_counts[name] = stats.provider_counts.get(name, 0) + len(result)
                 upsert_provider(session, name.lower().replace(" ", "_"))
-                tracker.provider_finished(name, count=len(result))
+                self._progress.provider_finished(name, count=len(result))
                 raw.extend(result)
         return raw
 

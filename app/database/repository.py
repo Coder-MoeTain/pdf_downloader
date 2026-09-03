@@ -6,9 +6,9 @@ import json
 from collections import Counter
 
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, selectinload
 
-from app.database.models import Author, Download, Paper, PaperAuthor, PaperFulltext, Provider, SearchQuery, SearchResult
+from app.database.models import Author, Download, Paper, PaperAuthor, PaperFulltext, Provider, SearchJob, SearchQuery, SearchResult
 from app.models.paper import AuthorRecord, PaperRecord, PaperStatus
 from app.utils.filename import normalize_title
 from app.utils.time import utc_now
@@ -174,12 +174,20 @@ def find_existing_paper(session: Session, record: PaperRecord) -> Paper | None:
     return None
 
 
-def create_search_query(session: Session, original: str, expanded: list[str], filters: dict) -> SearchQuery:
+def create_search_query(
+    session: Session,
+    original: str,
+    expanded: list[str],
+    filters: dict,
+    *,
+    user_id: int | None = None,
+) -> SearchQuery:
     row = SearchQuery(
         original_query=original,
         expanded_queries=json.dumps(expanded),
         filters_json=json.dumps(filters),
         status="running",
+        user_id=user_id,
     )
     session.add(row)
     session.flush()
@@ -614,3 +622,115 @@ def fulltext_search(session: Session, query: str, limit: int = 50) -> list[tuple
         .limit(limit)
     )
     return [(paper, snippet[:500]) for paper, snippet in session.execute(stmt).all()]
+
+
+def enqueue_search_job(session: Session, *, user_id: int | None, query: str, filters: dict) -> SearchJob:
+    row = SearchJob(
+        user_id=user_id,
+        query=query.strip(),
+        filters_json=json.dumps(filters),
+        status="pending",
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def claim_next_search_job(session: Session) -> SearchJob | None:
+    """Pick the oldest pending job from a user who has no running job (fair per-user parallelism)."""
+    running_user_ids = set(
+        session.scalars(select(SearchJob.user_id).where(SearchJob.status == "running")).all()
+    )
+    pending = session.scalars(
+        select(SearchJob)
+        .where(SearchJob.status == "pending")
+        .order_by(SearchJob.created_at)
+    ).all()
+    for job in pending:
+        if job.user_id in running_user_ids:
+            continue
+        job.status = "running"
+        job.started_at = utc_now()
+        session.flush()
+        return job
+    return None
+
+
+def complete_search_job(
+    session: Session,
+    job_id: int,
+    *,
+    status: str = "completed",
+    error_message: str | None = None,
+    search_query_id: int | None = None,
+) -> None:
+    row = session.get(SearchJob, job_id)
+    if row is None:
+        return
+    row.status = status
+    row.error_message = error_message
+    row.completed_at = utc_now()
+    if search_query_id is not None:
+        row.search_query_id = search_query_id
+
+
+def get_search_job(session: Session, job_id: int) -> SearchJob | None:
+    return session.get(SearchJob, job_id)
+
+
+def list_search_jobs(
+    session: Session,
+    *,
+    user_id: int | None = None,
+    statuses: tuple[str, ...] | None = None,
+    limit: int = 50,
+) -> list[SearchJob]:
+    stmt = select(SearchJob).order_by(SearchJob.created_at.desc()).limit(limit)
+    if user_id is not None:
+        stmt = stmt.where(SearchJob.user_id == user_id)
+    if statuses:
+        stmt = stmt.where(SearchJob.status.in_(statuses))
+    return list(session.scalars(stmt).all())
+
+
+def queue_position(session: Session, job_id: int) -> int | None:
+    """1-based position among pending jobs for the same user."""
+    job = session.get(SearchJob, job_id)
+    if job is None or job.status != "pending":
+        return None
+    pending = session.scalars(
+        select(SearchJob)
+        .where(SearchJob.status == "pending", SearchJob.user_id == job.user_id)
+        .order_by(SearchJob.created_at)
+    ).all()
+    for idx, row in enumerate(pending, start=1):
+        if row.id == job_id:
+            return idx
+    return None
+
+
+def active_search_job_for_user(session: Session, user_id: int | None) -> SearchJob | None:
+    if user_id is None:
+        return None
+    return session.scalar(
+        select(SearchJob)
+        .where(SearchJob.user_id == user_id, SearchJob.status == "running")
+        .order_by(SearchJob.started_at.desc())
+        .limit(1)
+    )
+
+
+def search_jobs_grouped_by_user(session: Session, *, limit: int = 100) -> dict[str, list[SearchJob]]:
+    """Return pending/running jobs grouped by username (email)."""
+    rows = session.scalars(
+        select(SearchJob)
+        .where(SearchJob.status.in_(("pending", "running")))
+        .options(selectinload(SearchJob.user))
+        .order_by(SearchJob.created_at)
+        .limit(limit)
+    ).all()
+    grouped: dict[str, list[SearchJob]] = {}
+    for job in rows:
+        label = job.user.email if job.user else "Anonymous"
+        grouped.setdefault(label, []).append(job)
+    return grouped

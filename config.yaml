@@ -171,136 +171,136 @@ providers:
     requests_per_second: 3
     requires_key: false
   datacite:
-    enabled: true
+    enabled: false
     requests_per_second: 8
     requires_key: false
   osf:
-    enabled: true
+    enabled: false
     requests_per_second: 3
     requires_key: false
   biorxiv:
-    enabled: true
+    enabled: false
     requests_per_second: 4
     requires_key: false
   medrxiv:
-    enabled: true
+    enabled: false
     requests_per_second: 4
     requires_key: false
   figshare:
-    enabled: true
+    enabled: false
     requests_per_second: 3
     requires_key: false
   doab:
-    enabled: true
+    enabled: false
     requests_per_second: 1
     requires_key: false
   scielo:
-    enabled: true
+    enabled: false
     requests_per_second: 1
     requires_key: false
   cinii:
-    enabled: true
+    enabled: false
     requests_per_second: 1
     requires_key: false
   inspire:
-    enabled: true
+    enabled: false
     requests_per_second: 5
     requires_key: false
   fatcat:
-    enabled: true
+    enabled: false
     requests_per_second: 3
     requires_key: false
   worldbank:
-    enabled: true
+    enabled: false
     requests_per_second: 1
     requires_key: false
   oapen:
-    enabled: true
+    enabled: false
     requests_per_second: 1
     requires_key: false
   econstor:
-    enabled: true
+    enabled: false
     requests_per_second: 1
     requires_key: false
   pmc:
-    enabled: true
+    enabled: false
     requests_per_second: 3
     requests_per_second_with_key: 8
     requires_key: false
   chemrxiv:
-    enabled: true
+    enabled: false
     requests_per_second: 4
     requires_key: false
   ssrn:
-    enabled: true
+    enabled: false
     requests_per_second: 4
     requires_key: false
   research_square:
-    enabled: true
+    enabled: false
     requests_per_second: 4
     requires_key: false
   techrxiv:
-    enabled: true
+    enabled: false
     requests_per_second: 4
     requires_key: false
   peerj:
-    enabled: true
+    enabled: false
     requests_per_second: 4
     requires_key: false
   f1000research:
-    enabled: true
+    enabled: false
     requests_per_second: 4
     requires_key: false
   nber:
-    enabled: true
+    enabled: false
     requests_per_second: 4
     requires_key: false
   eartharxiv:
-    enabled: true
+    enabled: false
     requests_per_second: 4
     requires_key: false
   openreview:
-    enabled: true
+    enabled: false
     requests_per_second: 3
     requires_key: false
   elife:
-    enabled: true
+    enabled: false
     requests_per_second: 3
     requires_key: false
   scipost:
-    enabled: true
+    enabled: false
     requests_per_second: 2
     requires_key: false
   paperswithcode:
-    enabled: true
+    enabled: false
     requests_per_second: 3
     requires_key: false
   zbmath:
-    enabled: true
+    enabled: false
     requests_per_second: 2
     requires_key: false
   usgs:
-    enabled: true
+    enabled: false
     requests_per_second: 2
     requires_key: false
   dataverse:
-    enabled: true
+    enabled: false
     requests_per_second: 2
     requires_key: false
   fao:
-    enabled: true
+    enabled: false
     requests_per_second: 1
     requires_key: false
   who:
-    enabled: true
+    enabled: false
     requests_per_second: 1
     requires_key: false
   cern:
-    enabled: true
+    enabled: false
     requests_per_second: 3
     requires_key: false
   ndl:
-    enabled: true
+    enabled: false
     requests_per_second: 1
     requires_key: false
 

@@ -11,11 +11,13 @@
   var queryEl = document.getElementById("jobQuery");
   var resultEl = document.getElementById("jobResult");
   var statsEl = document.getElementById("jobStats");
-  var submit = document.querySelector(".search-form [type=submit]");
-  var fieldset = document.querySelector(".search-form fieldset");
   var steps = jobEl.querySelectorAll(".job-steps li");
+  var queueBody = document.getElementById("searchQueueBody");
+  var queueSummary = document.getElementById("queueSummary");
   var wasActive = jobEl.getAttribute("data-active") === "true";
   var lastFingerprint = "";
+  var params = new URLSearchParams(window.location.search);
+  var trackedJobId = params.get("job") || jobEl.getAttribute("data-job-id") || "";
 
   function setSteps(phase) {
     var idx = PHASE_ORDER.indexOf(phase);
@@ -86,21 +88,9 @@
       .join("");
   }
 
-  function setFormBusy(active) {
-    if (fieldset) fieldset.disabled = !!active;
-    if (!submit) return;
-    submit.disabled = !!active;
-    submit.textContent = active ? "Search running…" : "Run search";
-    var hint = document.getElementById("searchFormHint");
-    if (hint) {
-      hint.textContent = active
-        ? "A job is running — watch the live log."
-        : "Typical run: 1–3 minutes depending on sources.";
-    }
-  }
-
   function apply(data) {
     if (!data || data.kind === "download") return;
+    if (data.job_id) trackedJobId = String(data.job_id);
     var active = !!data.active && data.kind === "search";
     jobEl.classList.toggle("is-live", active);
     jobEl.classList.toggle("is-done", data.phase === "done");
@@ -134,12 +124,62 @@
       if (resultEl) resultEl.classList.toggle("d-none", data.phase !== "done");
       renderStats(data.stats || {});
     }
-    if (wasActive !== active) setFormBusy(active);
     wasActive = active;
   }
 
-  function poll() {
-    fetch("/api/search-progress", { headers: { Accept: "application/json" } })
+  function renderQueue(data) {
+    if (!queueBody || !data) return;
+    if (queueSummary) {
+      queueSummary.textContent = (data.running || 0) + " running · " + (data.pending || 0) + " pending";
+    }
+    if (!data.users || !data.users.length) {
+      queueBody.innerHTML = '<div class="p-3 paper-meta mb-0">No searches in the queue.</div>';
+      return;
+    }
+    queueBody.innerHTML = data.users
+      .map(function (group) {
+        var jobs = (group.jobs || [])
+          .map(function (item) {
+            var label =
+              item.status === "pending" && item.position
+                ? "#" + item.position + " pending"
+                : item.status;
+            var badgeClass = item.status === "running" ? "primary" : "secondary";
+            if (String(item.id) === String(trackedJobId) && item.status === "running") {
+              trackedJobId = String(item.id);
+            }
+            return (
+              '<li class="list-group-item d-flex justify-content-between gap-3 align-items-center py-2">' +
+              '<div class="text-truncate" title="' +
+              escapeHtml(item.query || "") +
+              '">' +
+              escapeHtml(item.query || "") +
+              "</div>" +
+              '<span class="status-badge status-' +
+              badgeClass +
+              '">' +
+              escapeHtml(label) +
+              "</span></li>"
+            );
+          })
+          .join("");
+        return (
+          '<div class="queue-user-group border-bottom">' +
+          '<div class="px-3 py-2 bg-light fw-semibold small">' +
+          escapeHtml(group.username || "Anonymous") +
+          "</div>" +
+          '<ul class="list-group list-group-flush">' +
+          jobs +
+          "</ul></div>"
+        );
+      })
+      .join("");
+  }
+
+  function pollProgress() {
+    var url = "/api/search-progress";
+    if (trackedJobId) url += "?job_id=" + encodeURIComponent(trackedJobId);
+    fetch(url, { headers: { Accept: "application/json" } })
       .then(function (response) {
         return response.json();
       })
@@ -147,10 +187,32 @@
       .catch(function () {});
   }
 
+  function pollQueue() {
+    fetch("/api/search-queue", { headers: { Accept: "application/json" } })
+      .then(function (response) {
+        return response.json();
+      })
+      .then(function (data) {
+        renderQueue(data);
+        if (!trackedJobId && data.users) {
+          data.users.forEach(function (group) {
+            (group.jobs || []).forEach(function (item) {
+              if (item.status === "running" && !trackedJobId) {
+                trackedJobId = String(item.id);
+              }
+            });
+          });
+        }
+      })
+      .catch(function () {});
+  }
+
   if (logsEl) logsEl.scrollTop = logsEl.scrollHeight;
-  if (new URLSearchParams(window.location.search).has("live")) {
+  if (params.has("live")) {
     jobEl.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  poll();
-  setInterval(poll, 700);
+  pollProgress();
+  pollQueue();
+  setInterval(pollProgress, 700);
+  setInterval(pollQueue, 1500);
 })();

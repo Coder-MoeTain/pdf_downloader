@@ -132,6 +132,10 @@ def _ensure_columns(engine: Engine) -> None:
         download_names = {row[1] for row in download_rows}
         if "downloaded_by_user_id" not in download_names:
             conn.execute(text("ALTER TABLE downloads ADD COLUMN downloaded_by_user_id INTEGER"))
+        search_rows = conn.execute(text("PRAGMA table_info(search_queries)")).all()
+        search_names = {row[1] for row in search_rows}
+        if search_names and "user_id" not in search_names:
+            conn.execute(text("ALTER TABLE search_queries ADD COLUMN user_id INTEGER"))
         conn.commit()
 
 

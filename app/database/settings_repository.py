@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import AppConfig, ProviderConfig, load_config
 from app.database.settings_models import AcademicSource, AppSetting
 from app.database.settings_store import settings_session
-from app.database.source_catalog import BUILTIN_SOURCES, SOURCE_KEY_FIELDS
+from app.database.source_catalog import BUILTIN_SOURCES, DEFAULT_ENABLED_SOURCE_SLUGS, SOURCE_KEY_FIELDS
 from app.utils.time import clear_timezone_cache, format_local, normalize_timezone, set_active_timezone, utc_now
 
 SLUG_RE = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
@@ -107,7 +107,7 @@ def seed_academic_sources() -> None:
                     homepage_url=str(item.get("homepage_url") or "") or None,
                     api_base_url=str(item.get("api_base_url") or "") or None,
                     docs_url=str(item.get("docs_url") or "") or None,
-                    enabled=bool(pcfg.enabled),
+                    enabled=slug in DEFAULT_ENABLED_SOURCE_SLUGS,
                     requires_key=bool(item.get("requires_key", pcfg.requires_key)),
                     api_key=env_value or None,
                     api_key_env=str(env_name) if env_name else None,
@@ -117,6 +117,21 @@ def seed_academic_sources() -> None:
                     sort_order=int(item.get("sort_order") or 100),
                 )
             )
+
+
+def apply_top20_source_limits() -> int:
+    """Disable academic sources outside the default top 20 (runs once per install)."""
+    with settings_session() as session:
+        if get_setting(session, "sources_limited_top20") == "true":
+            return 0
+        changed = 0
+        for row in session.scalars(select(AcademicSource)).all():
+            should_enable = row.slug in DEFAULT_ENABLED_SOURCE_SLUGS
+            if row.enabled != should_enable:
+                row.enabled = should_enable
+                changed += 1
+        set_setting(session, "sources_limited_top20", "true", group="workspace")
+        return changed
 
 
 def list_academic_sources(session: Session | None = None) -> list[AcademicSource]:

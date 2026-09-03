@@ -229,3 +229,36 @@ class ProgressTracker:
 
 
 tracker = ProgressTracker()
+
+
+class JobProgressRegistry:
+    """Per-job progress trackers so multiple users can search in parallel."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._jobs: dict[int, ProgressTracker] = {}
+
+    def create(self, job_id: int) -> ProgressTracker:
+        with self._lock:
+            prog = ProgressTracker()
+            self._jobs[job_id] = prog
+            return prog
+
+    def get(self, job_id: int) -> ProgressTracker | None:
+        with self._lock:
+            return self._jobs.get(job_id)
+
+    def remove(self, job_id: int) -> None:
+        with self._lock:
+            self._jobs.pop(job_id, None)
+
+    def snapshot(self, job_id: int) -> dict[str, Any] | None:
+        prog = self.get(job_id)
+        if prog is None:
+            return None
+        snap = prog.snapshot()
+        snap["job_id"] = job_id
+        return snap
+
+
+job_registry = JobProgressRegistry()

@@ -24,7 +24,7 @@
   <div class="col-lg-7">
     <form method="post" action="/search" class="card search-form" data-busy="Starting…">
       <div class="card-header">New search</div>
-      <fieldset {% if job.active %}disabled{% endif %}>
+      <fieldset>
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label fw-semibold" for="query">Research topic</label>
@@ -86,16 +86,16 @@
       </div>
       </fieldset>
       <div class="card-footer settings-footer d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <span class="paper-meta mb-0" id="searchFormHint">{% if job.active %}A job is running — watch the live log.{% else %}Typical run: 1–3 minutes depending on sources.{% endif %}</span>
-        <button class="btn btn-primary btn-lg" type="submit" {% if job.active %}disabled{% endif %}>
-          {{ "Search running…" if job.active else "Run search" }}
+        <span class="paper-meta mb-0" id="searchFormHint">{% if job.active %}Your search is running — watch the live log.{% else %}Searches are queued; each user runs in parallel.{% endif %}</span>
+        <button class="btn btn-primary btn-lg" type="submit">
+          Run search
         </button>
       </div>
     </form>
   </div>
 
   <div class="col-lg-5">
-    <div class="card search-job {% if job.active %}is-live{% elif job.phase == 'done' %}is-done{% elif job.phase == 'error' %}is-error{% endif %}" id="searchJob" data-active="{{ 'true' if job.active else 'false' }}">
+    <div class="card search-job {% if job.active %}is-live{% elif job.phase == 'done' %}is-done{% elif job.phase == 'error' %}is-error{% endif %}" id="searchJob" data-active="{{ 'true' if job.active else 'false' }}" data-job-id="{{ active_job_id or '' }}">
       <div class="card-header d-flex justify-content-between align-items-baseline gap-2">
         <span class="job-live-mark" id="jobTitleWrap">
           {% if job.active %}<span class="nav-live-dot" aria-hidden="true"></span>{% endif %}
@@ -138,6 +138,34 @@
           </div>
           <a class="btn btn-primary w-100 mt-3" href="/library?latest=1">View results in library</a>
         </div>
+      </div>
+    </div>
+
+    <div class="card mt-4" id="searchQueueCard">
+      <div class="card-header d-flex justify-content-between align-items-baseline gap-2">
+        <span>Search queue</span>
+        <span class="paper-meta mb-0" id="queueSummary">{{ search_queue.running }} running · {{ search_queue.pending }} pending</span>
+      </div>
+      <div class="card-body p-0" id="searchQueueBody">
+        {% if search_queue.users %}
+        {% for group in search_queue.users %}
+        <div class="queue-user-group border-bottom">
+          <div class="px-3 py-2 bg-light fw-semibold small">{{ group.username }}</div>
+          <ul class="list-group list-group-flush">
+            {% for item in group.jobs %}
+            <li class="list-group-item d-flex justify-content-between gap-3 align-items-center py-2">
+              <div class="text-truncate" title="{{ item.query }}">{{ item.query }}</div>
+              <span class="status-badge status-{{ 'primary' if item.status == 'running' else 'secondary' }}">
+                {% if item.status == 'pending' and item.position %}#{{ item.position }} pending{% else %}{{ item.status }}{% endif %}
+              </span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="p-3 paper-meta mb-0">No searches in the queue.</div>
+        {% endif %}
       </div>
     </div>
 

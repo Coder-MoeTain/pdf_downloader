@@ -53,4 +53,5 @@ class SearchStats:
     failed_downloads: int = 0
     library_path: str = ""
     report_path: str = ""
+    search_query_id: int | None = None
     provider_counts: dict[str, int] = field(default_factory=dict)

@@ -111,6 +111,7 @@ class SearchQuery(Base):
     __tablename__ = "search_queries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     original_query: Mapped[str] = mapped_column(Text, nullable=False)
     expanded_queries: Mapped[str | None] = mapped_column(Text, nullable=True)
     filters_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -118,7 +119,27 @@ class SearchQuery(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    user: Mapped["User | None"] = relationship()
     results: Mapped[list["SearchResult"]] = relationship(back_populates="search", cascade="all, delete-orphan")
+
+
+class SearchJob(Base):
+    __tablename__ = "search_jobs"
+    __table_args__ = (Index("ix_search_jobs_user_status", "user_id", "status"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    filters_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    search_query_id: Mapped[int | None] = mapped_column(ForeignKey("search_queries.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped["User | None"] = relationship()
+    search_query: Mapped[SearchQuery | None] = relationship()
 
 
 class SearchResult(Base):
