@@ -8,6 +8,7 @@ from app.models.paper import AuthorRecord, PaperRecord
 from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
 from app.utils.doi import doi_url, normalize_doi
+from app.utils.http import HttpError
 from app.utils.logger import get_logger
 
 logger = get_logger("app.providers.extra")
@@ -88,13 +89,15 @@ class IeeeProvider(ResearchProvider):
     BASE = "https://ieeexploreapi.ieee.org/api/v1/search/articles"
 
     def has_api_key(self) -> bool:
-        return bool(self.config.env.ieee_api_key)
+        return bool((self.config.env.ieee_api_key or "").strip())
 
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
+        key = (self.config.env.ieee_api_key or "").strip()
         params: dict[str, Any] = {
             "querytext": query,
-            "apikey": self.config.env.ieee_api_key,
+            "apikey": key,
             "max_records": min(filters.max_results, 25),
+            "start_record": 1,
             "format": "json",
         }
         if filters.year_from:
@@ -103,7 +106,21 @@ class IeeeProvider(ResearchProvider):
             params["end_year"] = filters.year_to
         if filters.open_access_only:
             params["open_access"] = "true"
-        data = await self.request_json(self.BASE, params=params)
+        try:
+            data = await self.request_json(
+                self.BASE,
+                params=params,
+                headers={"Accept": "application/json"},
+            )
+        except HttpError as exc:
+            if exc.status_code == 403:
+                raise HttpError(
+                    "IEEE Xplore rejected the API key (Developer Inactive). "
+                    "The key is stored and being sent, but IEEE has not activated Metadata Search for this app. "
+                    "Check the key at https://developer.ieee.org — new keys are issued weekdays 8am–5pm ET.",
+                    403,
+                ) from exc
+            raise
         items = (data or {}).get("articles") or []
         return [p for p in (self._parse(i) for i in items) if p and p.title]
 

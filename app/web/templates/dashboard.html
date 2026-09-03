@@ -85,7 +85,7 @@
         {% if year_chart %}
         <div class="year-chart" role="img" aria-label="Papers published by year">
           {% for row in year_chart %}
-          <a class="year-col" href="/library?q={{ row.year }}" title="{{ row.year }}: {{ row.count }} papers">
+          <a class="year-col" href="/library?year={{ row.year }}" title="{{ row.year }}: {{ row.count }} papers">
             <span class="year-col-count">{{ row.count }}</span>
             <div class="year-col-bar" style="height: {{ row.bar }}%"></div>
             <span class="year-col-label">{{ row.yy }}</span>
@@ -230,7 +230,7 @@
         <div>Top journals</div>
         <div class="card-sub">Share of the current library</div>
       </div>
-      <div class="card-body">{{ ranked_list(journals, "No journal data.", "q") }}</div>
+      <div class="card-body">{{ ranked_list(journals, "No journal data.", "journal") }}</div>
     </div>
 
     <div class="card mt-4">

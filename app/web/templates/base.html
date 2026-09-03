@@ -65,20 +65,25 @@
         </a>
         {% endif %}
         {% endif %}
-        {% if is_admin %}
+        {% if is_admin and page != 'login' %}
         <a class="nav-link nav-settings {% if page == 'settings' %}active{% endif %}" href="/settings" title="Settings" {% if page == 'settings' %}aria-current="page"{% endif %}>
           {{ nav_icon("settings") }}
           <span class="nav-link-label">Settings</span>
         </a>
         {% endif %}
-        {% if auth_enabled and user %}
+        {% if user %}
         <div class="nav-user">
           {% if user.picture %}<img class="nav-user-pic" src="{{ user.picture }}" alt="" width="28" height="28">{% endif %}
-          <span class="nav-user-name" title="{{ user.email }}">{{ user.name }}</span>
-          <a class="nav-link nav-signout" href="/logout">Sign out</a>
+          <a class="nav-user-link {% if page == 'account' %}is-active{% endif %}" href="/account" title="User settings">
+            <span class="nav-user-name">{{ user.name }}</span>
+            <span class="role-badge role-{{ user.role }}">{{ user.role }}</span>
+          </a>
+          <form method="post" action="/logout" class="nav-logout-form">
+            <button class="nav-link nav-signout" type="submit">Log out</button>
+          </form>
         </div>
-        {% elif auth_enabled %}
-        <a class="nav-link" href="/login">Sign in</a>
+        {% else %}
+        <a class="nav-link nav-login {% if page == 'login' %}active{% endif %}" href="/login">Log in</a>
         {% endif %}
         <span class="nav-version" title="Times shown in {{ timezone }} ({{ timezone_offset }})">{{ timezone_abbrev }} · v{{ version }}</span>
       </div>

@@ -1,5 +1,7 @@
 from app.config import parse_size
+from app.utils.http import http_error_detail
 from app.utils.security import is_safe_url
+import httpx
 
 
 def test_parse_size():
@@ -13,3 +15,8 @@ def test_url_safety():
     assert not is_safe_url("file:///etc/passwd")
     assert not is_safe_url("javascript:alert(1)")
     assert not is_safe_url("http://127.0.0.1/secret")
+
+
+def test_http_error_detail_strips_ieee_html():
+    response = httpx.Response(403, text="<h1>Developer Inactive</h1>")
+    assert http_error_detail(response) == "Developer Inactive"

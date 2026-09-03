@@ -99,6 +99,83 @@ def test_rating_api_and_downloadable_page(tmp_db):
     assert "Nothing matches this filter" in empty.text
 
 
+def test_category_year_source_and_journal_filters(tmp_db):
+    with session_scope() as session:
+        save_paper(
+            session,
+            PaperRecord(
+                title="Satellite cyber paper",
+                doi="10.1000/sat-cat",
+                publication_year=2021,
+                journal="Sensors",
+                source_provider="arxiv",
+                research_fields=["Computer Science", "Cybersecurity"],
+                keywords=["satellites"],
+                status=PaperStatus.OA_AVAILABLE,
+            ),
+        )
+        save_paper(
+            session,
+            PaperRecord(
+                title="ML vision paper",
+                doi="10.1000/ml-cat",
+                publication_year=2019,
+                journal="Nature Machine Intelligence",
+                source_provider="openalex",
+                research_fields=["Computer Science", "Machine Learning"],
+                status=PaperStatus.FOUND,
+            ),
+        )
+        cyber = {p.title for p in session.scalars(apply_paper_filters(select(Paper), category="Cybersecurity"))}
+        assert cyber == {"Satellite cyber paper"}
+        year_2019 = {p.title for p in session.scalars(apply_paper_filters(select(Paper), year=2019))}
+        assert year_2019 == {"ML vision paper"}
+        arxiv = {p.title for p in session.scalars(apply_paper_filters(select(Paper), source="arxiv"))}
+        assert arxiv == {"Satellite cyber paper"}
+        sensors = {p.title for p in session.scalars(apply_paper_filters(select(Paper), journal="Sensors"))}
+        assert sensors == {"Satellite cyber paper"}
+    client = TestClient(app)
+    page = client.get("/library?category=Computer%20Science")
+    assert page.status_code == 200
+    assert "Satellite cyber paper" in page.text
+    assert "ML vision paper" in page.text
+    assert "Categories" in page.text
+    year_page = client.get("/library?year=2021")
+    assert "Satellite cyber paper" in year_page.text
+    assert "ML vision paper" not in year_page.text
+    source_page = client.get("/library?source=openalex")
+    assert "ML vision paper" in source_page.text
+    assert "Satellite cyber paper" not in source_page.text
+
+
+def test_library_pagination_controls(tmp_db):
+    with session_scope() as session:
+        for index in range(12):
+            save_paper(
+                session,
+                PaperRecord(
+                    title=f"Paged paper {index:02d}",
+                    doi=f"10.1000/page-{index}",
+                    status=PaperStatus.FOUND,
+                    relevance_score=100 - index,
+                ),
+            )
+    client = TestClient(app)
+    first = client.get("/library?per_page=10")
+    assert first.status_code == 200
+    assert "Showing" in first.text
+    assert "1–10" in first.text
+    assert "of <strong>12</strong>" in first.text or "of 12" in first.text
+    assert "Paged paper 00" in first.text
+    assert "Paged paper 11" not in first.text
+    assert 'aria-label="Library pages"' in first.text
+    second = client.get("/library?per_page=10&page=2")
+    assert second.status_code == 200
+    assert "Paged paper 11" in second.text
+    assert "Paged paper 00" not in second.text
+    assert "Page 2 of 2" in second.text
+
+
 def test_hide_paywalled_filters_library_unless_explicit(tmp_db):
     from app.database.repository import upsert_download
     from app.database.settings_repository import save_workspace_settings

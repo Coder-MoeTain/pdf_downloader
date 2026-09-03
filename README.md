@@ -228,6 +228,8 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
 Pages: **Dashboard**, **Search**, **Library**, **Downloads**, **Sources**, **Statistics**, **Settings**.
 
+Open [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login) to create the first **admin** account (email and password). After that, every visitor must log in. **User** accounts can search and use the library; **admin** accounts also open Sources, Settings, and User settings people/roles. Signed-in accounts see **User settings** and **Log out** in the header. Google sign-in is optional when `GOOGLE_CLIENT_ID` is set.
+
 ## Database
 
 SQLite file: `data/research.db`

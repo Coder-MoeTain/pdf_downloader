@@ -106,3 +106,31 @@
     {% endfor %}
   </div>
 {%- endmacro %}
+
+{% macro library_pager(pager, filters, aria_label="Library pages") -%}
+<nav class="lib-pager" aria-label="{{ aria_label }}">
+  {% if pager.has_prev %}
+  <a class="lib-page" href="{{ library_href(filters, page=1) }}" aria-label="First page">«</a>
+  <a class="lib-page" href="{{ library_href(filters, page=pager.page - 1) }}" aria-label="Previous page">‹</a>
+  {% else %}
+  <span class="lib-page is-disabled" aria-disabled="true">«</span>
+  <span class="lib-page is-disabled" aria-disabled="true">‹</span>
+  {% endif %}
+  {% for item in pager.pages %}
+    {% if item is none %}
+    <span class="lib-page is-ellipsis" aria-hidden="true">…</span>
+    {% elif item == pager.page %}
+    <span class="lib-page is-current" aria-current="page">{{ item }}</span>
+    {% else %}
+    <a class="lib-page" href="{{ library_href(filters, page=item) }}">{{ item }}</a>
+    {% endif %}
+  {% endfor %}
+  {% if pager.has_next %}
+  <a class="lib-page" href="{{ library_href(filters, page=pager.page + 1) }}" aria-label="Next page">›</a>
+  <a class="lib-page" href="{{ library_href(filters, page=pager.total_pages) }}" aria-label="Last page">»</a>
+  {% else %}
+  <span class="lib-page is-disabled" aria-disabled="true">›</span>
+  <span class="lib-page is-disabled" aria-disabled="true">»</span>
+  {% endif %}
+</nav>
+{%- endmacro %}

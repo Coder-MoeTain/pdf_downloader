@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}User settings · {{ app_name }}{% endblock %}
+{% block body_class %}page-account{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="page-kicker">Account</div>
+    <h1 class="h2 mb-1">User settings</h1>
+    <p class="lede mb-0">Your profile, password, and role. Admins can add people and switch them between <strong>user</strong> and <strong>admin</strong>.</p>
+  </div>
+  <form method="post" action="/logout">
+    <button class="btn btn-outline-danger" type="submit">Log out</button>
+  </form>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-5">
+    <form method="post" action="/account/profile" class="card" data-busy="Saving…">
+      <div class="card-header">Profile</div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label" for="name">Display name</label>
+          <input class="form-control" id="name" name="name" value="{{ user.name }}" autocomplete="name">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="email">Email</label>
+          <input class="form-control" id="email" value="{{ user.email }}" disabled>
+        </div>
+        <div class="mb-0">
+          <span class="form-label d-block">Role</span>
+          <span class="role-badge role-{{ user.role }}">{{ user.role }}</span>
+          <div class="form-hint mt-2">{% if user.is_admin %}Admins can open Sources and Settings.{% else %}Users can search, browse the library, and download open-access PDFs.{% endif %}</div>
+        </div>
+      </div>
+      <div class="card-footer settings-footer">
+        <button class="btn btn-primary" type="submit">Save profile</button>
+      </div>
+    </form>
+
+    <form method="post" action="/account/password" class="card mt-4" data-busy="Updating…">
+      <div class="card-header">Password</div>
+      <div class="card-body">
+        {% if user.has_password %}
+        <div class="mb-3">
+          <label class="form-label" for="current_password">Current password</label>
+          <input class="form-control" id="current_password" name="current_password" type="password" autocomplete="current-password">
+        </div>
+        {% endif %}
+        <div class="mb-3">
+          <label class="form-label" for="new_password">{% if user.has_password %}New password{% else %}Set a password{% endif %}</label>
+          <input class="form-control" id="new_password" name="new_password" type="password" autocomplete="new-password" minlength="{{ password_min }}" required>
+        </div>
+        <div class="mb-0">
+          <label class="form-label" for="confirm_password">Confirm password</label>
+          <input class="form-control" id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" minlength="{{ password_min }}" required>
+          <div class="form-hint">At least {{ password_min }} characters.</div>
+        </div>
+      </div>
+      <div class="card-footer settings-footer">
+        <button class="btn btn-primary" type="submit">Update password</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="col-lg-7">
+    {% if is_admin %}
+    <form method="post" action="/account/users" class="card" data-busy="Adding…">
+      <div class="card-header">Add a user</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="new_email">Email</label>
+            <input class="form-control" id="new_email" name="email" type="email" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="new_name">Display name</label>
+            <input class="form-control" id="new_name" name="name">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="new_user_password">Password</label>
+            <input class="form-control" id="new_user_password" name="password" type="password" minlength="{{ password_min }}" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="new_role">Role</label>
+            <select class="form-select" id="new_role" name="role">
+              <option value="user" selected>user</option>
+              <option value="admin">admin</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer settings-footer">
+        <button class="btn btn-primary" type="submit">Add user</button>
+      </div>
+    </form>
+
+    <div class="card mt-4">
+      <div class="card-header">People</div>
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Last login</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for member in members %}
+            <tr>
+              <td>{{ member.name }}</td>
+              <td>{{ member.email }}</td>
+              <td>
+                <form method="post" action="/account/users/{{ member.id }}/role" class="role-form">
+                  <select class="form-select form-select-sm" name="role" onchange="this.form.submit()">
+                    {% for option in roles %}
+                    <option value="{{ option }}" {% if member.role == option %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                  </select>
+                </form>
+              </td>
+              <td class="paper-meta">{% if member.last_login_at %}{{ member.last_login_at|localdt }}{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="card-body">
+        <h2 class="h5">User role</h2>
+        <p class="mb-0">Your account is a <strong>user</strong>. An admin can promote you if you need Sources or Settings access.</p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

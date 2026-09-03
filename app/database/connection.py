@@ -88,6 +88,15 @@ def _ensure_columns(engine: Engine) -> None:
         names = {row[1] for row in rows}
         if "user_rating" not in names:
             conn.execute(text("ALTER TABLE papers ADD COLUMN user_rating INTEGER"))
+        user_rows = conn.execute(text("PRAGMA table_info(users)")).all()
+        user_names = {row[1] for row in user_rows}
+        if user_names:
+            if "password_hash" not in user_names:
+                conn.execute(text("ALTER TABLE users ADD COLUMN password_hash TEXT"))
+            if "role" not in user_names:
+                conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR(16) DEFAULT 'user'"))
+                conn.execute(text("UPDATE users SET role = 'admin' WHERE is_admin = 1 AND (role IS NULL OR role = '')"))
+                conn.execute(text("UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_downloads_sha256 ON downloads (sha256)"))
         conn.commit()
 

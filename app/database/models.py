@@ -157,10 +157,12 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    google_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    google_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), default="")
     picture: Mapped[str | None] = mapped_column(Text, nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    role: Mapped[str] = mapped_column(String(16), default="user")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     last_login_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

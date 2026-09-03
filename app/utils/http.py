@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 from typing import Any
 
 import httpx
@@ -117,15 +118,42 @@ class AsyncHttpClient:
     async def get_json(self, url: str, **kwargs: Any) -> Any:
         response = await self.request("GET", url, **kwargs)
         if response.status_code >= 400:
-            raise HttpError(f"HTTP {response.status_code} for {url}", response.status_code)
+            raise HttpError(_http_error_message(response, url), response.status_code)
         return response.json()
 
     async def get_text(self, url: str, **kwargs: Any) -> str:
         response = await self.request("GET", url, **kwargs)
         if response.status_code >= 400:
-            raise HttpError(f"HTTP {response.status_code} for {url}", response.status_code)
+            raise HttpError(_http_error_message(response, url), response.status_code)
         return response.text
 
     async def get_bytes(self, url: str, **kwargs: Any) -> tuple[httpx.Response, bytes]:
         response = await self.request("GET", url, **kwargs)
         return response, response.content
+
+
+def http_error_detail(response: httpx.Response) -> str:
+    """Short, log-safe snippet from an API error body. Never includes query strings or keys."""
+    text = (response.text or "").strip()
+    if not text:
+        return ""
+    if text[:1] in "{[":
+        try:
+            data = response.json()
+        except Exception:
+            data = None
+        if isinstance(data, dict):
+            for key in ("error", "message", "detail", "fault", "title"):
+                value = data.get(key)
+                if value:
+                    text = str(value)
+                    break
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" \"'")
+    return text[:160]
+
+
+def _http_error_message(response: httpx.Response, url: str) -> str:
+    detail = http_error_detail(response)
+    message = f"HTTP {response.status_code} for {url}"
+    return f"{message} ({detail})" if detail else message

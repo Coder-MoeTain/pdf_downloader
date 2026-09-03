@@ -94,7 +94,7 @@ BUILTIN_SOURCES: list[dict[str, object]] = [
     {
         "slug": "ieee",
         "display_name": "IEEE Xplore",
-        "description": "IEEE publications search. Official API key required.",
+        "description": "IEEE publications search. Official Metadata Search API key required (must be activated at developer.ieee.org).",
         "homepage_url": "https://ieeexplore.ieee.org",
         "api_base_url": "https://ieeexploreapi.ieee.org/api/v1/search/articles",
         "docs_url": "https://developer.ieee.org",

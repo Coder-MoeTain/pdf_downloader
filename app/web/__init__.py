@@ -14,25 +14,38 @@ from sqlalchemy.orm import selectinload
 
 from app import __app_name__, __version__
 from app.auth import (
+    PASSWORD_MIN_LENGTH,
+    ROLE_ADMIN,
+    ROLE_USER,
+    authenticate_local,
+    auth_required,
+    create_local_user,
     current_user,
     get_oauth,
     google_login_enabled,
+    hash_password,
     is_admin_path,
     is_public_path,
+    list_users,
     safe_next_path,
     session_secret,
+    set_user_role,
     upsert_google_user,
+    user_count,
     user_is_admin,
+    user_role,
     user_to_session,
+    verify_password,
 )
 from app.config import ROOT_DIR, get_runtime_config
 from app.database.connection import init_db, session_scope
-from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuery, SearchResult
+from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuery, SearchResult, User
 from app.database.repository import (
-    apply_paper_filters,
     downloadable_clause,
-    library_search,
+    library_facets,
+    query_library,
     set_paper_rating,
+    split_tags,
     visible_download_clauses,
     visible_paper_clauses,
 )
@@ -64,15 +77,30 @@ from app.services.progress import tracker
 from app.services.search_service import SearchService, filters_from_cli
 from app.utils.logger import setup_logging
 from app.utils.time import format_local, now_local, timezone_abbrev, timezone_choices, timezone_offset_label
-from app.web.ui import active_page, share, status_meta
+from app.web.ui import (
+    DEFAULT_PAGE_SIZE,
+    DEFAULT_SORT,
+    PAGE_SIZES,
+    SORT_OPTIONS,
+    active_page,
+    clamp_page_size,
+    library_href,
+    pagination_spec,
+    share,
+    source_label,
+    status_meta,
+)
 
 WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 templates.env.globals["pdf_button_state"] = pdf_button_state
 templates.env.globals["status_meta"] = status_meta
 templates.env.globals["can_preview"] = lambda paper: existing_pdf_path(paper) is not None
+templates.env.globals["library_href"] = library_href
+templates.env.globals["source_label"] = source_label
 templates.env.filters["filesize"] = lambda value: _format_bytes(value)
 templates.env.filters["localdt"] = lambda value, fmt="%Y-%m-%d %H:%M": format_local(value, fmt)
+templates.env.filters["tags"] = split_tags
 
 app = FastAPI(title=__app_name__, version=__version__)
 app.mount("/static", StaticFiles(directory=str(WEB_DIR / "static")), name="static")
@@ -83,17 +111,18 @@ _search_message = {"text": "", "level": "info"}
 @app.middleware("http")
 async def _auth_gate(request: Request, call_next):
     path = request.url.path
-    if is_public_path(path) or not google_login_enabled():
+    if is_public_path(path):
         return await call_next(request)
     user = current_user(request)
-    if user is None:
+    needs_login = auth_required() or path.startswith("/account")
+    if needs_login and user is None:
         if path.startswith("/api/"):
             return JSONResponse({"ok": False, "error": "Sign in required"}, status_code=401)
         nxt = path
         if request.url.query:
             nxt = f"{path}?{request.url.query}"
         return RedirectResponse(f"/login?next={nxt}", status_code=302)
-    if is_admin_path(path) and not user.get("is_admin"):
+    if user and is_admin_path(path) and user_role(user) != ROLE_ADMIN:
         if path.startswith("/api/"):
             return JSONResponse({"ok": False, "error": "Admin access required"}, status_code=403)
         _search_message["text"] = "Sources and Settings are limited to admin accounts."
@@ -111,15 +140,59 @@ def _startup() -> None:
     init_db()
 
 
+def _login_ctx(request: Request, next_url: str = "/") -> dict:
+    return _ctx(
+        request,
+        next_url=safe_next_path(next_url),
+        google_ready=google_login_enabled(),
+        allow_register=user_count() == 0,
+        password_min=PASSWORD_MIN_LENGTH,
+    )
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, next: str = "/"):
     if current_user(request):
         return RedirectResponse(safe_next_path(next), status_code=302)
-    return templates.TemplateResponse(
-        request,
-        "login.html",
-        _ctx(request, next_url=safe_next_path(next), google_ready=google_login_enabled()),
-    )
+    return templates.TemplateResponse(request, "login.html", _login_ctx(request, next))
+
+
+@app.post("/login")
+def login_submit(
+    request: Request,
+    email: str = Form(""),
+    password: str = Form(""),
+    name: str = Form(""),
+    next: str = Form("/"),
+):
+    nxt = safe_next_path(next)
+    email = (email or "").strip()
+    if not email or not password:
+        _search_message["text"] = "Enter your email and password."
+        _search_message["level"] = "warning"
+        return templates.TemplateResponse(request, "login.html", _login_ctx(request, nxt), status_code=400)
+    try:
+        with session_scope() as session:
+            if user_count() == 0:
+                row = create_local_user(session, email=email, password=password, name=name, role=ROLE_ADMIN)
+            else:
+                row = authenticate_local(session, email, password)
+                if row is None:
+                    _search_message["text"] = "Email or password is not correct."
+                    _search_message["level"] = "danger"
+                    return templates.TemplateResponse(request, "login.html", _login_ctx(request, nxt), status_code=401)
+            request.session["user"] = user_to_session(row)
+            signed_email = row.email
+            is_admin = user_role(request.session["user"]) == ROLE_ADMIN
+    except ValueError as exc:
+        _search_message["text"] = str(exc)
+        _search_message["level"] = "danger"
+        return templates.TemplateResponse(request, "login.html", _login_ctx(request, nxt), status_code=400)
+    if is_admin_path(nxt) and not is_admin:
+        nxt = "/"
+    _search_message["text"] = f"Signed in as {signed_email}."
+    _search_message["level"] = "success"
+    return RedirectResponse(nxt, status_code=303)
 
 
 @app.get("/auth/google")
@@ -166,12 +239,135 @@ async def auth_google_callback(request: Request):
     return RedirectResponse(nxt, status_code=302)
 
 
-@app.get("/logout")
+@app.api_route("/logout", methods=["GET", "POST"])
 def logout(request: Request):
     request.session.clear()
     _search_message["text"] = "Signed out."
     _search_message["level"] = "info"
-    return RedirectResponse("/login" if google_login_enabled() else "/", status_code=302)
+    return RedirectResponse("/login", status_code=303)
+
+
+def _account_users(session):
+    return [
+        {
+            "id": row.id,
+            "email": row.email,
+            "name": row.name,
+            "role": row.role or (ROLE_ADMIN if row.is_admin else ROLE_USER),
+            "has_password": bool(row.password_hash),
+            "last_login_at": row.last_login_at,
+        }
+        for row in list_users(session)
+    ]
+
+
+@app.get("/account", response_class=HTMLResponse)
+def account_page(request: Request):
+    user = current_user(request)
+    if user is None:
+        return RedirectResponse("/login?next=/account", status_code=302)
+    with session_scope() as session:
+        members = _account_users(session) if user_role(user) == ROLE_ADMIN else []
+    return templates.TemplateResponse(
+        request,
+        "account.html",
+        _ctx(request, members=members, password_min=PASSWORD_MIN_LENGTH, roles=(ROLE_USER, ROLE_ADMIN)),
+    )
+
+
+@app.post("/account/profile")
+def account_save_profile(request: Request, name: str = Form("")):
+    user = current_user(request)
+    if user is None:
+        return RedirectResponse("/login?next=/account", status_code=302)
+    with session_scope() as session:
+        row = session.get(User, user["id"])
+        if row is None:
+            request.session.clear()
+            return RedirectResponse("/login", status_code=302)
+        row.name = (name or "").strip() or row.email.split("@")[0]
+        session.flush()
+        request.session["user"] = user_to_session(row)
+    _search_message["text"] = "Profile saved."
+    _search_message["level"] = "success"
+    return RedirectResponse("/account", status_code=303)
+
+
+@app.post("/account/password")
+def account_save_password(
+    request: Request,
+    current_password: str = Form(""),
+    new_password: str = Form(""),
+    confirm_password: str = Form(""),
+):
+    user = current_user(request)
+    if user is None:
+        return RedirectResponse("/login?next=/account", status_code=302)
+    if new_password != confirm_password:
+        _search_message["text"] = "New password and confirmation do not match."
+        _search_message["level"] = "danger"
+        return RedirectResponse("/account", status_code=303)
+    if len(new_password) < PASSWORD_MIN_LENGTH:
+        _search_message["text"] = f"Password must be at least {PASSWORD_MIN_LENGTH} characters."
+        _search_message["level"] = "danger"
+        return RedirectResponse("/account", status_code=303)
+    with session_scope() as session:
+        row = session.get(User, user["id"])
+        if row is None:
+            request.session.clear()
+            return RedirectResponse("/login", status_code=302)
+        if row.password_hash and not verify_password(current_password, row.password_hash):
+            _search_message["text"] = "Current password is not correct."
+            _search_message["level"] = "danger"
+            return RedirectResponse("/account", status_code=303)
+        row.password_hash = hash_password(new_password)
+        session.flush()
+        request.session["user"] = user_to_session(row)
+    _search_message["text"] = "Password updated."
+    _search_message["level"] = "success"
+    return RedirectResponse("/account", status_code=303)
+
+
+@app.post("/account/users")
+def account_add_user(
+    request: Request,
+    email: str = Form(""),
+    name: str = Form(""),
+    password: str = Form(""),
+    role: str = Form(ROLE_USER),
+):
+    user = current_user(request)
+    if user is None or user_role(user) != ROLE_ADMIN:
+        return RedirectResponse("/", status_code=302)
+    try:
+        with session_scope() as session:
+            create_local_user(session, email=email, password=password, name=name, role=role)
+    except ValueError as exc:
+        _search_message["text"] = str(exc)
+        _search_message["level"] = "danger"
+        return RedirectResponse("/account", status_code=303)
+    _search_message["text"] = f"Added {email.strip().lower()} as {role}."
+    _search_message["level"] = "success"
+    return RedirectResponse("/account", status_code=303)
+
+
+@app.post("/account/users/{user_id}/role")
+def account_set_role(request: Request, user_id: int, role: str = Form(ROLE_USER)):
+    user = current_user(request)
+    if user is None or user_role(user) != ROLE_ADMIN:
+        return RedirectResponse("/", status_code=302)
+    try:
+        with session_scope() as session:
+            row = set_user_role(session, user_id, role)
+            if row.id == user.get("id"):
+                request.session["user"] = user_to_session(row)
+    except ValueError as exc:
+        _search_message["text"] = str(exc)
+        _search_message["level"] = "danger"
+        return RedirectResponse("/account", status_code=303)
+    _search_message["text"] = "Role updated."
+    _search_message["level"] = "success"
+    return RedirectResponse("/account", status_code=303)
 
 
 def _ctx(request: Request, **extra):
@@ -189,7 +385,10 @@ def _ctx(request: Request, **extra):
         "show_paywalled": cfg.show_paywalled,
         "user": current_user(request),
         "is_admin": user_is_admin(request),
-        "auth_enabled": google_login_enabled(),
+        "auth_enabled": True,
+        "auth_required": auth_required(),
+        "google_ready": google_login_enabled(),
+        "role": user_role(current_user(request)) if current_user(request) else ("admin" if not auth_required() else "user"),
     }
     payload.update(extra)
     payload["page"] = active_page(request.url.path)
@@ -392,69 +591,72 @@ def library_page(
     latest: int = 0,
     pdf: int = 0,
     min_rating: int = 0,
+    category: str = "",
+    year: int = 0,
+    source: str = "",
+    journal: str = "",
+    sort: str = DEFAULT_SORT,
+    per_page: int = DEFAULT_PAGE_SIZE,
 ):
-    page = max(page, 1)
-    per_page = 25
     downloadable = bool(pdf)
     min_rating = max(0, min(min_rating, 5))
+    category = category.strip()
+    source = source.strip()
+    journal = journal.strip()
+    sort = sort if sort in {key for key, _label in SORT_OPTIONS} else DEFAULT_SORT
+    per_page = clamp_page_size(per_page)
+    year = year if year and year > 0 else 0
     latest_search = None
-    oa_pending = 0
     with session_scope() as session:
         latest_search = session.scalar(select(SearchQuery).order_by(SearchQuery.id.desc()).limit(1))
-        if q:
-            papers = library_search(
-                session,
-                q,
-                limit=200,
-                status=status,
-                downloadable=downloadable,
-                min_rating=min_rating,
+        use_latest = bool(latest) and latest_search is not None
+        pager = pagination_spec(max(page, 1), 1, per_page)
+        query_kwargs = dict(
+            q=q,
+            status=status,
+            downloadable=downloadable,
+            min_rating=min_rating,
+            category=category,
+            year=year or None,
+            source=source,
+            journal=journal,
+            sort=sort,
+            latest_search_id=latest_search.id if use_latest else None,
+            limit=per_page,
+        )
+        papers, total = query_library(session, offset=0, **query_kwargs)
+        pager = pagination_spec(max(page, 1), total, per_page)
+        if pager["page"] > 1:
+            papers, total = query_library(
+                session, offset=(pager["page"] - 1) * per_page, **query_kwargs
             )
-            total = len(papers)
-            papers = papers[(page - 1) * per_page : page * per_page]
-        elif latest and latest_search:
-            stmt = (
-                select(Paper)
-                .join(SearchResult, SearchResult.paper_id == Paper.id)
-                .where(SearchResult.search_query_id == latest_search.id)
-                .options(selectinload(Paper.downloads))
-                .order_by(SearchResult.rank)
-            )
-            count_stmt = (
+        oa_where = [
+            Paper.pdf_url.is_not(None),
+            Paper.status.in_(["OA_AVAILABLE", "FOUND", "FAILED"]),
+        ]
+        oa_stmt = select(func.count(Paper.id)).where(*oa_where)
+        if use_latest:
+            oa_stmt = (
                 select(func.count(Paper.id))
                 .join(SearchResult, SearchResult.paper_id == Paper.id)
-                .where(SearchResult.search_query_id == latest_search.id)
+                .where(SearchResult.search_query_id == latest_search.id, *oa_where)
             )
-            stmt = apply_paper_filters(stmt, status=status, downloadable=downloadable, min_rating=min_rating)
-            count_stmt = apply_paper_filters(
-                count_stmt, status=status, downloadable=downloadable, min_rating=min_rating
-            )
-            total = session.scalar(count_stmt) or 0
-            papers = session.scalars(stmt.offset((page - 1) * per_page).limit(per_page)).unique().all()
-            oa_pending = session.scalar(
-                select(func.count(Paper.id))
-                .join(SearchResult, SearchResult.paper_id == Paper.id)
-                .where(
-                    SearchResult.search_query_id == latest_search.id,
-                    Paper.pdf_url.is_not(None),
-                    Paper.status.in_(["OA_AVAILABLE", "FOUND", "FAILED"]),
-                )
-            ) or 0
-        else:
-            stmt = select(Paper).options(selectinload(Paper.downloads)).order_by(Paper.relevance_score.desc())
-            count_stmt = select(func.count(Paper.id))
-            stmt = apply_paper_filters(stmt, status=status, downloadable=downloadable, min_rating=min_rating)
-            count_stmt = apply_paper_filters(
-                count_stmt, status=status, downloadable=downloadable, min_rating=min_rating
-            )
-            total = session.scalar(count_stmt) or 0
-            papers = session.scalars(stmt.offset((page - 1) * per_page).limit(per_page)).all()
-            oa_pending = session.scalar(
-                select(func.count(Paper.id)).where(
-                    Paper.pdf_url.is_not(None),
-                    Paper.status.in_(["OA_AVAILABLE", "FOUND", "FAILED"]),
-                )
-            ) or 0
+        oa_pending = session.scalar(oa_stmt) or 0
+        facets = library_facets(session)
+    filters = {
+        "q": q,
+        "status": status,
+        "pdf": downloadable,
+        "min_rating": min_rating,
+        "latest": use_latest,
+        "category": category,
+        "year": year,
+        "source": source,
+        "journal": journal,
+        "sort": sort,
+        "per_page": per_page,
+    }
+    has_filters = bool(q or status or downloadable or min_rating or category or year or source or journal)
     return templates.TemplateResponse(
         request,
         "library.html",
@@ -465,10 +667,21 @@ def library_page(
             status=status,
             pdf=downloadable,
             min_rating=min_rating,
-            page_num=page,
+            category=category,
+            year=year,
+            source=source,
+            journal=journal,
+            sort=sort,
+            page_num=pager["page"],
             total=total,
             per_page=per_page,
-            latest=bool(latest),
+            pager=pager,
+            filters=filters,
+            facets=facets,
+            sort_options=SORT_OPTIONS,
+            page_sizes=PAGE_SIZES,
+            has_filters=has_filters,
+            latest=use_latest,
             latest_search=latest_search,
             oa_pending=oa_pending,
             search_running=bool(latest_search and latest_search.status == "running"),

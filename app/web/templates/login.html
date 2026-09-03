@@ -1,29 +1,94 @@
-{% extends "base.html" %}
-{% block title %}Sign in · {{ app_name }}{% endblock %}
-{% block body_class %}page-login{% endblock %}
-{% block content %}
-<div class="login-wrap">
-  <div class="login-card card">
-    <div class="card-body">
-      <div class="page-kicker">Account</div>
-      <h1 class="h2 mb-2">Sign in</h1>
-      <p class="lede">Use your Gmail account to open the collector. Sources and Settings stay available only to admin accounts.</p>
-      {% if google_ready %}
-      <a class="btn btn-google" href="/auth/google?next={{ next_url|urlencode }}">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if allow_register %}Create admin · {{ app_name }}{% else %}Log in · {{ app_name }}{% endif %}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css?v={{ version }}">
+</head>
+<body class="login-page">
+<a class="skip-link" href="#login-main">Skip to sign in</a>
+<div class="login-shell">
+  <aside class="login-brand" aria-hidden="false">
+    <div class="login-brand-inner">
+      <div class="login-logo">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" focusable="false">
+            <rect width="32" height="32" rx="8" fill="#0b1f33"/>
+            <path d="M8 8h12a4 4 0 0 1 4 4v13H12a4 4 0 0 0-4 4V8z" fill="#e8f0e9"/>
+            <path d="M8 8h11v17H12a4 4 0 0 0-4 4V8z" fill="#7eb89a"/>
+          </svg>
+        </span>
+        <span class="brand-copy">
+          <span class="brand-text">ResearchPaper</span>
+          <span class="brand-sub">Collector</span>
+        </span>
+      </div>
+      <p class="login-brand-kicker">Research workspace</p>
+      <h1 class="login-brand-title">A quiet desk for open literature.</h1>
+      <p class="login-brand-copy">Search official academic APIs, keep paywalled records for later, and download only legally available open-access PDFs.</p>
+      <ul class="login-points">
+        <li>Trusted sources only</li>
+        <li>Admin and user roles</li>
+        <li>No paywall bypass</li>
+      </ul>
+    </div>
+  </aside>
+  <main id="login-main" class="login-panel">
+    <div class="login-panel-inner">
+      {% if flash and flash.text %}
+      <div class="alert alert-{{ flash.level or 'info' }} alert-dismissible fade show login-alert" role="status">
+        {{ flash.text }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button>
+      </div>
+      {% endif %}
+      <p class="login-eyebrow">{% if allow_register %}First-time setup{% else %}Welcome back{% endif %}</p>
+      <h2 class="login-heading">{% if allow_register %}Create the admin account{% else %}Sign in to continue{% endif %}</h2>
+      <p class="login-lead">{% if allow_register %}This account can manage sources, settings, and other people. You can also sign in with Gmail.{% else %}Use your Gmail account or the email and password for this workspace.{% endif %}</p>
+
+      <a class="btn-gmail" href="/auth/google?next={{ next_url|urlencode }}">
         <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
           <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.4 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3.1l5.7-5.7C34.2 6.1 29.4 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.3-.4-3.5z"/>
           <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 12 24 12c3.1 0 5.8 1.2 8 3.1l5.7-5.7C34.2 6.1 29.4 4 24 4 16.3 4 9.6 8.3 6.3 14.7z"/>
           <path fill="#4CAF50" d="M24 44c5.2 0 10-2 13.5-5.2l-6.2-5.2C29.3 36 26.8 37 24 37c-5.3 0-9.7-3.6-11.3-8.4l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
           <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-1.1 3.2-3.5 5.8-6.6 7.3l6.2 5.2C37.3 38.3 44 33 44 24c0-1.3-.1-2.3-.4-3.5z"/>
         </svg>
-        Continue with Google
+        Continue with Gmail
       </a>
-      {% else %}
-      <div class="alert alert-warning mb-0">
-        Google sign-in is not configured. Add <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> to <code>.env</code>, set <code>GOOGLE_ADMIN_EMAILS</code> for Sources and Settings access, then restart the app.
-      </div>
+      {% if not google_ready %}
+      <p class="login-gmail-hint">Gmail sign-in turns on after Google OAuth is configured for this workspace.</p>
       {% endif %}
+
+      <div class="login-split"><span>or use email</span></div>
+
+      <form method="post" action="/login" class="login-form" data-busy="Signing in…">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        {% if allow_register %}
+        <label class="login-field">
+          <span>Display name</span>
+          <input id="name" name="name" autocomplete="name" placeholder="Your name">
+        </label>
+        {% endif %}
+        <label class="login-field">
+          <span>Email</span>
+          <input id="email" name="email" type="email" autocomplete="username" placeholder="you@gmail.com" required>
+        </label>
+        <label class="login-field">
+          <span>Password</span>
+          <input id="password" name="password" type="password" autocomplete="{{ 'new-password' if allow_register else 'current-password' }}" minlength="{{ password_min }}" required>
+          <small>At least {{ password_min }} characters</small>
+        </label>
+        <button class="btn-login" type="submit">{% if allow_register %}Create admin account{% else %}Log in with email{% endif %}</button>
+      </form>
+      <p class="login-foot">Official APIs only · open-access PDFs · times in {{ timezone_abbrev }}</p>
     </div>
-  </div>
+  </main>
 </div>
-{% endblock %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

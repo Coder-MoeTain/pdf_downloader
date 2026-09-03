@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database.models import Author, Download, Paper, PaperAuthor, PaperFulltext, Provider, SearchQuery, SearchResult
@@ -323,7 +324,46 @@ def visible_download_clauses(*, status: str = "") -> tuple:
     )
 
 
-def apply_paper_filters(stmt, *, status: str = "", downloadable: bool = False, min_rating: int = 0):
+def split_tags(value: str | None) -> list[str]:
+    """Split semicolon- or comma-separated keywords / research fields."""
+    if not value:
+        return []
+    tags: list[str] = []
+    seen: set[str] = set()
+    for part in value.replace(",", ";").split(";"):
+        tag = part.strip()
+        key = tag.lower()
+        if tag and key not in seen:
+            seen.add(key)
+            tags.append(tag)
+    return tags
+
+
+def _tag_column_matches(column, tag: str):
+    text = tag.strip()
+    if not text:
+        return None
+    return or_(
+        column == text,
+        column.ilike(f"{text};%"),
+        column.ilike(f"%; {text}"),
+        column.ilike(f"%; {text};%"),
+        column.ilike(f"%;{text}"),
+        column.ilike(f"%;{text};%"),
+    )
+
+
+def apply_paper_filters(
+    stmt,
+    *,
+    status: str = "",
+    downloadable: bool = False,
+    min_rating: int = 0,
+    category: str = "",
+    year: int | None = None,
+    source: str = "",
+    journal: str = "",
+):
     if status:
         stmt = stmt.where(Paper.status == status)
     else:
@@ -333,7 +373,160 @@ def apply_paper_filters(stmt, *, status: str = "", downloadable: bool = False, m
         stmt = stmt.where(downloadable_clause())
     if min_rating:
         stmt = stmt.where(Paper.user_rating.is_not(None), Paper.user_rating >= min_rating)
+    if category.strip():
+        field_match = _tag_column_matches(Paper.research_fields, category)
+        keyword_match = _tag_column_matches(Paper.keywords, category)
+        stmt = stmt.where(or_(field_match, keyword_match))
+    if year:
+        stmt = stmt.where(Paper.publication_year == int(year))
+    if source.strip():
+        stmt = stmt.where(Paper.source == source.strip())
+    if journal.strip():
+        stmt = stmt.where(Paper.journal == journal.strip())
     return stmt
+
+
+def apply_library_text_search(stmt, query: str):
+    text = (query or "").strip()
+    if not text:
+        return stmt
+    like = f"%{text}%"
+    return (
+        stmt.outerjoin(PaperAuthor)
+        .outerjoin(Author)
+        .where(
+            or_(
+                Paper.title.ilike(like),
+                Paper.abstract.ilike(like),
+                Paper.keywords.ilike(like),
+                Paper.research_fields.ilike(like),
+                Paper.journal.ilike(like),
+                Paper.doi.ilike(like),
+                Author.name.ilike(like),
+            )
+        )
+    )
+
+
+def apply_library_sort(stmt, sort: str, *, latest: bool = False):
+    if latest and sort in ("", "relevance"):
+        return stmt.order_by(SearchResult.rank, Paper.id.desc())
+    if sort == "newest":
+        return stmt.order_by(Paper.publication_year.desc(), Paper.id.desc())
+    if sort == "oldest":
+        return stmt.order_by(Paper.publication_year.asc(), Paper.id.desc())
+    if sort == "citations":
+        return stmt.order_by(Paper.citation_count.desc(), Paper.id.desc())
+    if sort == "rating":
+        return stmt.order_by(Paper.user_rating.desc(), Paper.relevance_score.desc(), Paper.id.desc())
+    return stmt.order_by(Paper.relevance_score.desc(), Paper.id.desc())
+
+
+def library_filter_kwargs(
+    *,
+    status: str = "",
+    downloadable: bool = False,
+    min_rating: int = 0,
+    category: str = "",
+    year: int | None = None,
+    source: str = "",
+    journal: str = "",
+) -> dict:
+    return {
+        "status": status,
+        "downloadable": downloadable,
+        "min_rating": min_rating,
+        "category": category,
+        "year": year,
+        "source": source,
+        "journal": journal,
+    }
+
+
+def query_library(
+    session: Session,
+    *,
+    q: str = "",
+    status: str = "",
+    downloadable: bool = False,
+    min_rating: int = 0,
+    category: str = "",
+    year: int | None = None,
+    source: str = "",
+    journal: str = "",
+    sort: str = "relevance",
+    latest_search_id: int | None = None,
+    offset: int = 0,
+    limit: int = 25,
+) -> tuple[list[Paper], int]:
+    """Return one page of library papers plus the matching total."""
+    filters = library_filter_kwargs(
+        status=status,
+        downloadable=downloadable,
+        min_rating=min_rating,
+        category=category,
+        year=year,
+        source=source,
+        journal=journal,
+    )
+    count_stmt = select(func.count(func.distinct(Paper.id)))
+    stmt = select(Paper).options(selectinload(Paper.downloads), selectinload(Paper.authors).selectinload(PaperAuthor.author))
+    if latest_search_id:
+        count_stmt = count_stmt.join(SearchResult, SearchResult.paper_id == Paper.id).where(
+            SearchResult.search_query_id == latest_search_id
+        )
+        stmt = stmt.join(SearchResult, SearchResult.paper_id == Paper.id).where(
+            SearchResult.search_query_id == latest_search_id
+        )
+    count_stmt = apply_library_text_search(count_stmt, q)
+    stmt = apply_library_text_search(stmt, q)
+    if q.strip():
+        stmt = stmt.distinct()
+    count_stmt = apply_paper_filters(count_stmt, **filters)
+    stmt = apply_paper_filters(stmt, **filters)
+    stmt = apply_library_sort(stmt, sort, latest=bool(latest_search_id))
+    total = session.scalar(count_stmt) or 0
+    papers = list(session.scalars(stmt.offset(offset).limit(limit)).unique().all())
+    return papers, total
+
+
+def library_facets(session: Session) -> dict:
+    """Distinct category / year / source / journal values for library filters."""
+    visible = visible_paper_clauses()
+    years = [
+        year
+        for year, in session.execute(
+            select(Paper.publication_year)
+            .where(Paper.publication_year.is_not(None), *visible)
+            .distinct()
+            .order_by(Paper.publication_year.desc())
+        ).all()
+    ]
+    source_rows = session.execute(
+        select(Paper.source, func.count(Paper.id))
+        .where(Paper.source.is_not(None), Paper.source != "", *visible)
+        .group_by(Paper.source)
+        .order_by(func.count(Paper.id).desc())
+    ).all()
+    journal_rows = session.execute(
+        select(Paper.journal, func.count(Paper.id))
+        .where(Paper.journal.is_not(None), Paper.journal != "", *visible)
+        .group_by(Paper.journal)
+        .order_by(func.count(Paper.id).desc())
+        .limit(50)
+    ).all()
+    tag_counts: Counter[str] = Counter()
+    for fields, keywords in session.execute(select(Paper.research_fields, Paper.keywords).where(*visible)).all():
+        for tag in split_tags(fields) + split_tags(keywords):
+            if len(tag) >= 2:
+                tag_counts[tag] += 1
+    categories = [{"name": name, "count": count} for name, count in tag_counts.most_common(20)]
+    return {
+        "categories": categories,
+        "years": years,
+        "sources": [{"slug": slug, "count": count} for slug, count in source_rows],
+        "journals": [{"name": name, "count": count} for name, count in journal_rows],
+    }
 
 
 def set_paper_rating(session: Session, paper_id: int, rating: int) -> Paper | None:
@@ -353,29 +546,24 @@ def library_search(
     status: str = "",
     downloadable: bool = False,
     min_rating: int = 0,
+    category: str = "",
+    year: int | None = None,
+    source: str = "",
+    journal: str = "",
 ) -> list[Paper]:
-    like = f"%{query}%"
-    stmt = (
-        select(Paper)
-        .outerjoin(PaperAuthor)
-        .outerjoin(Author)
-        .where(
-            or_(
-                Paper.title.ilike(like),
-                Paper.abstract.ilike(like),
-                Paper.keywords.ilike(like),
-                Paper.journal.ilike(like),
-                Paper.doi.ilike(like),
-                Author.name.ilike(like),
-            )
-        )
-        .options(selectinload(Paper.downloads))
-        .distinct()
-        .order_by(Paper.relevance_score.desc())
+    papers, _total = query_library(
+        session,
+        q=query,
+        status=status,
+        downloadable=downloadable,
+        min_rating=min_rating,
+        category=category,
+        year=year,
+        source=source,
+        journal=journal,
+        limit=limit,
     )
-    stmt = apply_paper_filters(stmt, status=status, downloadable=downloadable, min_rating=min_rating)
-    stmt = stmt.limit(limit)
-    return list(session.scalars(stmt).unique().all())
+    return papers
 
 
 def save_fulltext(session: Session, paper_id: int, content: str) -> PaperFulltext:

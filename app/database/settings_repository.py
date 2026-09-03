@@ -447,5 +447,5 @@ def apply_runtime_overlay(cfg: AppConfig) -> AppConfig:
         cfg.providers[row.slug] = pcfg
         field = SOURCE_KEY_FIELDS.get(row.slug)
         if field and row.api_key:
-            setattr(cfg.env, field, row.api_key)
+            setattr(cfg.env, field, str(row.api_key).strip())
     return cfg
