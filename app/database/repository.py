@@ -220,6 +220,7 @@ def upsert_download(
     sha256: str | None = None,
     error: str | None = None,
     increment_retry: bool = False,
+    user_id: int | None = None,
 ) -> Download:
     row = session.scalar(select(Download).where(Download.paper_id == paper_id).order_by(Download.id.desc()))
     if row is None:
@@ -240,6 +241,9 @@ def upsert_download(
     if status == PaperStatus.DOWNLOADED.value:
         row.downloaded_at = utc_now()
         row.error_message = None
+    if user_id and status in {PaperStatus.DOWNLOADED.value, PaperStatus.DUPLICATE.value}:
+        if row.downloaded_by_user_id is None:
+            row.downloaded_by_user_id = user_id
     session.flush()
     return row
 
@@ -307,11 +311,24 @@ def show_paywalled_papers() -> bool:
         return True
 
 
+LIBRARY_HIDDEN_STATUSES = frozenset(
+    {
+        PaperStatus.NO_PDF.value,
+        PaperStatus.FAILED.value,
+        PaperStatus.SKIPPED.value,
+    }
+)
+
+
 def visible_paper_clauses(*, status: str = "") -> tuple:
-    """Exclude paywalled papers unless the setting shows them or the user asked for that status."""
-    if status == PaperStatus.PAYWALLED.value or show_paywalled_papers():
-        return ()
-    return (Paper.status != PaperStatus.PAYWALLED.value,)
+    """Omit no-PDF, failed, skipped, and paywalled papers unless that status is requested."""
+    selected = status.strip().upper()
+    clauses = []
+    if selected not in LIBRARY_HIDDEN_STATUSES:
+        clauses.append(Paper.status.notin_(LIBRARY_HIDDEN_STATUSES))
+    if not show_paywalled_papers() and selected != PaperStatus.PAYWALLED.value:
+        clauses.append(Paper.status != PaperStatus.PAYWALLED.value)
+    return tuple(clauses)
 
 
 def visible_download_clauses(*, status: str = "") -> tuple:
@@ -366,9 +383,8 @@ def apply_paper_filters(
 ):
     if status:
         stmt = stmt.where(Paper.status == status)
-    else:
-        for clause in visible_paper_clauses():
-            stmt = stmt.where(clause)
+    for clause in visible_paper_clauses(status=status):
+        stmt = stmt.where(clause)
     if downloadable:
         stmt = stmt.where(downloadable_clause())
     if min_rating:
@@ -470,7 +486,10 @@ def query_library(
         journal=journal,
     )
     count_stmt = select(func.count(func.distinct(Paper.id)))
-    stmt = select(Paper).options(selectinload(Paper.downloads), selectinload(Paper.authors).selectinload(PaperAuthor.author))
+    stmt = select(Paper).options(
+        selectinload(Paper.downloads).selectinload(Download.downloaded_by),
+        selectinload(Paper.authors).selectinload(PaperAuthor.author),
+    )
     if latest_search_id:
         count_stmt = count_stmt.join(SearchResult, SearchResult.paper_id == Paper.id).where(
             SearchResult.search_query_id == latest_search_id
@@ -520,7 +539,16 @@ def library_facets(session: Session) -> dict:
         for tag in split_tags(fields) + split_tags(keywords):
             if len(tag) >= 2:
                 tag_counts[tag] += 1
-    categories = [{"name": name, "count": count} for name, count in tag_counts.most_common(20)]
+    ranked = tag_counts.most_common(36)
+    peak = ranked[0][1] if ranked else 0
+    categories = [
+        {
+            "name": name,
+            "count": count,
+            "pct": round((count / peak) * 100, 1) if peak else 0,
+        }
+        for name, count in ranked
+    ]
     return {
         "categories": categories,
         "years": years,

@@ -1,8 +1,44 @@
+import pytest
+
+from app.models.search import SearchFilters
 from app.providers import PROVIDER_CLASSES
 from app.providers.crossref import CrossrefProvider
 from app.providers.extra import NasaAdsProvider, NasaNtrsProvider
+from app.providers.free import (
+    DoabProvider,
+    EconstorProvider,
+    InspireProvider,
+    OpenaireProvider,
+    OsfProvider,
+    PlosProvider,
+    ZenodoProvider,
+)
 from app.providers.openalex import OpenAlexProvider, inverted_index_to_text
 from app.providers.semantic_scholar import SemanticScholarProvider
+from app.utils.http import HttpError
+
+FREE_SOURCE_SLUGS = {
+    "openaire",
+    "hal",
+    "zenodo",
+    "dblp",
+    "plos",
+    "eric",
+    "osti",
+    "datacite",
+    "osf",
+    "biorxiv",
+    "medrxiv",
+    "figshare",
+    "doab",
+    "scielo",
+    "cinii",
+    "inspire",
+    "fatcat",
+    "worldbank",
+    "oapen",
+    "econstor",
+}
 
 
 class _Dummy:
@@ -176,3 +212,189 @@ def test_nasa_ads_uses_esource_pdf():
     assert paper.pdf_url == "https://ui.adsabs.harvard.edu/link_gateway/2024ApJ...900...1S/EPRINT_PDF"
     assert paper.open_access is True
     assert paper.citation_count == 12
+
+
+def test_free_sources_are_registered():
+    names = {cls.name for cls in PROVIDER_CLASSES}
+    assert FREE_SOURCE_SLUGS <= names
+    assert len(FREE_SOURCE_SLUGS) == 20
+    from app.database.source_catalog import BUILTIN_SOURCES
+
+    catalog = {str(item["slug"]) for item in BUILTIN_SOURCES}
+    assert FREE_SOURCE_SLUGS <= catalog
+    assert catalog == names
+
+
+def test_openaire_parse_oa_pdf():
+    provider = OpenaireProvider(_Dummy())  # type: ignore[arg-type]
+    paper = provider._parse(
+        {
+            "mainTitle": "Open Science Infrastructure",
+            "authors": [{"fullName": "Ada Lovelace"}],
+            "publicationYear": 2021,
+            "publicationDate": "2021-03-01",
+            "descriptions": ["A survey of open repositories."],
+            "pids": [{"scheme": "doi", "value": "10.5281/zenodo.111"}],
+            "bestAccessRight": {"code": "OPEN", "label": "Open Access"},
+            "instances": [{"urls": ["https://zenodo.org/records/111/files/paper.pdf"]}],
+            "container": {"name": "Open Research"},
+            "publisher": "OpenAIRE",
+        }
+    )
+    assert paper is not None
+    assert paper.doi == "10.5281/zenodo.111"
+    assert paper.authors[0].name == "Ada Lovelace"
+    assert paper.pdf_url.endswith(".pdf")
+    assert paper.open_access is True
+
+
+def test_zenodo_parse_pdf_file():
+    provider = ZenodoProvider(_Dummy())  # type: ignore[arg-type]
+    paper = provider._parse(
+        {
+            "id": 99,
+            "metadata": {
+                "title": "A Zenodo Preprint",
+                "description": "Methods",
+                "creators": [{"name": "Hopper, Grace"}],
+                "publication_date": "2024-02-10",
+                "doi": "10.5281/zenodo.99",
+                "keywords": ["security"],
+            },
+            "files": [
+                {
+                    "key": "paper.pdf",
+                    "mimetype": "application/pdf",
+                    "links": {"self": "https://zenodo.org/api/files/abc/paper.pdf"},
+                }
+            ],
+            "links": {"html": "https://zenodo.org/records/99"},
+        }
+    )
+    assert paper is not None
+    assert paper.pdf_url == "https://zenodo.org/api/files/abc/paper.pdf"
+    assert paper.publication_year == 2024
+    assert paper.open_access is True
+
+
+def test_plos_builds_printable_pdf():
+    provider = PlosProvider(_Dummy())  # type: ignore[arg-type]
+    paper = provider._parse(
+        {
+            "id": "10.1371/journal.pone.0123456",
+            "title": "Open Access Methods",
+            "author": ["Doe, Jane"],
+            "abstract": "We describe a method.",
+            "publication_date": "2023-05-01T00:00:00Z",
+            "journal": "PLoS ONE",
+            "doi": "10.1371/journal.pone.0123456",
+        }
+    )
+    assert paper is not None
+    assert paper.open_access is True
+    assert paper.pdf_url == (
+        "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0123456&type=printable"
+    )
+
+
+def test_inspire_prefers_document_then_arxiv():
+    provider = InspireProvider(_Dummy())  # type: ignore[arg-type]
+    paper = provider._parse(
+        {
+            "id": 1234567,
+            "metadata": {
+                "titles": [{"title": "Collider Phenomenology"}],
+                "authors": [{"full_name": "Yang, C. N."}],
+                "abstracts": [{"value": "A review."}],
+                "dois": [{"value": "10.1103/PhysRev.96.191"}],
+                "arxiv_eprints": [{"value": "hep-th/0001001"}],
+                "earliest_date": "2020-01-15",
+                "citation_count": 42,
+                "documents": [{"url": "https://inspirehep.net/files/abc.pdf", "key": "fulltext.pdf"}],
+            },
+        }
+    )
+    assert paper is not None
+    assert paper.arxiv_id == "hep-th/0001001"
+    assert paper.pdf_url == "https://inspirehep.net/files/abc.pdf"
+    assert paper.citation_count == 42
+
+
+def test_doab_parses_dspace_metadata():
+    provider = DoabProvider(_Dummy())  # type: ignore[arg-type]
+    paper = provider._parse(
+        {
+            "name": "Open Access Book",
+            "handle": "20.500.12854/123",
+            "metadata": [
+                {"key": "dc.title", "value": "Open Access Book"},
+                {"key": "dc.contributor.author", "value": "Smith, Ann"},
+                {"key": "dc.date.issued", "value": "2022"},
+                {"key": "dc.identifier.doi", "value": "10.11647/obp.0001"},
+                {"key": "dc.description.abstract", "value": "A monograph."},
+            ],
+            "bitstreams": [
+                {
+                    "name": "book.pdf",
+                    "mimeType": "application/pdf",
+                    "retrieveLink": "/rest/bitstreams/uuid/retrieve",
+                }
+            ],
+        }
+    )
+    assert paper is not None
+    assert paper.doi == "10.11647/obp.0001"
+    assert paper.authors[0].name == "Smith, Ann"
+    assert paper.pdf_url == "https://directory.doabooks.org/rest/bitstreams/uuid/retrieve"
+    assert paper.url.endswith("/handle/20.500.12854/123")
+
+
+class _CaptureJson:
+    def __init__(self, payload):
+        self.payload = payload
+        self.url = None
+        self.params = None
+
+    async def get_json(self, url, **kwargs):
+        self.url = url
+        self.params = kwargs.get("params") or {}
+        return self.payload
+
+
+@pytest.mark.asyncio
+async def test_zenodo_caps_anonymous_page_size():
+    client = _CaptureJson({"hits": {"hits": []}})
+    provider = ZenodoProvider(client)  # type: ignore[arg-type]
+    await provider.search("mathematic", SearchFilters(query="mathematic", max_results=300))
+    assert client.params["size"] == 25
+    assert client.params["q"] == "mathematic"
+
+
+@pytest.mark.asyncio
+async def test_econstor_uses_filtered_items():
+    client = _CaptureJson({"items": []})
+    provider = EconstorProvider(client)  # type: ignore[arg-type]
+    await provider.search("mathematic", SearchFilters(query="mathematic", max_results=80))
+    assert client.url.endswith("/rest/filtered-items")
+    assert "dc.title" in client.params["query_field[]"]
+    assert client.params["limit"] == 50
+
+
+@pytest.mark.asyncio
+async def test_osf_search_omits_embed():
+    client = _CaptureJson({"data": []})
+    provider = OsfProvider(client)  # type: ignore[arg-type]
+    await provider.search("mathematic", SearchFilters(query="mathematic"))
+    assert "embed" not in client.params
+    assert client.params["filter[title]"] == "mathematic"
+
+
+@pytest.mark.asyncio
+async def test_semantic_scholar_429_mentions_api_key():
+    class _Raise429:
+        async def get_json(self, *args, **kwargs):
+            raise HttpError("HTTP 429", 429)
+
+    provider = SemanticScholarProvider(_Raise429())  # type: ignore[arg-type]
+    with pytest.raises(HttpError, match="SEMANTIC_SCHOLAR_API_KEY"):
+        await provider.search("mathematic", SearchFilters(query="mathematic"))

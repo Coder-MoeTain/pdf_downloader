@@ -106,6 +106,23 @@
     <a href="/search">New search</a>
   </div>
 </footer>
+<div class="modal fade" id="abstractPreviewModal" tabindex="-1" aria-labelledby="abstractPreviewTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content abstract-modal-content">
+      <div class="modal-header">
+        <div class="abstract-modal-heading">
+          <div class="abstract-modal-kicker">Abstract</div>
+          <h2 class="modal-title h5" id="abstractPreviewTitle">Abstract</h2>
+          <p class="abstract-modal-meta mb-0" id="abstractPreviewMeta" hidden></p>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close abstract"></button>
+      </div>
+      <div class="modal-body">
+        <p class="abstract-modal-text" id="abstractPreviewText"></p>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="modal fade" id="pdfPreviewModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-fullscreen-lg-down modal-xl pdf-modal-dialog">
     <div class="modal-content pdf-modal-content">

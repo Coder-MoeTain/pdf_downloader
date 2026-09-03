@@ -10,7 +10,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.config import AppConfig, get_runtime_config
-from app.database.models import Paper
+from app.database.models import Download, Paper
 from app.database.repository import find_downloaded_by_sha256, upsert_download
 from app.models.paper import PaperRecord, PaperStatus
 from app.utils.filename import paper_filename, safe_join, slugify
@@ -49,6 +49,7 @@ class DownloadService:
         *,
         max_file_size: int | None = None,
         on_progress: Callable[[int, int | None], None] | None = None,
+        user_id: int | None = None,
     ) -> PaperRecord:
         max_size = max_file_size or self.config.max_file_size_bytes
         dest_dir = self.topic_dir(topic_slug, paper.publication_year)
@@ -64,7 +65,9 @@ class DownloadService:
         if dest.exists() and dest.stat().st_size >= self.config.min_pdf_size_bytes:
             digest = _sha256_file(dest)
             if dest.read_bytes()[:5] == b"%PDF-":
-                reused = self._reuse_duplicate(session, paper_id, paper, dest, digest, dest.stat().st_size)
+                reused = self._reuse_duplicate(
+                    session, paper_id, paper, dest, digest, dest.stat().st_size, user_id=user_id
+                )
                 if reused:
                     return paper
                 paper.status = PaperStatus.DOWNLOADED
@@ -76,6 +79,7 @@ class DownloadService:
                     local_path=str(dest),
                     file_size=dest.stat().st_size,
                     sha256=digest,
+                    user_id=user_id,
                 )
                 paper.extra["local_path"] = str(dest)
                 if on_progress:
@@ -118,7 +122,7 @@ class DownloadService:
             logger.warning("Download failed for %s: %s", paper.title[:80], exc)
             return paper
 
-        if self._reuse_duplicate(session, paper_id, paper, dest, digest, size):
+        if self._reuse_duplicate(session, paper_id, paper, dest, digest, size, user_id=user_id):
             return paper
 
         paper.status = PaperStatus.DOWNLOADED
@@ -131,6 +135,7 @@ class DownloadService:
             local_path=str(dest),
             file_size=size,
             sha256=digest,
+            user_id=user_id,
         )
         logger.info("Downloaded %s (%s bytes)", dest.name, size)
         return paper
@@ -203,6 +208,8 @@ class DownloadService:
         dest: Path,
         digest: str,
         size: int,
+        *,
+        user_id: int | None = None,
     ) -> bool:
         """If this PDF is already stored, drop the extra copy and point at the original."""
         existing = find_downloaded_by_sha256(session, digest, exclude_paper_id=paper_id)
@@ -226,6 +233,7 @@ class DownloadService:
             local_path=str(other),
             file_size=size,
             sha256=digest,
+            user_id=user_id,
         )
         logger.info("Skipped duplicate PDF for paper %s; reused %s", paper_id, other.name)
         return True
@@ -287,7 +295,7 @@ def pdf_button_state(paper: Paper, library_root: Path | None = None) -> str:
     return "unavailable"
 
 
-async def ensure_local_pdf(paper_id: int, topic_slug: str = "library") -> Path:
+async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: int | None = None) -> Path:
     """Download a legally available PDF into the library and return its path."""
     from app.database.connection import session_scope
     from app.database.models import PaperAuthor
@@ -309,6 +317,12 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library") -> Path:
             raise DownloadError("Paper not found")
         existing = existing_pdf_path(paper, library_root)
         if existing:
+            if user_id:
+                row = session.scalar(
+                    select(Download).where(Download.paper_id == paper_id).order_by(Download.id.desc())
+                )
+                if row is not None and row.downloaded_by_user_id is None:
+                    row.downloaded_by_user_id = user_id
             tracker.begin_item(paper_id, paper.title, 1)
             tracker.update_bytes(existing.stat().st_size, existing.stat().st_size)
             tracker.finish_item("DOWNLOADED")
@@ -345,6 +359,7 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library") -> Path:
                 record,
                 topic_slug,
                 on_progress=lambda received, total: tracker.update_bytes(received, total),
+                user_id=user_id,
             )
             save_paper(session, updated)
             session.flush()
@@ -364,6 +379,7 @@ async def download_open_access_papers(
     search_id: int | None = None,
     limit: int | None = None,
     topic_slug: str = "library",
+    user_id: int | None = None,
 ) -> dict[str, int]:
     """Download pending legally available PDFs, optionally limited to one search."""
     from app.database.connection import session_scope
@@ -408,6 +424,7 @@ async def download_open_access_papers(
                         record,
                         topic_slug,
                         on_progress=lambda received, total: tracker.update_bytes(received, total),
+                        user_id=user_id,
                     )
                     save_paper(session, updated)
                     session.commit()

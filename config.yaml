@@ -142,6 +142,86 @@ providers:
     enabled: true
     requests_per_second: 0.5
     requires_key: false
+  openaire:
+    enabled: true
+    requests_per_second: 3
+    requires_key: false
+  hal:
+    enabled: true
+    requests_per_second: 5
+    requires_key: false
+  zenodo:
+    enabled: true
+    requests_per_second: 5
+    requires_key: false
+  dblp:
+    enabled: true
+    requests_per_second: 1
+    requires_key: false
+  plos:
+    enabled: true
+    requests_per_second: 3
+    requires_key: false
+  eric:
+    enabled: true
+    requests_per_second: 3
+    requires_key: false
+  osti:
+    enabled: true
+    requests_per_second: 3
+    requires_key: false
+  datacite:
+    enabled: true
+    requests_per_second: 8
+    requires_key: false
+  osf:
+    enabled: true
+    requests_per_second: 3
+    requires_key: false
+  biorxiv:
+    enabled: true
+    requests_per_second: 4
+    requires_key: false
+  medrxiv:
+    enabled: true
+    requests_per_second: 4
+    requires_key: false
+  figshare:
+    enabled: true
+    requests_per_second: 3
+    requires_key: false
+  doab:
+    enabled: true
+    requests_per_second: 1
+    requires_key: false
+  scielo:
+    enabled: true
+    requests_per_second: 1
+    requires_key: false
+  cinii:
+    enabled: true
+    requests_per_second: 1
+    requires_key: false
+  inspire:
+    enabled: true
+    requests_per_second: 5
+    requires_key: false
+  fatcat:
+    enabled: true
+    requests_per_second: 3
+    requires_key: false
+  worldbank:
+    enabled: true
+    requests_per_second: 1
+    requires_key: false
+  oapen:
+    enabled: true
+    requests_per_second: 1
+    requires_key: false
+  econstor:
+    enabled: true
+    requests_per_second: 1
+    requires_key: false
 
 http:
   max_concurrent_requests: 5

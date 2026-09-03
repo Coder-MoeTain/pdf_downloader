@@ -98,6 +98,10 @@ def _ensure_columns(engine: Engine) -> None:
                 conn.execute(text("UPDATE users SET role = 'admin' WHERE is_admin = 1 AND (role IS NULL OR role = '')"))
                 conn.execute(text("UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_downloads_sha256 ON downloads (sha256)"))
+        download_rows = conn.execute(text("PRAGMA table_info(downloads)")).all()
+        download_names = {row[1] for row in download_rows}
+        if "downloaded_by_user_id" not in download_names:
+            conn.execute(text("ALTER TABLE downloads ADD COLUMN downloaded_by_user_id INTEGER"))
         conn.commit()
 
 

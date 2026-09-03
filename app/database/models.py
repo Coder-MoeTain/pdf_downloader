@@ -149,8 +149,10 @@ class Download(Base):
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     downloaded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    downloaded_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     paper: Mapped[Paper] = relationship(back_populates="downloads")
+    downloaded_by: Mapped["User | None"] = relationship()
 
 
 class User(Base):

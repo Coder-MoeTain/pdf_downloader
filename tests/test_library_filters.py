@@ -140,6 +140,8 @@ def test_category_year_source_and_journal_filters(tmp_db):
     assert "Satellite cyber paper" in page.text
     assert "ML vision paper" in page.text
     assert "Categories" in page.text
+    assert "Research topics" in page.text
+    assert "lib-topic" in page.text
     year_page = client.get("/library?year=2021")
     assert "Satellite cyber paper" in year_page.text
     assert "ML vision paper" not in year_page.text
@@ -174,6 +176,40 @@ def test_library_pagination_controls(tmp_db):
     assert "Paged paper 11" in second.text
     assert "Paged paper 00" not in second.text
     assert "Page 2 of 2" in second.text
+
+
+def test_library_hides_no_pdf_and_failed(tmp_db):
+    with session_scope() as session:
+        save_paper(
+            session,
+            PaperRecord(
+                title="Open visible paper",
+                doi="10.1000/open-ok",
+                pdf_url="https://arxiv.org/pdf/1.pdf",
+                status=PaperStatus.OA_AVAILABLE,
+            ),
+        )
+        save_paper(session, PaperRecord(title="No file paper", doi="10.1000/no-pdf", status=PaperStatus.NO_PDF))
+        save_paper(
+            session,
+            PaperRecord(title="Broken download paper", doi="10.1000/failed", status=PaperStatus.FAILED),
+        )
+        save_paper(session, PaperRecord(title="Skipped paper", doi="10.1000/skipped", status=PaperStatus.SKIPPED))
+    client = TestClient(app)
+    library = client.get("/library")
+    assert library.status_code == 200
+    assert "Open visible paper" in library.text
+    assert "No file paper" not in library.text
+    assert "Broken download paper" not in library.text
+    assert "Skipped paper" not in library.text
+    assert "No legal PDF" not in library.text
+    assert ">Failed<" not in library.text
+    assert 'value="NO_PDF"' not in library.text
+    assert 'value="FAILED"' not in library.text
+    explicit = client.get("/library?status=FAILED")
+    assert explicit.status_code == 200
+    assert "Broken download paper" in explicit.text
+    assert "Failed" in explicit.text
 
 
 def test_hide_paywalled_filters_library_unless_explicit(tmp_db):
@@ -225,3 +261,87 @@ def test_hide_paywalled_filters_library_unless_explicit(tmp_db):
     assert settings.status_code == 200
     assert "Show paywalled papers" in settings.text
     assert 'name="show_paywalled"' in settings.text
+
+
+def test_library_abstract_preview_button(tmp_db):
+    from app.models.paper import AuthorRecord
+
+    with session_scope() as session:
+        save_paper(
+            session,
+            PaperRecord(
+                title="Paper with abstract",
+                doi="10.1000/abs-preview",
+                abstract="Satellites can observe drought from orbit.",
+                authors=[AuthorRecord(name="Ada Lovelace")],
+                publication_year=2024,
+                journal="Remote Sensing",
+                pdf_url="https://arxiv.org/pdf/1.pdf",
+                status=PaperStatus.OA_AVAILABLE,
+            ),
+        )
+        save_paper(
+            session,
+            PaperRecord(
+                title="Paper without abstract",
+                doi="10.1000/no-abs",
+                pdf_url="https://arxiv.org/pdf/2.pdf",
+                status=PaperStatus.OA_AVAILABLE,
+            ),
+        )
+    client = TestClient(app)
+    page = client.get("/library")
+    assert page.status_code == 200
+    assert 'id="abstractPreviewModal"' in page.text
+    assert page.text.count("abstract-btn") == 1
+    assert "Satellites can observe drought from orbit." in page.text
+    assert "Ada Lovelace" in page.text
+    assert "Paper with abstract" in page.text
+    assert "Paper without abstract" in page.text
+
+
+def test_library_shows_who_downloaded(tmp_db):
+    from app.auth import create_local_user
+    from app.database.repository import upsert_download
+
+    with session_scope() as session:
+        user = create_local_user(session, email="alice@lab.edu", password="password1", name="Alice")
+        paper = save_paper(
+            session,
+            PaperRecord(
+                title="Downloaded by Alice",
+                doi="10.1000/alice-dl",
+                pdf_url="https://arxiv.org/pdf/1.pdf",
+                status=PaperStatus.DOWNLOADED,
+            ),
+        )
+        upsert_download(
+            session,
+            paper.id,
+            pdf_url="https://arxiv.org/pdf/1.pdf",
+            status=PaperStatus.DOWNLOADED.value,
+            local_path="library/alice.pdf",
+            user_id=user.id,
+        )
+        save_paper(
+            session,
+            PaperRecord(
+                title="Not downloaded yet",
+                doi="10.1000/no-dl",
+                pdf_url="https://arxiv.org/pdf/2.pdf",
+                status=PaperStatus.OA_AVAILABLE,
+            ),
+        )
+    client = TestClient(app)
+    login = client.post(
+        "/login",
+        data={"email": "alice@lab.edu", "password": "password1", "next": "/library"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 303
+    page = client.get("/library")
+    assert page.status_code == 200
+    assert "Downloaded by" in page.text
+    assert "Alice" in page.text
+    assert "Downloaded by Alice" in page.text
+    assert "Not downloaded yet" in page.text

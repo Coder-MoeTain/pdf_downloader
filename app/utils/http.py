@@ -119,7 +119,12 @@ class AsyncHttpClient:
         response = await self.request("GET", url, **kwargs)
         if response.status_code >= 400:
             raise HttpError(_http_error_message(response, url), response.status_code)
-        return response.json()
+        if not (response.content or b"").strip():
+            logger.warning("Empty JSON body from %s; retrying once", url)
+            response = await self.request("GET", url, **kwargs)
+            if response.status_code >= 400:
+                raise HttpError(_http_error_message(response, url), response.status_code)
+        return parse_json_response(response, url)
 
     async def get_text(self, url: str, **kwargs: Any) -> str:
         response = await self.request("GET", url, **kwargs)
@@ -130,6 +135,17 @@ class AsyncHttpClient:
     async def get_bytes(self, url: str, **kwargs: Any) -> tuple[httpx.Response, bytes]:
         response = await self.request("GET", url, **kwargs)
         return response, response.content
+
+
+def parse_json_response(response: httpx.Response, url: str) -> Any:
+    """Decode JSON, or raise HttpError with a short body snippet instead of a raw decode traceback."""
+    if not (response.content or b"").strip():
+        raise HttpError(f"Empty JSON response from {url}", response.status_code)
+    try:
+        return response.json()
+    except ValueError as exc:
+        snippet = http_error_detail(response) or "non-JSON body"
+        raise HttpError(f"Invalid JSON from {url} ({snippet})", response.status_code) from exc
 
 
 def http_error_detail(response: httpx.Response) -> str:

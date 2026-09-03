@@ -44,22 +44,6 @@
     <a class="chip {% if status == 'OA_AVAILABLE' %}active{% endif %}" href="{{ library_href(filters, status='OA_AVAILABLE', page=1) }}">Open access</a>
   </div>
 
-  {% if facets.categories %}
-  <div class="lib-category-block">
-    <div class="lib-filter-label">Categories</div>
-    <div class="chip-row lib-category-row" role="list">
-      {% for cat in facets.categories %}
-      <a class="chip lib-cat-chip {% if category == cat.name %}active{% endif %}"
-         role="listitem"
-         href="{% if category == cat.name %}{{ library_href(filters, category='', page=1) }}{% else %}{{ library_href(filters, category=cat.name, page=1) }}{% endif %}"
-         title="{{ cat.name }}">
-        {{ cat.name }} <span class="lib-chip-count">{{ cat.count }}</span>
-      </a>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-
   <form class="lib-filter-form" method="get" action="/library">
     {% if latest %}<input type="hidden" name="latest" value="1">{% endif %}
     {% if category %}<input type="hidden" name="category" value="{{ category }}">{% endif %}
@@ -99,9 +83,12 @@
         <label class="lib-filter-label" for="status">Status</label>
         <select class="form-select" id="status" name="status" onchange="this.form.submit()">
           <option value="">All statuses</option>
-          {% for s in ["FOUND","OA_AVAILABLE","DOWNLOADED","PAYWALLED","NO_PDF","FAILED","SKIPPED"] %}
+          {% for s in ["FOUND","OA_AVAILABLE","DOWNLOADED","PAYWALLED"] %}
           <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ status_meta(s).label }}</option>
           {% endfor %}
+          {% if status in ["NO_PDF", "FAILED", "SKIPPED"] %}
+          <option value="{{ status }}" selected>{{ status_meta(status).label }}</option>
+          {% endif %}
         </select>
       </div>
       <div class="lib-field">
@@ -151,6 +138,56 @@
   {% endif %}
 </section>
 
+{% set topic_preview = 10 %}
+{% set topic_ns = namespace(extra_selected=false) %}
+{% for cat in facets.categories %}
+  {% if loop.index > topic_preview and category == cat.name %}
+    {% set topic_ns.extra_selected = true %}
+  {% endif %}
+{% endfor %}
+
+<div class="lib-body {% if facets.categories %}has-topics{% endif %}">
+{% if facets.categories %}
+<aside class="lib-topics {% if topic_ns.extra_selected %}is-expanded{% endif %}" aria-label="Categories">
+  <div class="lib-topics-head">
+    <div>
+      <div class="lib-filter-label">Categories</div>
+      <h2 class="lib-topics-title">Research topics</h2>
+    </div>
+    <span class="lib-topics-meta">{{ facets.categories|length }}</span>
+  </div>
+  {% if category %}
+  <a class="lib-topic-selected" href="{{ library_href(filters, category='', page=1) }}">
+    <span class="lib-topic-selected-kicker">Selected topic</span>
+    <strong>{{ category }}</strong>
+    <span class="lib-topic-selected-clear">Clear</span>
+  </a>
+  {% else %}
+  <p class="lib-topics-copy">Filter the library by field. Counts are papers tagged with that topic.</p>
+  {% endif %}
+  <div class="lib-topic-list" role="list">
+    {% for cat in facets.categories %}
+    <a class="lib-topic {% if category == cat.name %}is-active{% endif %} {% if loop.index > topic_preview %}is-extra{% endif %}"
+       role="listitem"
+       href="{% if category == cat.name %}{{ library_href(filters, category='', page=1) }}{% else %}{{ library_href(filters, category=cat.name, page=1) }}{% endif %}"
+       title="{{ cat.name }} · {{ cat.count }} papers">
+      <span class="lib-topic-name">{{ cat.name }}</span>
+      <span class="lib-topic-meter" aria-hidden="true"><span style="width: {{ cat.pct }}%"></span></span>
+      <span class="lib-topic-count">{{ cat.count }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% if facets.categories|length > topic_preview %}
+  <button class="lib-topics-toggle" type="button" data-topics-toggle
+          data-more="Show all {{ facets.categories|length }} topics"
+          data-less="Show top {{ topic_preview }}">
+    Show all {{ facets.categories|length }} topics
+  </button>
+  {% endif %}
+</aside>
+{% endif %}
+
+<div class="lib-results">
 {% if papers %}
 <div class="lib-toolbar">
   <div class="lib-count" aria-live="polite">
@@ -189,6 +226,7 @@
         <th class="lib-col-score">Score</th>
         <th class="lib-col-rating">Rating</th>
         <th class="lib-col-status">Status</th>
+        <th class="lib-col-user">Downloaded by</th>
         <th class="lib-col-actions"></th>
       </tr>
     </thead>
@@ -219,7 +257,16 @@
         <td class="score-pill">{{ "%.0f"|format(p.relevance_score or 0) }}</td>
         <td>{{ star_rating(p) }}</td>
         <td>{{ status_badge(p.status) }}</td>
-        <td class="text-nowrap lib-actions">
+        {% set downloader = paper_downloader_name(p) %}
+        <td class="lib-downloader">{% if downloader %}{{ downloader }}{% else %}—{% endif %}</td>
+        <td class="lib-actions">
+          {% if p.abstract %}
+          <button class="btn btn-sm btn-outline-secondary abstract-btn" type="button"
+                  data-abstract-title="{{ p.title }}"
+                  data-abstract-meta="{{ paper_abstract_meta(p) }}"
+                  aria-haspopup="dialog">Abstract</button>
+          <template class="paper-abstract-text">{{ p.abstract }}</template>
+          {% endif %}
           {% if can_preview(p) %}
           <button class="btn btn-sm btn-outline-primary preview-btn" type="button"
                   data-preview-url="/papers/{{ p.id }}/preview"
@@ -235,7 +282,7 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="6" class="p-0">
+      <tr><td colspan="7" class="p-0">
         {% if search_running %}
           {{ empty_state("Search in progress", "Results will appear here automatically. Keep this page open.") }}
         {% elif latest %}
@@ -259,4 +306,6 @@
   {{ library_pager(pager, filters, "Library pages footer") }}
 </div>
 {% endif %}
+</div>
+</div>
 {% endblock %}

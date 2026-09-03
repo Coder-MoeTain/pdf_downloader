@@ -16,6 +16,28 @@ from app.providers.extra import (
     NasaNtrsProvider,
     SpringerProvider,
 )
+from app.providers.free import (
+    BiorxivProvider,
+    CiniiProvider,
+    DataciteProvider,
+    DblpProvider,
+    DoabProvider,
+    EconstorProvider,
+    EricProvider,
+    FatcatProvider,
+    FigshareProvider,
+    HalProvider,
+    InspireProvider,
+    MedrxivProvider,
+    OapenProvider,
+    OpenaireProvider,
+    OsfProvider,
+    OstiProvider,
+    PlosProvider,
+    ScieloProvider,
+    WorldbankProvider,
+    ZenodoProvider,
+)
 from app.providers.openalex import OpenAlexProvider
 from app.providers.pubmed import PubMedProvider
 from app.providers.semantic_scholar import SemanticScholarProvider
@@ -38,6 +60,26 @@ PROVIDER_CLASSES: list[type[ResearchProvider]] = [
     ElsevierProvider,
     NasaAdsProvider,
     NasaNtrsProvider,
+    OpenaireProvider,
+    HalProvider,
+    ZenodoProvider,
+    DblpProvider,
+    PlosProvider,
+    EricProvider,
+    OstiProvider,
+    DataciteProvider,
+    OsfProvider,
+    BiorxivProvider,
+    MedrxivProvider,
+    FigshareProvider,
+    DoabProvider,
+    ScieloProvider,
+    CiniiProvider,
+    InspireProvider,
+    FatcatProvider,
+    WorldbankProvider,
+    OapenProvider,
+    EconstorProvider,
 ]
 
 

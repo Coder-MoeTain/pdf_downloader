@@ -24,6 +24,48 @@ def status_meta(code: str | None) -> dict[str, str]:
     return STATUS_META.get(code, {"label": str(code).replace("_", " ").title(), "tone": "secondary"})
 
 
+def paper_authors_line(paper, limit: int = 6) -> str:
+    """Comma-separated author names for library and abstract preview."""
+    links = sorted(getattr(paper, "authors", None) or [], key=lambda item: item.position or 0)
+    names = [
+        link.author.name
+        for link in links
+        if getattr(link, "author", None) and link.author.name
+    ]
+    if not names:
+        return ""
+    if len(names) > limit:
+        return ", ".join(names[:limit]) + f" +{len(names) - limit}"
+    return ", ".join(names)
+
+
+def paper_downloader_name(paper) -> str:
+    """Display name of the account that saved the PDF, if recorded."""
+    rows = sorted(getattr(paper, "downloads", None) or [], key=lambda item: item.id or 0, reverse=True)
+    for row in rows:
+        user = getattr(row, "downloaded_by", None)
+        if not user:
+            continue
+        label = (getattr(user, "name", None) or getattr(user, "email", None) or "").strip()
+        if label:
+            return label
+    return ""
+
+
+def paper_abstract_meta(paper) -> str:
+    """Year, venue, and authors shown under the abstract preview title."""
+    parts = []
+    authors = paper_authors_line(paper)
+    if authors:
+        parts.append(authors)
+    if getattr(paper, "publication_year", None):
+        parts.append(str(paper.publication_year))
+    venue = getattr(paper, "journal", None) or getattr(paper, "publisher", None)
+    if venue:
+        parts.append(venue)
+    return " · ".join(parts)
+
+
 def share(count: int, total: int) -> float:
     if not total:
         return 0.0

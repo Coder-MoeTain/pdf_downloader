@@ -43,18 +43,18 @@ class SearchService:
     def __init__(self, config: AppConfig | None = None) -> None:
         self.config = config or get_runtime_config()
 
-    async def run(self, filters: SearchFilters) -> SearchStats:
+    async def run(self, filters: SearchFilters, *, user_id: int | None = None) -> SearchStats:
         init_db()
         snap = tracker.snapshot()
         if not (snap.get("active") and snap.get("kind") == "search"):
             tracker.start_search(filters.query)
         try:
-            return await self._run(filters)
+            return await self._run(filters, user_id=user_id)
         except Exception as exc:
             tracker.finish_search(error=str(exc))
             raise
 
-    async def _run(self, filters: SearchFilters) -> SearchStats:
+    async def _run(self, filters: SearchFilters, user_id: int | None = None) -> SearchStats:
         stats = SearchStats(query=filters.query)
         expanded = expand_query(filters.query, self.config.query_expansion)
         stats.expanded_queries = expanded
@@ -188,6 +188,7 @@ class SearchService:
                                 filters.topic_slug,
                                 max_file_size=max_size,
                                 on_progress=lambda received, total: tracker.update_bytes(received, total),
+                                user_id=user_id,
                             )
                             save_paper(session, updated)
                             session.commit()

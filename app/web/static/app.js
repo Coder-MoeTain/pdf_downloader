@@ -21,6 +21,34 @@
     });
   });
 
+  var abstractModalEl = document.getElementById("abstractPreviewModal");
+  if (abstractModalEl && typeof bootstrap !== "undefined") {
+    var abstractModal = bootstrap.Modal.getOrCreateInstance(abstractModalEl);
+    var abstractTitle = document.getElementById("abstractPreviewTitle");
+    var abstractMeta = document.getElementById("abstractPreviewMeta");
+    var abstractText = document.getElementById("abstractPreviewText");
+    document.querySelectorAll(".abstract-btn").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var template = button.nextElementSibling;
+        var text = "";
+        if (template && template.tagName === "TEMPLATE") {
+          text = (template.content.textContent || "").trim();
+        }
+        if (abstractTitle) abstractTitle.textContent = button.getAttribute("data-abstract-title") || "Abstract";
+        if (abstractMeta) {
+          var meta = (button.getAttribute("data-abstract-meta") || "").trim();
+          abstractMeta.textContent = meta;
+          abstractMeta.hidden = !meta;
+        }
+        if (abstractText) {
+          abstractText.textContent = text || "No abstract is stored for this paper.";
+          abstractText.classList.toggle("is-empty", !text);
+        }
+        abstractModal.show();
+      });
+    });
+  }
+
   var modalEl = document.getElementById("pdfPreviewModal");
   var title = document.getElementById("pdfPreviewTitle");
   var wrap = document.getElementById("pdfCanvasWrap");
@@ -294,4 +322,18 @@
   }
   pollNavLive();
   setInterval(pollNavLive, 1000);
+
+  document.querySelectorAll("[data-topics-toggle]").forEach(function (button) {
+    var panel = button.closest(".lib-topics");
+    function syncLabel() {
+      var expanded = panel && panel.classList.contains("is-expanded");
+      button.textContent = expanded ? button.getAttribute("data-less") : button.getAttribute("data-more");
+    }
+    syncLabel();
+    button.addEventListener("click", function () {
+      if (!panel) return;
+      panel.classList.toggle("is-expanded");
+      syncLabel();
+    });
+  });
 })();

@@ -21,46 +21,81 @@ def test_settings_store_seeds_builtin_sources(tmp_db):
     assert "crossref" in slugs
     assert "nasa_ntrs" in slugs
     assert "nasa_ads" in slugs
+    assert "openaire" in slugs
+    assert "zenodo" in slugs
+    assert "plos" in slugs
     assert store_status().connected is True
     assert store_status().backend == "sqlite"
+
+
+def test_seed_inserts_missing_builtin_sources(tmp_db):
+    from sqlalchemy import select
+
+    from app.database.settings_models import AcademicSource
+    from app.database.settings_repository import seed_academic_sources
+    from app.database.settings_store import settings_session
+
+    with settings_session() as session:
+        row = session.scalar(select(AcademicSource).where(AcademicSource.slug == "zenodo"))
+        assert row is not None
+        session.delete(row)
+
+    assert get_academic_source_by_slug("zenodo") is None
+    seed_academic_sources()
+    restored = get_academic_source_by_slug("zenodo")
+    assert restored is not None
+    assert restored.builtin is True
+    assert restored.display_name == "Zenodo"
+
+
+def test_sources_page_lists_new_free_providers(tmp_db):
+    from fastapi.testclient import TestClient
+
+    from app.web import app
+
+    response = TestClient(app).get("/sources")
+    assert response.status_code == 200
+    for label in ("OpenAIRE", "Zenodo", "PLOS", "EconStor", "INSPIRE-HEP", "bioRxiv"):
+        assert label in response.text
+
 
 
 def test_academic_source_crud(tmp_db):
     created = create_academic_source(
         {
-            "slug": "openaire",
-            "display_name": "OpenAIRE",
-            "description": "European open science graph",
-            "homepage_url": "https://www.openaire.eu",
-            "api_base_url": "https://api.openaire.eu",
+            "slug": "custom_repo",
+            "display_name": "Custom Repository",
+            "description": "User-added catalog entry",
+            "homepage_url": "https://example.org",
+            "api_base_url": "https://api.example.org",
             "enabled": "1",
             "requires_key": "",
             "requests_per_second": 4,
         }
     )
     assert created.id
-    assert created.slug == "openaire"
+    assert created.slug == "custom_repo"
     assert created.builtin is False
 
     updated = update_academic_source(
         created.id,
         {
-            "display_name": "OpenAIRE Graph",
+            "display_name": "Custom Repository Graph",
             "description": "Updated",
-            "homepage_url": "https://www.openaire.eu",
-            "api_base_url": "https://api.openaire.eu",
+            "homepage_url": "https://example.org",
+            "api_base_url": "https://api.example.org",
             "enabled": "1",
             "requests_per_second": 6,
         },
     )
-    assert updated.display_name == "OpenAIRE Graph"
+    assert updated.display_name == "Custom Repository Graph"
     assert updated.requests_per_second == 6.0
 
     toggled = toggle_academic_source(created.id)
     assert toggled.enabled is False
 
     delete_academic_source(created.id)
-    assert get_academic_source_by_slug("openaire") is None
+    assert get_academic_source_by_slug("custom_repo") is None
 
 
 def test_cannot_delete_builtin_source(tmp_db):

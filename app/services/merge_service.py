@@ -11,9 +11,9 @@ FIELD_PRIORITY: dict[str, list[str]] = {
     "doi": ["crossref", "openalex", "elsevier", "springer", "ieee", "europe_pmc", "pubmed", "semantic_scholar"],
     "publisher": ["crossref", "springer", "elsevier", "ieee", "openalex"],
     "journal": ["crossref", "pubmed", "europe_pmc", "openalex", "springer"],
-    "abstract": ["semantic_scholar", "openalex", "europe_pmc", "pubmed", "arxiv", "core", "doaj", "nasa_ntrs", "nasa_ads"],
-    "citation_count": ["semantic_scholar", "openalex", "crossref", "nasa_ads", "elsevier"],
-    "pdf_url": ["unpaywall", "arxiv", "europe_pmc", "pubmed", "openalex", "semantic_scholar", "core", "doaj", "nasa_ntrs"],
+    "abstract": ["semantic_scholar", "openalex", "europe_pmc", "pubmed", "arxiv", "core", "doaj", "nasa_ntrs", "nasa_ads", "hal", "inspire", "eric", "osti"],
+    "citation_count": ["semantic_scholar", "openalex", "crossref", "nasa_ads", "elsevier", "inspire"],
+    "pdf_url": ["unpaywall", "arxiv", "europe_pmc", "pubmed", "openalex", "semantic_scholar", "core", "doaj", "nasa_ntrs", "plos", "zenodo", "hal", "osti", "inspire", "biorxiv", "medrxiv", "osf", "fatcat"],
 }
 
 

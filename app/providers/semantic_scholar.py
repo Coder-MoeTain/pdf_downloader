@@ -8,6 +8,7 @@ from app.models.paper import AuthorRecord, PaperRecord
 from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
 from app.utils.doi import doi_url, normalize_doi
+from app.utils.http import HttpError
 from app.utils.logger import get_logger
 
 logger = get_logger("app.providers.semantic_scholar")
@@ -58,7 +59,17 @@ class SemanticScholarProvider(ResearchProvider):
             end = filters.year_to or 2100
             params["year"] = f"{start}-{end}"
 
-        data = await self.request_json(self.BASE, params=params, headers=self._headers())
+        try:
+            data = await self.request_json(self.BASE, params=params, headers=self._headers())
+        except HttpError as exc:
+            if exc.status_code == 429:
+                hint = (
+                    "Semantic Scholar rate-limited this IP (HTTP 429). "
+                    "Add SEMANTIC_SCHOLAR_API_KEY in Settings for a higher quota: "
+                    "https://www.semanticscholar.org/product/api#api-key-form"
+                )
+                raise HttpError(hint, 429) from exc
+            raise
         items = (data or {}).get("data") or []
         papers = [self._parse(item) for item in items]
         return [p for p in papers if p and p.title]

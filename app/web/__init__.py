@@ -58,6 +58,7 @@ from app.database.settings_repository import (
     save_credential_settings,
     save_search_settings,
     save_workspace_settings,
+    seed_academic_sources,
     source_to_dict,
     toggle_academic_source,
     update_academic_source,
@@ -86,6 +87,8 @@ from app.web.ui import (
     clamp_page_size,
     library_href,
     pagination_spec,
+    paper_abstract_meta,
+    paper_downloader_name,
     share,
     source_label,
     status_meta,
@@ -98,6 +101,8 @@ templates.env.globals["status_meta"] = status_meta
 templates.env.globals["can_preview"] = lambda paper: existing_pdf_path(paper) is not None
 templates.env.globals["library_href"] = library_href
 templates.env.globals["source_label"] = source_label
+templates.env.globals["paper_abstract_meta"] = paper_abstract_meta
+templates.env.globals["paper_downloader_name"] = paper_downloader_name
 templates.env.filters["filesize"] = lambda value: _format_bytes(value)
 templates.env.filters["localdt"] = lambda value, fmt="%Y-%m-%d %H:%M": format_local(value, fmt)
 templates.env.filters["tags"] = split_tags
@@ -370,6 +375,16 @@ def account_set_role(request: Request, user_id: int, role: str = Form(ROLE_USER)
     return RedirectResponse("/account", status_code=303)
 
 
+def _request_user_id(request: Request) -> int | None:
+    user = current_user(request)
+    if not user:
+        return None
+    try:
+        return int(user["id"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _ctx(request: Request, **extra):
     cfg = get_runtime_config()
     payload = {
@@ -537,6 +552,7 @@ def search_page(request: Request):
 
 @app.post("/search")
 async def search_submit(
+    request: Request,
     background_tasks: BackgroundTasks,
     query: str = Form(...),
     year_from: str = Form(""),
@@ -565,10 +581,11 @@ async def search_submit(
     tracker.start_search(query.strip())
     _search_message["text"] = ""
     _search_message["level"] = "info"
+    user_id = _request_user_id(request)
 
     async def _job():
         try:
-            stats = await SearchService().run(filters)
+            stats = await SearchService().run(filters, user_id=user_id)
             _search_message["text"] = (
                 f"Finished “{query}”: {stats.unique_papers} unique papers, "
                 f"{stats.pdfs_downloaded} PDFs downloaded."
@@ -643,6 +660,16 @@ def library_page(
             )
         oa_pending = session.scalar(oa_stmt) or 0
         facets = library_facets(session)
+    if category and not any(item["name"] == category for item in facets["categories"]):
+        peak = facets["categories"][0]["count"] if facets["categories"] else total or 1
+        facets["categories"].insert(
+            0,
+            {
+                "name": category,
+                "count": total,
+                "pct": round((total / peak) * 100, 1) if peak else 100,
+            },
+        )
     filters = {
         "q": q,
         "status": status,
@@ -708,9 +735,9 @@ async def rate_paper(paper_id: int, request: Request):
 
 
 @app.get("/papers/{paper_id}/pdf")
-async def download_paper_pdf(paper_id: int):
+async def download_paper_pdf(request: Request, paper_id: int):
     try:
-        path = await ensure_local_pdf(paper_id, topic_slug="library")
+        path = await ensure_local_pdf(paper_id, topic_slug="library", user_id=_request_user_id(request))
     except DownloadError as exc:
         _search_message["text"] = str(exc)
         _search_message["level"] = "warning"
@@ -724,7 +751,7 @@ async def download_paper_pdf(paper_id: int):
 
 
 @app.post("/download-oa")
-async def download_oa(background_tasks: BackgroundTasks, latest: str | None = Form(None)):
+async def download_oa(request: Request, background_tasks: BackgroundTasks, latest: str | None = Form(None)):
     search_id = None
     if latest:
         with session_scope() as session:
@@ -733,10 +760,11 @@ async def download_oa(background_tasks: BackgroundTasks, latest: str | None = Fo
                 search_id = row.id
     _search_message["text"] = "Downloading legally available PDFs. This can take a few minutes."
     _search_message["level"] = "info"
+    user_id = _request_user_id(request)
 
     async def _job():
         try:
-            stats = await download_open_access_papers(search_id=search_id)
+            stats = await download_open_access_papers(search_id=search_id, user_id=user_id)
             _search_message["text"] = (
                 f"PDF download finished: {stats['downloaded']} saved, "
                 f"{stats['failed']} failed, {stats['skipped']} skipped."
@@ -816,23 +844,24 @@ def downloads_page(request: Request, status: str = ""):
 
 @app.get("/sources", response_class=HTMLResponse)
 def sources_page(request: Request):
+    sources = _source_rows()
+    return templates.TemplateResponse(request, "sources.html", _ctx(request, sources=sources, store=store_status().as_dict()))
+
+
+def _source_rows() -> list[dict]:
+    seed_academic_sources()
     searchable = {cls.name for cls in PROVIDER_CLASSES}
     sources = []
     for row in list_academic_sources():
         item = source_to_dict(row)
         item["searchable"] = row.slug in searchable
         sources.append(item)
-    return templates.TemplateResponse(request, "sources.html", _ctx(request, sources=sources, store=store_status().as_dict()))
+    return sources
 
 
 def _settings_ctx(request: Request, section: str = "workspace"):
     cfg = get_runtime_config()
-    searchable = {cls.name for cls in PROVIDER_CLASSES}
-    sources = []
-    for row in list_academic_sources():
-        item = source_to_dict(row)
-        item["searchable"] = row.slug in searchable
-        sources.append(item)
+    sources = _source_rows()
     credentials = []
     for slug, field in SOURCE_KEY_FIELDS.items():
         match = next((s for s in sources if s["slug"] == slug), None)

@@ -7,11 +7,13 @@ bypass.
 ## What this software will do
 
 1. Query official APIs (Crossref, OpenAlex, Semantic Scholar, arXiv, PubMed,
-   Europe PMC, CORE, DOAJ, NASA NTRS, and publisher APIs when you supply credentials).
+   Europe PMC, CORE, DOAJ, NASA NTRS, OpenAIRE, HAL, Zenodo, PLOS, ERIC, OSTI,
+   and publisher APIs when you supply credentials).
 2. Detect open-access copies using provider metadata and Unpaywall.
 3. Download PDFs that publishers, repositories, or authors have made public
    (gold/hybrid OA publisher PDFs, arXiv, PubMed Central, Europe PMC, CORE,
-   DOAJ, NASA NTRS, institutional repositories, and public government repositories).
+   DOAJ, NASA NTRS, HAL, Zenodo, PLOS, institutional repositories, and public
+   government repositories).
 4. Record paywalled items with DOI, title, and publisher URL for later lawful
    access (library subscription, author request, etc.).
 

@@ -43,7 +43,7 @@ It does **not** scrape Google Scholar, ResearchGate, or Academia.edu. It does **
 
 ## Features
 
-- **Multi-source search** — OpenAlex, Crossref, Semantic Scholar, arXiv, PubMed, Europe PMC, CORE, DOAJ, NASA NTRS, plus IEEE / Springer / Elsevier / NASA ADS when keys are present
+- **Multi-source search** — 30+ official APIs (OpenAlex, Crossref, arXiv, PLOS, OpenAIRE, HAL, Zenodo, and more). IEEE / Springer / Elsevier / NASA ADS when keys are present
 - **Query expansion** with configurable synonyms
 - **DOI normalization** and fuzzy duplicate detection
 - **Relevance ranking** (keyword by default; optional `sentence-transformers`)
@@ -115,11 +115,31 @@ Providers share a common `ResearchProvider` interface (`search`, `get_paper`, `f
 | Elsevier / Scopus | **Required** | Metadata; no paywall bypass |
 | NASA ADS | **Required** | Useful for space / satellite literature |
 | NASA NTRS | No | NASA technical reports; public PDFs when listed |
+| OpenAIRE | No | European Open Science Graph |
+| HAL | No | French national open archive |
+| Zenodo | No | CERN repository; public files when listed |
+| DBLP | No | Computer-science bibliography (metadata) |
+| PLOS | No | Fully open-access journals |
+| ERIC | No | U.S. education research; hosted PDFs when listed |
+| DOE OSTI | No | U.S. Department of Energy reports |
+| DataCite | No | DOI metadata for texts, reports, and theses |
+| OSF Preprints | No | OSF / PsyArXiv / SocArXiv and related servers |
+| bioRxiv | No | Biology preprints (Crossref container filter) |
+| medRxiv | No | Health-science preprints (Crossref container filter) |
+| Figshare | No | Open repository articles and preprints |
+| DOAB | No | Directory of Open Access Books |
+| SciELO | No | Latin American / Iberian OA journals |
+| CiNii | No | Japanese academic article index |
+| INSPIRE-HEP | No | High-energy physics; arXiv PDFs when listed |
+| Fatcat / IA Scholar | No | Internet Archive preserved OA files |
+| World Bank OKR | No | World Bank Open Knowledge Repository |
+| OAPEN | No | Open-access scholarly books |
+| EconStor | No | Economics working papers and articles |
 | Unpaywall | Email required | OA PDF discovery, not a search index |
 
 ResearchGate, Google Scholar, and Academia.edu have no public search APIs and prohibit automated access, so they are not connectors. Papers that also appear on those sites are still found through Crossref, OpenAlex, Unpaywall, and CORE when a DOI or repository copy exists.
 
-MDPI, Frontiers, PLOS, ACM, Wiley, Nature, institutional repositories, NIST, and government reports are covered when they appear in Crossref / OpenAlex / Unpaywall OA metadata. The app never scrapes publisher HTML.
+MDPI, Frontiers, ACM, Wiley, Nature, institutional repositories, NIST, and government reports are covered when they appear in Crossref / OpenAlex / Unpaywall OA metadata. PLOS has a dedicated connector. The app never scrapes publisher HTML.
 
 ## Installation
 
