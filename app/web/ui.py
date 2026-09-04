@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from math import ceil
+from typing import Annotated, Any
 from urllib.parse import urlencode
+
+from pydantic import BeforeValidator
 
 from app.utils.time import utc_now
 
@@ -135,6 +138,19 @@ def source_label(slug: str | None) -> str:
 
     labels = {str(item["slug"]): str(item["display_name"]) for item in BUILTIN_SOURCES}
     return labels.get(slug, slug.replace("_", " ").title())
+
+
+def _blank_query_int(default: int):
+    def coerce(value: Any) -> Any:
+        if value is None or value == "":
+            return default
+        return value
+
+    return Annotated[int, BeforeValidator(coerce)]
+
+
+QueryInt = _blank_query_int(0)
+QueryPage = _blank_query_int(1)
 
 
 def clamp_page_size(value) -> int:

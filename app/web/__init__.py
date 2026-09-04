@@ -91,6 +91,8 @@ from app.web.ui import (
     DEFAULT_SORT,
     PAGE_SIZES,
     SORT_OPTIONS,
+    QueryInt,
+    QueryPage,
     active_page,
     clamp_page_size,
     download_actor_name,
@@ -667,16 +669,16 @@ def library_page(
     request: Request,
     q: str = "",
     status: str = "",
-    page: int = 1,
-    latest: int = 0,
-    pdf: int = 0,
-    min_rating: int = 0,
+    page: QueryPage = 1,
+    latest: QueryInt = 0,
+    pdf: QueryInt = 0,
+    min_rating: QueryInt = 0,
     category: str = "",
-    year: int = 0,
+    year: QueryInt = 0,
     source: str = "",
     journal: str = "",
     sort: str = DEFAULT_SORT,
-    per_page: int = DEFAULT_PAGE_SIZE,
+    per_page: QueryInt = DEFAULT_PAGE_SIZE,
 ):
     downloadable = bool(pdf)
     min_rating = max(0, min(min_rating, 5))
@@ -973,8 +975,8 @@ def downloads_page(
     request: Request,
     status: str = "",
     q: str = "",
-    page: int = 1,
-    per_page: int = DEFAULT_PAGE_SIZE,
+    page: QueryPage = 1,
+    per_page: QueryInt = DEFAULT_PAGE_SIZE,
 ):
     status = status.strip()
     q = q.strip()
@@ -1045,8 +1047,8 @@ def sources_page(
     request: Request,
     status: str = "",
     q: str = "",
-    page: int = 1,
-    per_page: int = DEFAULT_PAGE_SIZE,
+    page: QueryPage = 1,
+    per_page: QueryInt = DEFAULT_PAGE_SIZE,
 ):
     status = status.strip()
     q = q.strip()

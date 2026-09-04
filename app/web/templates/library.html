@@ -31,33 +31,39 @@
 
 {% if has_library_stats %}
 <section class="lib-status-panel" aria-label="Library statistics">
-  <div class="lib-status-kpis">
+  <div class="row g-3 lib-status-kpis">
     {% for card in kpis %}
-    <a class="lib-kpi {% if card.active %}is-active{% endif %}" href="{{ card.href }}">
-      <span class="lib-kpi-value tone-{{ card.tone }}">{{ card.value }}</span>
-      <span class="lib-kpi-label">{{ card.label }}</span>
-      <span class="lib-kpi-hint">{{ card.hint }}</span>
-    </a>
+    <div class="col-6 col-lg">
+      <a class="stat-card h-100{% if card.active %} is-active{% endif %}" href="{{ card.href }}">
+        <div class="card-body">
+          <div class="stat-label">{{ card.label }}</div>
+          <div class="stat-value tone-{{ card.tone }}">{{ card.value }}</div>
+          <div class="stat-hint">{{ card.hint }}</div>
+        </div>
+      </a>
+    </div>
     {% endfor %}
   </div>
   {% if statuses %}
-  <div class="lib-status-mix-wrap">
-    <div class="lib-status-mix-head">
+  <div class="card lib-status-mix-card">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2 align-items-baseline">
       <div>
-        <div class="lib-filter-label mb-0">Status</div>
-        <strong class="lib-status-mix-title">Access mix</strong>
+        <div>Status</div>
+        <div class="card-sub">Click a status to filter the library.</div>
       </div>
       <a class="paper-meta mb-0" href="/statistics">Full analytics</a>
     </div>
-    <div class="status-mix" role="img" aria-label="Library status mix">
-      {% for row in statuses %}
-      <a class="status-mix-seg tone-{{ row.tone }}" href="{{ library_href(filters, status=row.code, page=1) }}" style="width: {{ row.pct }}%" title="{{ row.label }} · {{ row.count }} ({{ row.pct }}%)"></a>
-      {% endfor %}
-    </div>
-    <div class="chip-row lib-status-chips" role="list">
-      {% for row in statuses %}
-      <a class="chip {% if status == row.code %}active{% endif %}" href="{{ library_href(filters, status=row.code, page=1) }}">{{ row.label }} · {{ row.count }}</a>
-      {% endfor %}
+    <div class="card-body">
+      <div class="status-mix" role="img" aria-label="Library status mix">
+        {% for row in statuses %}
+        <a class="status-mix-seg tone-{{ row.tone }}" href="{{ library_href(filters, status=row.code, page=1) }}" style="width: {{ row.pct }}%" title="{{ row.label }} · {{ row.count }} ({{ row.pct }}%)"></a>
+        {% endfor %}
+      </div>
+      <div class="chip-row lib-status-chips" role="list">
+        {% for row in statuses %}
+        <a class="chip {% if status == row.code %}active{% endif %}" href="{{ library_href(filters, status=row.code, page=1) }}">{{ row.label }} · {{ row.count }}</a>
+        {% endfor %}
+      </div>
     </div>
   </div>
   {% endif %}

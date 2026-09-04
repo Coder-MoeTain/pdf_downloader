@@ -148,6 +148,15 @@ def test_category_year_source_and_journal_filters(tmp_db):
     source_page = client.get("/library?source=openalex")
     assert "ML vision paper" in source_page.text
     assert "Satellite cyber paper" not in source_page.text
+    blank_year = client.get("/library?year=&status=OA_AVAILABLE")
+    assert blank_year.status_code == 200
+    assert "int_parsing" not in blank_year.text
+    assert "Satellite cyber paper" in blank_year.text
+    assert "ML vision paper" not in blank_year.text
+    all_years = client.get("/library?year=")
+    assert all_years.status_code == 200
+    assert "Satellite cyber paper" in all_years.text
+    assert "ML vision paper" in all_years.text
 
 
 def test_library_pagination_controls(tmp_db):
@@ -395,8 +404,9 @@ def test_library_status_panel_shows_counts(tmp_db):
     assert page.status_code == 200
     assert 'class="lib-status-panel"' in page.text
     assert 'aria-label="Library statistics"' in page.text
+    assert "stat-card" in page.text
     assert "Downloadable PDFs" in page.text
-    assert "Access mix" in page.text
+    assert "lib-status-mix-card" in page.text
     assert "Open access · 1" in page.text
     assert "Downloaded · 1" in page.text
     assert "Found · 1" in page.text
@@ -404,7 +414,7 @@ def test_library_status_panel_shows_counts(tmp_db):
     assert 'href="/library?status=DOWNLOADED"' in page.text
     filtered = client.get("/library?status=DOWNLOADED")
     assert filtered.status_code == 200
-    assert "lib-kpi is-active" in filtered.text
+    assert "stat-card h-100 is-active" in filtered.text
     assert "Saved PDF paper" in filtered.text
     assert "Open visible paper" not in filtered.text
 

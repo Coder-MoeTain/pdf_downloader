@@ -1,4 +1,4 @@
 """ResearchPaper Collector — automated academic search and open-access downloader."""
 
-__version__ = "1.1.4"
+__version__ = "1.1.5"
 __app_name__ = "ResearchPaper Collector"
