@@ -254,9 +254,39 @@ python main.py library-search "SQL injection"
 python main.py index-pdfs
 python main.py fulltext-search "reinforcement learning reward function"
 python main.py update-library
+python main.py sync-lms
 ```
 
 `update-library` reads saved topics from `config.yaml` and can be scheduled with cron, Windows Task Scheduler, or a systemd timer.
+
+`sync-lms` copies downloaded open-access PDFs into the sibling **e-library** app as e-books (title, authors, abstract, DOI, first-page cover). Search and download already run this automatically when `LMS_SYNC_ENABLED=true`.
+
+### e-library on the same Linux server
+
+Typical layout:
+
+```text
+/var/www/
+├── elibrary/          # Node library app (package.json, server.js, .env)
+├── html/
+└── pdf_downloader/
+```
+
+Set this in `pdf_downloader/.env`:
+
+```env
+LMS_SYNC_ENABLED=true
+LMS_ROOT=/var/www/elibrary
+```
+
+The collector reads `/var/www/elibrary/.env` (`DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`) and inserts rows into that MySQL database (`ebooks`, `author`, `category`). Files go to `elibrary/public/uploads/eBooks` and `elibrary/public/uploads/covers`.
+
+```bash
+cd /var/www/pdf_downloader
+source venv/bin/activate
+python main.py sync-lms
+python main.py sync-lms --dry-run
+```
 
 ## Web dashboard
 

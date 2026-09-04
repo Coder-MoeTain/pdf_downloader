@@ -12,6 +12,8 @@ def tmp_db(tmp_path, monkeypatch):
     db_path = tmp_path / "research.db"
     monkeypatch.setenv("DATABASE_PATH", str(db_path))
     monkeypatch.setenv("MYSQL_HOST", "")
+    monkeypatch.setenv("LMS_ROOT", "")
+    monkeypatch.setenv("LMS_SYNC_ENABLED", "true")
     monkeypatch.setenv("SETTINGS_SQLITE_PATH", str(tmp_path / "settings.db"))
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "")
     monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "")

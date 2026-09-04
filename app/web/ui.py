@@ -235,6 +235,12 @@ def library_href(current: dict | None = None, **overrides) -> str:
     journal = str(merged.get("journal") or "").strip()
     if journal:
         pairs.append(("journal", journal))
+    try:
+        user = int(merged.get("user") or 0)
+    except (TypeError, ValueError):
+        user = 0
+    if user:
+        pairs.append(("user", str(user)))
     sort = str(merged.get("sort") or DEFAULT_SORT).strip() or DEFAULT_SORT
     if sort != DEFAULT_SORT:
         pairs.append(("sort", sort))
@@ -261,6 +267,12 @@ def downloads_href(current: dict | None = None, **overrides) -> str:
     status = str(merged.get("status") or "").strip()
     if status:
         pairs.append(("status", status))
+    try:
+        user = int(merged.get("user") or 0)
+    except (TypeError, ValueError):
+        user = 0
+    if user:
+        pairs.append(("user", str(user)))
     per_page = clamp_page_size(merged.get("per_page") or DEFAULT_PAGE_SIZE)
     if per_page != DEFAULT_PAGE_SIZE:
         pairs.append(("per_page", str(per_page)))

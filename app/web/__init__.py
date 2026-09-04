@@ -44,6 +44,7 @@ from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuer
 from app.database.repository import (
     active_search_job_for_user,
     delete_library_paper,
+    download_user_options,
     downloadable_clause,
     library_facets,
     query_library,
@@ -677,6 +678,7 @@ def library_page(
     year: QueryInt = 0,
     source: str = "",
     journal: str = "",
+    user: QueryInt = 0,
     sort: str = DEFAULT_SORT,
     per_page: QueryInt = DEFAULT_PAGE_SIZE,
 ):
@@ -688,6 +690,7 @@ def library_page(
     sort = sort if sort in {key for key, _label in SORT_OPTIONS} else DEFAULT_SORT
     per_page = clamp_page_size(per_page)
     year = year if year and year > 0 else 0
+    user_id = user if user and user > 0 else 0
     latest_search = None
     with session_scope() as session:
         latest_search = session.scalar(select(SearchQuery).order_by(SearchQuery.id.desc()).limit(1))
@@ -702,6 +705,7 @@ def library_page(
             year=year or None,
             source=source,
             journal=journal,
+            user_id=user_id or None,
             sort=sort,
             latest_search_id=latest_search.id if use_latest else None,
             limit=per_page,
@@ -725,6 +729,7 @@ def library_page(
             )
         oa_pending = session.scalar(oa_stmt) or 0
         facets = library_facets(session)
+        user_options = download_user_options(session, include_id=user_id or None)
     if category and not any(item["name"] == category for item in facets["categories"]):
         peak = facets["categories"][0]["count"] if facets["categories"] else total or 1
         facets["categories"].insert(
@@ -745,10 +750,14 @@ def library_page(
         "year": year,
         "source": source,
         "journal": journal,
+        "user": user_id,
         "sort": sort,
         "per_page": per_page,
     }
-    has_filters = bool(q or status or downloadable or min_rating or category or year or source or journal)
+    user_label = next((item["name"] for item in user_options if item["id"] == user_id), "")
+    has_filters = bool(
+        q or status or downloadable or min_rating or category or year or source or journal or user_id
+    )
     stats = library_status_panel(facets)
     kpis = [
         {
@@ -806,6 +815,9 @@ def library_page(
             year=year,
             source=source,
             journal=journal,
+            user=user_id,
+            user_label=user_label,
+            user_options=user_options,
             sort=sort,
             page_num=pager["page"],
             total=total,
@@ -975,12 +987,14 @@ def downloads_page(
     request: Request,
     status: str = "",
     q: str = "",
+    user: QueryInt = 0,
     page: QueryPage = 1,
     per_page: QueryInt = DEFAULT_PAGE_SIZE,
 ):
     status = status.strip()
     q = q.strip()
     per_page = clamp_page_size(per_page)
+    user_id = user if user and user > 0 else 0
     status_order = case(
         (Download.status == "DOWNLOADING", 0),
         (Download.status == "DOWNLOADED", 1),
@@ -995,6 +1009,8 @@ def downloads_page(
             filters.append(Download.status == status)
         if q:
             filters.append(or_(Paper.title.ilike(search_like), Paper.doi.ilike(search_like)))
+        if user_id:
+            filters.append(Download.downloaded_by_user_id == user_id)
         count_stmt = select(func.count(Download.id)).join(Paper, Download.paper_id == Paper.id)
         for clause in filters:
             count_stmt = count_stmt.where(clause)
@@ -1020,9 +1036,13 @@ def downloads_page(
             chip_stmt = chip_stmt.where(clause)
         if q:
             chip_stmt = chip_stmt.where(or_(Paper.title.ilike(search_like), Paper.doi.ilike(search_like)))
+        if user_id:
+            chip_stmt = chip_stmt.where(Download.downloaded_by_user_id == user_id)
         counts = dict(session.execute(chip_stmt).all())
-    filters_state = {"status": status, "q": q, "per_page": per_page}
-    has_filters = bool(status or q)
+        user_options = download_user_options(session, include_id=user_id or None)
+    filters_state = {"status": status, "q": q, "user": user_id, "per_page": per_page}
+    user_label = next((item["name"] for item in user_options if item["id"] == user_id), "")
+    has_filters = bool(status or q or user_id)
     return templates.TemplateResponse(
         request,
         "downloads.html",
@@ -1033,6 +1053,9 @@ def downloads_page(
             status_chips=ordered_status_counts(counts),
             status=status,
             q=q,
+            user=user_id,
+            user_label=user_label,
+            user_options=user_options,
             per_page=per_page,
             pager=pager,
             filters=filters_state,

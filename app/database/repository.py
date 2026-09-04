@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from collections import Counter
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.database.models import Author, Download, Paper, PaperAuthor, PaperFulltext, Provider, SearchJob, SearchQuery, SearchResult
+from app.database.models import Author, Download, Paper, PaperAuthor, PaperFulltext, Provider, SearchJob, SearchQuery, SearchResult, User
 from app.models.paper import AuthorRecord, PaperRecord, PaperStatus
 from app.utils.filename import normalize_title
 from app.utils.time import utc_now
@@ -388,6 +388,7 @@ def apply_paper_filters(
     year: int | None = None,
     source: str = "",
     journal: str = "",
+    user_id: int | None = None,
 ):
     if status:
         stmt = stmt.where(Paper.status == status)
@@ -407,6 +408,13 @@ def apply_paper_filters(
         stmt = stmt.where(Paper.source == source.strip())
     if journal.strip():
         stmt = stmt.where(Paper.journal == journal.strip())
+    if user_id:
+        stmt = stmt.where(
+            exists().where(
+                Download.paper_id == Paper.id,
+                Download.downloaded_by_user_id == int(user_id),
+            )
+        )
     return stmt
 
 
@@ -455,6 +463,7 @@ def library_filter_kwargs(
     year: int | None = None,
     source: str = "",
     journal: str = "",
+    user_id: int | None = None,
 ) -> dict:
     return {
         "status": status,
@@ -464,6 +473,7 @@ def library_filter_kwargs(
         "year": year,
         "source": source,
         "journal": journal,
+        "user_id": user_id,
     }
 
 
@@ -478,6 +488,7 @@ def query_library(
     year: int | None = None,
     source: str = "",
     journal: str = "",
+    user_id: int | None = None,
     sort: str = "relevance",
     latest_search_id: int | None = None,
     offset: int = 0,
@@ -492,6 +503,7 @@ def query_library(
         year=year,
         source=source,
         journal=journal,
+        user_id=user_id,
     )
     count_stmt = select(func.count(func.distinct(Paper.id)))
     stmt = select(Paper).options(
@@ -599,6 +611,7 @@ def library_search(
     year: int | None = None,
     source: str = "",
     journal: str = "",
+    user_id: int | None = None,
 ) -> list[Paper]:
     papers, _total = query_library(
         session,
@@ -610,9 +623,46 @@ def library_search(
         year=year,
         source=source,
         journal=journal,
+        user_id=user_id,
         limit=limit,
     )
     return papers
+
+
+def _user_filter_label(name: str | None, email: str | None, user_id: int) -> str:
+    return (name or "").strip() or (email or "").strip() or f"User {user_id}"
+
+
+def download_user_options(session: Session, *, include_id: int | None = None) -> list[dict]:
+    """Accounts that saved at least one PDF, plus an optional selected user."""
+    rows = session.execute(
+        select(User.id, User.name, User.email, func.count(Download.id))
+        .join(Download, Download.downloaded_by_user_id == User.id)
+        .group_by(User.id, User.name, User.email)
+        .order_by(func.count(Download.id).desc(), User.name, User.email)
+    ).all()
+    options = [
+        {
+            "id": user_id,
+            "name": _user_filter_label(name, email, user_id),
+            "email": email or "",
+            "count": count,
+        }
+        for user_id, name, email, count in rows
+    ]
+    selected = int(include_id or 0)
+    if selected and selected not in {item["id"] for item in options}:
+        row = session.get(User, selected)
+        if row is not None:
+            options.append(
+                {
+                    "id": row.id,
+                    "name": _user_filter_label(row.name, row.email, row.id),
+                    "email": row.email or "",
+                    "count": 0,
+                }
+            )
+    return options
 
 
 def save_fulltext(session: Session, paper_id: int, content: str) -> PaperFulltext:

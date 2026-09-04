@@ -176,6 +176,19 @@ class Download(Base):
     downloaded_by: Mapped["User | None"] = relationship()
 
 
+class LmsExport(Base):
+    """Tracks papers already copied into the sibling Library Management System."""
+
+    __tablename__ = "lms_exports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    paper_id: Mapped[int] = mapped_column(Integer, unique=True, nullable=False, index=True)
+    ebook_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="imported")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class User(Base):
     __tablename__ = "users"
 

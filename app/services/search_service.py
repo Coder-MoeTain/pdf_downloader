@@ -198,6 +198,7 @@ class SearchService:
                     percent=82,
                 )
                 download_tracker.start_batch(total_pdfs, "Downloading open-access PDFs")
+                downloaded_ids: list[int] = []
                 try:
                     for idx, (paper_id, paper) in enumerate(to_download, start=1):
                         await self._checkpoint()
@@ -225,6 +226,9 @@ class SearchService:
                         download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
                         if updated.status == PaperStatus.DOWNLOADED:
                             stats.pdfs_downloaded += 1
+                            downloaded_ids.append(paper_id)
+                        elif updated.status == PaperStatus.DUPLICATE:
+                            downloaded_ids.append(paper_id)
                         elif updated.status == PaperStatus.FAILED:
                             stats.failed_downloads += 1
                 finally:
@@ -234,6 +238,15 @@ class SearchService:
                         f"PDF downloads: {dl.get('downloaded', 0)} saved, "
                         f"{dl.get('failed', 0)} failed, {dl.get('skipped', 0)} skipped"
                     )
+                if downloaded_ids:
+                    from app.services.lms_sync import maybe_sync_to_lms
+
+                    lms_result = maybe_sync_to_lms(paper_ids=downloaded_ids)
+                    if lms_result and lms_result.imported:
+                        console.print(
+                            f"[green]Library Management:[/] added {lms_result.imported} e-book(s)"
+                        )
+                        self._progress.log(f"Library Management: added {lms_result.imported} e-book(s)")
                 with session_scope() as session:
                     complete_search_query(session, search_id)
             elif not filters.download:

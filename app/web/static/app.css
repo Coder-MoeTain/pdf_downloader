@@ -729,14 +729,10 @@ a.paper-meta:hover { color: var(--accent); }
 .container-fluid {
   max-width: none;
   width: 100%;
-  padding-left: 1.25rem;
-  padding-right: 1.25rem;
+  padding-left: 4pt;
+  padding-right: 4pt;
 }
 @media (min-width: 1200px) {
-  .container-fluid {
-    padding-left: 1.75rem;
-    padding-right: 1.75rem;
-  }
   .app-nav.navbar-dark .navbar-collapse {
     flex: 1 1 auto;
   }

@@ -50,6 +50,14 @@ class EnvSettings(BaseSettings):
     admin_email: str = ""
     admin_password: str = ""
     admin_name: str = ""
+    lms_sync_enabled: bool = True
+    lms_root: str = ""
+    lms_category: str = "Research Papers"
+    lms_db_host: str = ""
+    lms_db_port: int | None = None
+    lms_db_name: str = ""
+    lms_db_user: str = ""
+    lms_db_password: str = ""
 
     @property
     def polite_email(self) -> str:

@@ -274,6 +274,32 @@ def update_library() -> None:
     _run(_update_topics())
 
 
+@app.command("sync-lms")
+def sync_lms(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be imported without writing"),
+) -> None:
+    """Copy downloaded open-access PDFs into the sibling Library Management System."""
+    from app.services.lms_sync import load_lms_sync_config, sync_downloaded_papers_to_lms
+
+    cfg = load_lms_sync_config()
+    if not cfg.enabled:
+        console.print("[yellow]LMS sync is disabled (LMS_SYNC_ENABLED=false).[/]")
+        raise typer.Exit(0)
+    if cfg.root is None:
+        console.print("[red]Library Management System folder not found.[/]")
+        console.print("Set LMS_ROOT in .env, or keep both projects in the same parent directory.")
+        raise typer.Exit(1)
+    console.print(f"LMS root: {cfg.root}")
+    result = sync_downloaded_papers_to_lms(dry_run=dry_run, config=cfg)
+    for line in result.messages:
+        console.print(line)
+    console.print(
+        f"[bold]Imported {result.imported}[/], skipped {result.skipped}, failed {result.failed}"
+    )
+    if result.failed:
+        raise typer.Exit(1)
+
+
 @app.command()
 def version() -> None:
     """Print application version."""
@@ -392,6 +418,9 @@ async def _download_pending(download_limit: int | None, max_file_size: str | Non
                 session.commit()
                 count += 1
             console.print(f"Processed {count} pending downloads.")
+    from app.services.lms_sync import maybe_sync_to_lms
+
+    maybe_sync_to_lms()
 
 
 async def _retry_failed() -> None:
@@ -412,6 +441,9 @@ async def _retry_failed() -> None:
                 await downloader.download_paper(session, row.paper_id, record, "library")
                 session.commit()
             console.print(f"Retried {len(rows)} downloads.")
+    from app.services.lms_sync import maybe_sync_to_lms
+
+    maybe_sync_to_lms()
 
 
 async def _update_topics() -> None:
