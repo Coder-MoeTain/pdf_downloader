@@ -75,3 +75,49 @@ def test_pm2_not_installed(monkeypatch):
     monkeypatch.setattr(pm2_control, "_run_pm2", fake_run)
     with pytest.raises(pm2_control.Pm2Error):
         pm2_control.pm2_restart()
+
+
+def test_pm2_status_ignores_daemon_banner(monkeypatch):
+    payload = [
+        {
+            "name": "researchpaper",
+            "monit": {"pid": 99, "memory": 2048, "cpu": 1},
+            "pm2_env": {"status": "online", "pm_uptime": 1_700_000_000_000, "restart_time": 1},
+        }
+    ]
+    banner = "[PM2][WARN] Current process is under PM2\n>>>> In-memory PM2 is out-of-date\n"
+
+    def fake_run(*args, **kwargs):
+        return CompletedProcess(args, 0, stdout=banner + json.dumps(payload), stderr="")
+
+    monkeypatch.setattr(pm2_control, "_run_pm2", fake_run)
+    status = pm2_control.pm2_status("researchpaper")
+    assert status["ok"] is True
+    assert status["pid"] == 99
+    assert status["status"] == "online"
+
+
+def test_pm2_status_reads_dump_when_jlist_is_garbage(monkeypatch, tmp_path):
+    dump = [
+        {
+            "name": "researchpaper",
+            "pm2_env": {"status": "online", "pm_pid": 4242, "restart_time": 2, "pm_uptime": 0},
+        }
+    ]
+    dump_file = tmp_path / "dump.pm2"
+    dump_file.write_text(json.dumps(dump), encoding="utf-8")
+
+    def fake_run(*args, **kwargs):
+        return CompletedProcess(args, 0, stdout="Initializing folder...\nnot json", stderr="")
+
+    monkeypatch.setattr(pm2_control, "_run_pm2", fake_run)
+    monkeypatch.setattr(pm2_control, "_pm2_home", lambda: tmp_path)
+    status = pm2_control.pm2_status("researchpaper")
+    assert status["ok"] is True
+    assert status["pid"] == 4242
+    assert status["status"] == "online"
+
+
+def test_parse_jlist_accepts_wrapped_object():
+    processes = pm2_control._parse_jlist(json.dumps({"processes": [{"name": "researchpaper"}]}))
+    assert processes[0]["name"] == "researchpaper"

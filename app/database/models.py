@@ -188,7 +188,24 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), default="user")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     last_login_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=utc_now)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class UsageEvent(Base):
+    __tablename__ = "usage_events"
+    __table_args__ = (Index("ix_usage_events_created", "created_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    user_label: Mapped[str] = mapped_column(String(255), default="")
+    action: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    detail: Mapped[str] = mapped_column(Text, default="")
+    path: Mapped[str] = mapped_column(String(255), default="")
+    ip: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+    user: Mapped["User | None"] = relationship()
 
 
 class PaperFulltext(Base):

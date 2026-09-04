@@ -221,6 +221,7 @@
         <th class="lib-col-rating">Rating</th>
         <th class="lib-col-status">Status</th>
         <th class="lib-col-user">Downloaded by</th>
+        <th class="lib-col-date">Date</th>
         <th class="lib-col-actions"></th>
       </tr>
     </thead>
@@ -237,6 +238,7 @@
         <td>{{ status_badge(p.status) }}</td>
         {% set downloader = paper_downloader_name(p) %}
         <td class="lib-downloader">{% if downloader %}{{ downloader }}{% else %}—{% endif %}</td>
+        <td class="text-nowrap paper-meta lib-date">{{ paper_record_date(p)|localdt or "—" }}</td>
         <td class="lib-actions">
           {% if p.abstract %}
           <button class="btn btn-sm btn-outline-secondary abstract-btn" type="button"
@@ -266,7 +268,7 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="7" class="p-0">
+      <tr><td colspan="8" class="p-0">
         {% if search_running %}
           {{ empty_state("Search in progress", "Results will appear here automatically. Keep this page open.") }}
         {% elif latest %}

@@ -285,6 +285,18 @@ h1, h2, .brand-text, .display-6, .empty-title {
 .nav-user .role-badge.role-user { background: rgba(255,255,255,0.16); color: #fff; }
 .page-account .role-badge.role-admin { background: #dcefe4; color: #1d5c38; }
 .page-account .role-badge.role-user { background: #ece6da; color: #3a4d63; }
+.settings-main .role-badge.role-admin { background: #dcefe4; color: #1d5c38; }
+.settings-main .role-badge.role-user { background: #ece6da; color: #3a4d63; }
+.online-user {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.online-user .nav-live-dot {
+  width: 0.9rem;
+  height: 0.9rem;
+  flex: 0 0 0.9rem;
+}
 .role-form { margin: 0; min-width: 7.5rem; }
 .nav-version {
   display: inline-flex;
@@ -594,8 +606,8 @@ a.paper-meta:hover { color: var(--accent); }
   font-style: italic;
 }
 .pdf-modal-dialog {
-  width: min(1100px, calc(100vw - 1.5rem));
-  max-width: 1100px;
+  width: min(1110px, calc(100vw - 1.5rem));
+  max-width: 1110px;
   height: calc(100vh - 1.5rem);
   margin: 0.75rem auto;
 }
@@ -715,6 +727,9 @@ a.paper-meta:hover { color: var(--accent); }
   background-color: rgba(255, 255, 255, 0.72);
 }
 @media (min-width: 1200px) {
+  .container-xl {
+    max-width: 1150px;
+  }
   .app-nav.navbar-dark .navbar-collapse {
     flex: 1 1 auto;
   }
@@ -1889,6 +1904,11 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
 .page-library .lib-col-rating { width: 8.5rem; }
 .page-library .lib-col-status { width: 8rem; }
 .page-library .lib-col-user { width: 8.5rem; }
+.page-library .lib-col-date { width: 8.5rem; }
+.page-library .lib-date {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.88rem;
+}
 .page-library .lib-downloader {
   font-size: 0.88rem;
   font-weight: 650;
@@ -2225,7 +2245,11 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
 .page-downloads .dl-col-status { width: 8rem; }
 .page-downloads .dl-col-size { width: 5.5rem; }
 .page-downloads .dl-col-user { width: 8.5rem; }
-.page-downloads .dl-col-when { width: 8.5rem; }
+.page-downloads .dl-col-date { width: 8.5rem; }
+.page-downloads .dl-date {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.88rem;
+}
 .page-downloads .dl-col-actions { width: 1%; }
 .page-downloads .dl-size {
   font-variant-numeric: tabular-nums;

@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% from "_macros.html" import source_toggle %}
 {% block title %}Settings · {{ app_name }}{% endblock %}
+{% block extra_js %}
+{% if section == "activity" %}
+<script src="/static/activity.js?v={{ version }}"></script>
+{% endif %}
+{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
@@ -34,6 +39,10 @@
     <a class="settings-nav-link {% if section == 'sources' %}active{% endif %}" href="/settings?section=sources">
       <span class="settings-nav-title">Academic sources</span>
       <span class="settings-nav-copy">{{ source_stats.available }} of {{ source_stats.total }} available</span>
+    </a>
+    <a class="settings-nav-link {% if section == 'activity' %}active{% endif %}" href="/settings?section=activity">
+      <span class="settings-nav-title">Activity</span>
+      <span class="settings-nav-copy">Online users and usage logs</span>
     </a>
     <a class="settings-nav-link {% if section == 'updates' %}active{% endif %}" href="/settings?section=updates">
       <span class="settings-nav-title">Updates</span>
@@ -262,6 +271,72 @@
     </div>
     {% endif %}
 
+    {% if section == 'activity' %}
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-baseline gap-2">
+        <span>Online now</span>
+        <span class="text-muted small" id="onlineCount">{{ activity.online_count }} in the last {{ activity.window_minutes }} minutes</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Role</th>
+              <th>Last seen</th>
+              <th>Page</th>
+            </tr>
+          </thead>
+          <tbody id="onlineUsersBody">
+            {% for person in activity.online %}
+            <tr>
+              <td>
+                <div class="online-user fw-semibold"><span class="nav-live-dot" aria-hidden="true"></span>{{ person.name }}</div>
+                <div class="paper-meta mb-0">{{ person.email }}</div>
+              </td>
+              <td><span class="role-badge role-{{ person.role }}">{{ person.role }}</span></td>
+              <td class="paper-meta">{{ person.ago }}</td>
+              <td class="paper-meta">{{ person.path or "—" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="paper-meta">No one is online right now.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mt-4">
+      <div class="card-header">Usage log</div>
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>User</th>
+              <th>Action</th>
+              <th>Detail</th>
+              <th>IP</th>
+            </tr>
+          </thead>
+          <tbody id="usageLogBody">
+            {% for row in activity.events %}
+            <tr>
+              <td class="paper-meta text-nowrap">{{ row.time }}</td>
+              <td>{{ row.user }}</td>
+              <td><span class="status-badge status-{{ 'success' if row.action == 'login' else 'danger' if row.action == 'logout' else 'primary' if row.action == 'search' else 'info' }}">{{ row.action_label }}</span></td>
+              <td class="paper-meta">{{ row.detail or "—" }}</td>
+              <td class="paper-meta">{{ row.ip or "—" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="paper-meta">No usage yet. Sign-ins, searches, and downloads will appear here.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
     {% if section == 'updates' %}
     <div class="card">
       <div class="card-header">Application updates</div>
@@ -307,7 +382,7 @@
         </div>
         <p class="form-hint mb-3">Runs <code>pm2 restart {{ pm2.name }}</code> on this server. Override the process name with <code>PM2_APP_NAME</code> in <code>.env</code>.</p>
         {% else %}
-        <p class="text-muted mb-3">{{ pm2.error or "PM2 status is unavailable." }}</p>
+        <p class="text-muted mb-3" style="white-space:pre-wrap">{{ pm2.error or "PM2 status is unavailable." }}</p>
         {% endif %}
         {% if pm2_log %}
         <pre class="update-log pm2-log" aria-label="PM2 output">{{ pm2_log }}</pre>
@@ -315,10 +390,10 @@
       </div>
       <div class="card-footer settings-footer d-flex flex-wrap gap-2">
         <form method="post" action="/settings/pm2/restart" data-busy="Restarting…" data-confirm="Restart the PM2 process on this server?">
-          <button class="btn btn-primary" type="submit" {% if not pm2.ok %}disabled{% endif %}>PM2 restart</button>
+          <button class="btn btn-primary" type="submit" {% if not pm2.ok and not pm2.available %}disabled{% endif %}>PM2 restart</button>
         </form>
         <form method="post" action="/settings/pm2/logs" data-busy="Loading logs…">
-          <button class="btn btn-outline-primary" type="submit" {% if not pm2.ok %}disabled{% endif %}>Show PM2 logs</button>
+          <button class="btn btn-outline-primary" type="submit" {% if not pm2.ok and not pm2.available %}disabled{% endif %}>Show PM2 logs</button>
         </form>
       </div>
     </div>

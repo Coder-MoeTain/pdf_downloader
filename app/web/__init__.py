@@ -81,6 +81,7 @@ from app.services.download_service import (
 from app.services.progress import download_tracker, job_registry, live_progress, tracker
 from app.services.search_queue import cancel_search, enqueue_search, queue_snapshot, start_search_queue_worker
 from app.services.search_service import SearchService, filters_from_cli
+from app.services.usage import activity_payload, drop_presence, record_usage, touch_presence
 from app.utils.git_update import GitUpdateError, git_pull, git_status
 from app.utils.pm2_control import Pm2Error, pm2_logs, pm2_restart, pm2_status
 from app.utils.logger import setup_logging
@@ -102,6 +103,8 @@ from app.web.ui import (
     source_matches,
     paper_abstract_meta,
     paper_downloader_name,
+    paper_record_date,
+    download_record_date,
     share,
     source_label,
     source_row_status,
@@ -120,7 +123,9 @@ templates.env.globals["sources_href"] = sources_href
 templates.env.globals["source_label"] = source_label
 templates.env.globals["paper_abstract_meta"] = paper_abstract_meta
 templates.env.globals["paper_downloader_name"] = paper_downloader_name
+templates.env.globals["paper_record_date"] = paper_record_date
 templates.env.globals["download_actor_name"] = download_actor_name
+templates.env.globals["download_record_date"] = download_record_date
 templates.env.globals["is_new_download"] = is_new_download
 templates.env.filters["filesize"] = lambda value: _format_bytes(value)
 templates.env.filters["localdt"] = lambda value, fmt="%Y-%m-%d %H:%M": format_local(value, fmt)
@@ -154,6 +159,8 @@ async def _auth_gate(request: Request, call_next):
         _search_message["text"] = "Sources and Settings are limited to admin accounts."
         _search_message["level"] = "warning"
         return RedirectResponse("/", status_code=302)
+    if user:
+        touch_presence(user, path=path)
     return await call_next(request)
 
 
@@ -222,6 +229,8 @@ def login_submit(
         request.session["user"] = payload
         signed_email = payload["email"]
         is_admin = user_role(payload) == ROLE_ADMIN
+        touch_presence(payload, path="/")
+        record_usage(request, "login", f"Signed in as {signed_email}")
     except ValueError as exc:
         _search_message["text"] = str(exc)
         _search_message["level"] = "danger"
@@ -278,6 +287,8 @@ async def auth_google_callback(request: Request):
 
         payload, is_admin = retry_on_sqlite_lock(_persist_google)
         request.session["user"] = payload
+        touch_presence(payload, path="/")
+        record_usage(request, "login", f"Signed in with Google as {email}")
     except OperationalError:
         _search_message["text"] = "The library database was busy. Wait a moment and sign in again."
         _search_message["level"] = "warning"
@@ -291,6 +302,10 @@ async def auth_google_callback(request: Request):
 
 @app.api_route("/logout", methods=["GET", "POST"])
 def logout(request: Request):
+    user = current_user(request)
+    if user:
+        record_usage(request, "logout", f"Signed out {user.get('email') or user.get('name') or ''}".strip())
+        drop_presence(user.get("id"))
     request.session.clear()
     _search_message["text"] = "Signed out."
     _search_message["level"] = "info"
@@ -613,6 +628,7 @@ async def search_submit(
     )
     user_id = _request_user_id(request)
     job_id = enqueue_search(user_id=user_id, query=query.strip(), filters=filters)
+    record_usage(request, "search", query.strip())
     _search_message["text"] = f"Search queued (job #{job_id}). Each user runs in parallel — watch the live log."
     _search_message["level"] = "info"
     return RedirectResponse(f"/search?live=1&job={job_id}", status_code=303)
@@ -805,6 +821,7 @@ def library_delete_paper(request: Request, paper_id: int, next: str = Form("")):
 async def download_paper_pdf(request: Request, paper_id: int):
     try:
         path = await ensure_local_pdf(paper_id, topic_slug="library", user_id=_request_user_id(request))
+        record_usage(request, "download", path.name)
     except DownloadError as exc:
         _search_message["text"] = str(exc)
         _search_message["level"] = "warning"
@@ -828,6 +845,7 @@ async def download_oa(request: Request, background_tasks: BackgroundTasks, lates
     _search_message["text"] = "Downloading legally available PDFs. This can take a few minutes."
     _search_message["level"] = "info"
     user_id = _request_user_id(request)
+    record_usage(request, "download", "Open-access PDF batch")
 
     async def _job():
         try:
@@ -886,6 +904,11 @@ def search_progress(request: Request, job_id: int | None = None):
         if snap:
             return JSONResponse(snap, headers={"Cache-Control": "no-store"})
     return JSONResponse(tracker.snapshot(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/activity")
+def activity_api(request: Request):
+    return JSONResponse(activity_payload(), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/search-queue")
@@ -1059,12 +1082,13 @@ def _settings_ctx(request: Request, section: str = "workspace"):
         git_log=_git_log["text"] if section == "updates" else "",
         pm2=pm2_status() if section == "updates" else {"ok": False, "error": ""},
         pm2_log=_pm2_log["text"] if section == "updates" else "",
+        activity=activity_payload() if section == "activity" else {"online": [], "online_count": 0, "events": [], "window_minutes": 5},
     )
 
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, section: str = "workspace"):
-    allowed = {"workspace", "search", "credentials", "sources", "updates"}
+    allowed = {"workspace", "search", "credentials", "sources", "updates", "activity"}
     if section not in allowed:
         section = "workspace"
     return templates.TemplateResponse(request, "settings.html", _settings_ctx(request, section))

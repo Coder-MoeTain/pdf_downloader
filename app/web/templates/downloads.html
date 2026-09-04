@@ -91,7 +91,7 @@
         <th>Paper</th>
         <th class="dl-col-size">Size</th>
         <th class="dl-col-user">Downloaded by</th>
-        <th class="dl-col-when">When</th>
+        <th class="dl-col-date">Date</th>
         <th class="dl-col-actions"></th>
       </tr>
     </thead>
@@ -128,7 +128,7 @@
         </td>
         <td class="text-nowrap dl-size">{{ row.file_size|filesize or "—" }}</td>
         <td class="lib-downloader">{% if actor %}{{ actor }}{% else %}—{% endif %}</td>
-        <td class="text-nowrap paper-meta">{{ row.downloaded_at|localdt or "—" }}</td>
+        <td class="text-nowrap paper-meta dl-date">{{ download_record_date(row)|localdt or "—" }}</td>
         <td class="dl-actions">
           {% if row.status == "DOWNLOADED" and row.local_path %}
           <button class="btn btn-sm btn-outline-primary preview-btn" type="button"

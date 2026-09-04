@@ -483,6 +483,66 @@ def test_library_shows_who_downloaded(tmp_db):
     assert "Alice" in page.text
     assert "Downloaded by Alice" in page.text
     assert "Not downloaded yet" in page.text
+    assert 'class="lib-col-date">Date</th>' in page.text
+    assert "lib-date" in page.text
+
+
+def test_library_and_downloads_show_record_dates(tmp_db):
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from app.database.repository import upsert_download
+    from app.utils.time import format_local, utc_now
+    from app.web.ui import download_record_date, paper_record_date
+
+    added = datetime(2026, 3, 15, 8, 30, 0)
+    saved = datetime(2026, 4, 1, 12, 0, 0)
+    assert paper_record_date(SimpleNamespace(created_at=added, downloads=[])) == added
+    assert (
+        paper_record_date(
+            SimpleNamespace(created_at=added, downloads=[SimpleNamespace(id=1, downloaded_at=saved)])
+        )
+        == saved
+    )
+    assert download_record_date(SimpleNamespace(downloaded_at=saved, paper=None)) == saved
+    assert (
+        download_record_date(SimpleNamespace(downloaded_at=None, paper=SimpleNamespace(created_at=added)))
+        == added
+    )
+
+    with session_scope() as session:
+        paper = save_paper(
+            session,
+            PaperRecord(
+                title="Dated library paper",
+                doi="10.1000/dated-row",
+                pdf_url="https://arxiv.org/pdf/dated.pdf",
+                status=PaperStatus.DOWNLOADED,
+            ),
+        )
+        upsert_download(
+            session,
+            paper.id,
+            pdf_url="https://arxiv.org/pdf/dated.pdf",
+            status=PaperStatus.DOWNLOADED.value,
+            local_path="library/dated.pdf",
+            file_size=1024,
+        )
+
+    client = TestClient(app)
+    library = client.get("/library")
+    assert library.status_code == 200
+    assert 'class="lib-col-date">Date</th>' in library.text
+    assert "Dated library paper" in library.text
+    assert "lib-date" in library.text
+    downloads = client.get("/downloads")
+    assert downloads.status_code == 200
+    assert 'class="dl-col-date">Date</th>' in downloads.text
+    assert "Dated library paper" in downloads.text
+    assert "dl-date" in downloads.text
+    today = format_local(utc_now(), "%Y-%m-%d")
+    assert today in library.text
+    assert today in downloads.text
 
 
 def test_admin_can_delete_library_paper(tmp_db):

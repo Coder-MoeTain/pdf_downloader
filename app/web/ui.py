@@ -57,6 +57,27 @@ def paper_downloader_name(paper) -> str:
     return ""
 
 
+def paper_record_date(paper):
+    """When the PDF was saved, or when the paper was added to the library."""
+    rows = sorted(getattr(paper, "downloads", None) or [], key=lambda item: item.id or 0, reverse=True)
+    for row in rows:
+        stamp = getattr(row, "downloaded_at", None)
+        if stamp:
+            return stamp
+    return getattr(paper, "created_at", None)
+
+
+def download_record_date(row):
+    """When this download finished, or when the paper was stored."""
+    stamp = getattr(row, "downloaded_at", None)
+    if stamp:
+        return stamp
+    paper = getattr(row, "paper", None)
+    if paper is not None:
+        return getattr(paper, "created_at", None)
+    return None
+
+
 def paper_abstract_meta(paper) -> str:
     """Year, venue, and authors shown under the abstract preview title."""
     parts = []
