@@ -347,6 +347,68 @@ def test_library_hides_no_pdf_and_failed(tmp_db):
     assert "Failed" in explicit.text
 
 
+def test_library_status_panel_shows_counts(tmp_db):
+    from app.database.repository import library_facets
+    from app.web.ui import library_status_panel
+
+    with session_scope() as session:
+        save_paper(
+            session,
+            PaperRecord(
+                title="Open visible paper",
+                doi="10.1000/status-oa",
+                pdf_url="https://arxiv.org/pdf/1.pdf",
+                status=PaperStatus.OA_AVAILABLE,
+            ),
+        )
+        save_paper(
+            session,
+            PaperRecord(
+                title="Saved PDF paper",
+                doi="10.1000/status-dl",
+                pdf_url="https://arxiv.org/pdf/2.pdf",
+                status=PaperStatus.DOWNLOADED,
+            ),
+        )
+        save_paper(session, PaperRecord(title="Found paper", doi="10.1000/status-found", status=PaperStatus.FOUND))
+        save_paper(
+            session,
+            PaperRecord(title="Closed paywalled paper", doi="10.1000/status-pay", status=PaperStatus.PAYWALLED),
+        )
+        save_paper(session, PaperRecord(title="Broken download paper", doi="10.1000/status-fail", status=PaperStatus.FAILED))
+        stats = library_status_panel(library_facets(session))
+    assert stats["visible_total"] == 4
+    assert stats["downloadable"] == 2
+    assert stats["downloaded"] == 1
+    assert stats["open_access"] == 1
+    assert stats["paywalled"] == 1
+    assert stats["has_stats"] is True
+    labels = {row["label"]: row["count"] for row in stats["statuses"]}
+    assert labels["Open access"] == 1
+    assert labels["Downloaded"] == 1
+    assert labels["Found"] == 1
+    assert labels["Paywalled"] == 1
+    assert "Failed" not in labels
+
+    client = TestClient(app)
+    page = client.get("/library")
+    assert page.status_code == 200
+    assert 'class="lib-status-panel"' in page.text
+    assert 'aria-label="Library statistics"' in page.text
+    assert "Downloadable PDFs" in page.text
+    assert "Access mix" in page.text
+    assert "Open access · 1" in page.text
+    assert "Downloaded · 1" in page.text
+    assert "Found · 1" in page.text
+    assert "Paywalled · 1" in page.text
+    assert 'href="/library?status=DOWNLOADED"' in page.text
+    filtered = client.get("/library?status=DOWNLOADED")
+    assert filtered.status_code == 200
+    assert "lib-kpi is-active" in filtered.text
+    assert "Saved PDF paper" in filtered.text
+    assert "Open visible paper" not in filtered.text
+
+
 def test_hide_paywalled_filters_library_unless_explicit(tmp_db):
     from app.database.repository import upsert_download
     from app.database.settings_repository import save_workspace_settings

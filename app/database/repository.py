@@ -557,11 +557,24 @@ def library_facets(session: Session) -> dict:
         }
         for name, count in ranked
     ]
+    status_rows = session.execute(
+        select(Paper.status, func.count(Paper.id)).where(*visible).group_by(Paper.status)
+    ).all()
+    status_counts = {code: count for code, count in status_rows if code}
+    visible_total = sum(status_counts.values())
+    downloadable = session.scalar(select(func.count(Paper.id)).where(downloadable_clause(), *visible)) or 0
+    paywalled = session.scalar(
+        select(func.count(Paper.id)).where(Paper.status == PaperStatus.PAYWALLED.value)
+    ) or 0
     return {
         "categories": categories,
         "years": years,
         "sources": [{"slug": slug, "count": count} for slug, count in source_rows],
         "journals": [{"name": name, "count": count} for name, count in journal_rows],
+        "status_counts": status_counts,
+        "visible_total": visible_total,
+        "downloadable": downloadable,
+        "paywalled": paywalled,
     }
 
 

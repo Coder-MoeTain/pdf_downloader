@@ -97,6 +97,7 @@ from app.web.ui import (
     downloads_href,
     is_new_download,
     library_href,
+    library_status_panel,
     ordered_source_status_counts,
     ordered_status_counts,
     pagination_spec,
@@ -746,6 +747,49 @@ def library_page(
         "per_page": per_page,
     }
     has_filters = bool(q or status or downloadable or min_rating or category or year or source or journal)
+    stats = library_status_panel(facets)
+    kpis = [
+        {
+            "href": library_href({"latest": use_latest, "sort": sort, "per_page": per_page}),
+            "label": "Papers",
+            "value": stats["visible_total"],
+            "tone": "primary",
+            "hint": "Visible in library",
+            "active": not has_filters,
+        },
+        {
+            "href": library_href(filters, pdf=True, page=1),
+            "label": "Downloadable PDFs",
+            "value": stats["downloadable"],
+            "tone": "success",
+            "hint": f"{share(stats['downloadable'], stats['visible_total'])}% of library",
+            "active": bool(downloadable),
+        },
+        {
+            "href": library_href(filters, status="DOWNLOADED", page=1),
+            "label": "Downloaded",
+            "value": stats["downloaded"],
+            "tone": "info",
+            "hint": "Saved locally",
+            "active": status == "DOWNLOADED",
+        },
+        {
+            "href": library_href(filters, status="OA_AVAILABLE", page=1),
+            "label": "Open access",
+            "value": stats["open_access"],
+            "tone": "secondary",
+            "hint": "Legal PDF available",
+            "active": status == "OA_AVAILABLE",
+        },
+        {
+            "href": library_href(filters, status="PAYWALLED", page=1),
+            "label": "Paywalled",
+            "value": stats["paywalled"],
+            "tone": "warning",
+            "hint": "Metadata only",
+            "active": status == "PAYWALLED",
+        },
+    ]
     return templates.TemplateResponse(
         request,
         "library.html",
@@ -774,6 +818,9 @@ def library_page(
             latest_search=latest_search,
             oa_pending=oa_pending,
             search_running=bool(latest_search and latest_search.status == "running"),
+            kpis=kpis,
+            statuses=stats["statuses"],
+            has_library_stats=stats["has_stats"],
         ),
     )
 

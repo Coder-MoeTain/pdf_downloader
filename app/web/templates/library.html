@@ -29,6 +29,41 @@
   </div>
 </div>
 
+{% if has_library_stats %}
+<section class="lib-status-panel" aria-label="Library statistics">
+  <div class="lib-status-kpis">
+    {% for card in kpis %}
+    <a class="lib-kpi {% if card.active %}is-active{% endif %}" href="{{ card.href }}">
+      <span class="lib-kpi-value tone-{{ card.tone }}">{{ card.value }}</span>
+      <span class="lib-kpi-label">{{ card.label }}</span>
+      <span class="lib-kpi-hint">{{ card.hint }}</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% if statuses %}
+  <div class="lib-status-mix-wrap">
+    <div class="lib-status-mix-head">
+      <div>
+        <div class="lib-filter-label mb-0">Status</div>
+        <strong class="lib-status-mix-title">Access mix</strong>
+      </div>
+      <a class="paper-meta mb-0" href="/statistics">Full analytics</a>
+    </div>
+    <div class="status-mix" role="img" aria-label="Library status mix">
+      {% for row in statuses %}
+      <a class="status-mix-seg tone-{{ row.tone }}" href="{{ library_href(filters, status=row.code, page=1) }}" style="width: {{ row.pct }}%" title="{{ row.label }} · {{ row.count }} ({{ row.pct }}%)"></a>
+      {% endfor %}
+    </div>
+    <div class="chip-row lib-status-chips" role="list">
+      {% for row in statuses %}
+      <a class="chip {% if status == row.code %}active{% endif %}" href="{{ library_href(filters, status=row.code, page=1) }}">{{ row.label }} · {{ row.count }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
 <section class="lib-filters" aria-label="Library filters">
   <div class="chip-row lib-quick-chips">
     <a class="chip {% if not has_filters %}active{% endif %}" href="{{ library_href({'latest': latest, 'sort': sort, 'per_page': per_page}) }}">All</a>

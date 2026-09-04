@@ -349,6 +349,24 @@ def ordered_status_counts(counts: dict) -> list[dict]:
     return items
 
 
+def library_status_panel(facets: dict) -> dict:
+    """KPI cards and status-mix rows for the library page."""
+    counts = dict(facets.get("status_counts") or {})
+    total = int(facets.get("visible_total") or sum(counts.values()) or 0)
+    downloadable = int(facets.get("downloadable") or 0)
+    paywalled = int(facets.get("paywalled") or 0)
+    statuses = [{**item, "pct": share(item["count"], total)} for item in ordered_status_counts(counts)]
+    return {
+        "visible_total": total,
+        "downloadable": downloadable,
+        "downloaded": int(counts.get("DOWNLOADED") or 0),
+        "open_access": int(counts.get("OA_AVAILABLE") or 0),
+        "paywalled": paywalled,
+        "statuses": statuses,
+        "has_stats": bool(total or paywalled or statuses),
+    }
+
+
 def download_actor_name(row) -> str:
     """Name of the account that saved this download row."""
     user = getattr(row, "downloaded_by", None)
