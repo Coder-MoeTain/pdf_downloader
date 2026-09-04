@@ -43,6 +43,7 @@ from app.database.connection import init_db, retry_on_sqlite_lock, session_scope
 from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuery, SearchResult, User
 from app.database.repository import (
     active_search_job_for_user,
+    delete_library_paper,
     downloadable_clause,
     library_facets,
     query_library,
@@ -78,7 +79,7 @@ from app.services.download_service import (
     safe_library_pdf,
 )
 from app.services.progress import job_registry, tracker
-from app.services.search_queue import enqueue_search, queue_snapshot, start_search_queue_worker
+from app.services.search_queue import cancel_search, enqueue_search, queue_snapshot, start_search_queue_worker
 from app.services.search_service import SearchService, filters_from_cli
 from app.utils.git_update import GitUpdateError, git_pull, git_status
 from app.utils.pm2_control import Pm2Error, pm2_logs, pm2_restart, pm2_status
@@ -616,6 +617,24 @@ async def search_submit(
     return RedirectResponse(f"/search?live=1&job={job_id}", status_code=303)
 
 
+@app.post("/search/jobs/{job_id}/stop")
+def search_stop(request: Request, job_id: int):
+    user_id = _request_user_id(request)
+    try:
+        was = cancel_search(job_id, user_id=user_id, is_admin=user_is_admin(request))
+    except PermissionError as exc:
+        _search_message["text"] = str(exc)
+        _search_message["level"] = "warning"
+        return RedirectResponse("/search", status_code=303)
+    except ValueError as exc:
+        _search_message["text"] = str(exc)
+        _search_message["level"] = "warning"
+        return RedirectResponse("/search", status_code=303)
+    _search_message["text"] = "Search stopped." if was == "pending" else "Stopping search…"
+    _search_message["level"] = "info"
+    return RedirectResponse("/search?live=1", status_code=303)
+
+
 @app.get("/library", response_class=HTMLResponse)
 def library_page(
     request: Request,
@@ -749,6 +768,27 @@ async def rate_paper(paper_id: int, request: Request):
             return JSONResponse({"ok": False, "error": "Paper not found"}, status_code=404)
         saved = paper.user_rating
     return JSONResponse({"ok": True, "rating": saved or 0})
+
+
+@app.post("/papers/{paper_id}/delete")
+def library_delete_paper(request: Request, paper_id: int, next: str = Form("")):
+    if not user_is_admin(request):
+        _search_message["text"] = "Only admins can delete papers from the library."
+        _search_message["level"] = "warning"
+        return RedirectResponse(_safe_next(next, "/library"), status_code=303)
+    try:
+        with session_scope() as session:
+            title, paths = delete_library_paper(session, paper_id)
+        for path_value in paths:
+            dest = safe_library_pdf(path_value)
+            if dest and dest.is_file():
+                dest.unlink()
+        _search_message["text"] = f"Deleted “{title}” from the library."
+        _search_message["level"] = "success"
+    except ValueError as exc:
+        _search_message["text"] = str(exc)
+        _search_message["level"] = "danger"
+    return RedirectResponse(_safe_next(next, "/library"), status_code=303)
 
 
 @app.get("/papers/{paper_id}/pdf")
@@ -1023,7 +1063,7 @@ def settings_page(request: Request, section: str = "workspace"):
 
 def _safe_next(next_url: str | None, fallback: str) -> str:
     text = (next_url or "").strip()
-    if text.startswith("/settings") or text.startswith("/sources"):
+    if text.startswith(("/settings", "/sources", "/library", "/search")):
         return text
     return fallback
 

@@ -483,3 +483,80 @@ def test_library_shows_who_downloaded(tmp_db):
     assert "Alice" in page.text
     assert "Downloaded by Alice" in page.text
     assert "Not downloaded yet" in page.text
+
+
+def test_admin_can_delete_library_paper(tmp_db):
+    from app.database.models import SearchResult
+    from app.database.repository import attach_search_result, create_search_query, delete_library_paper
+
+    with session_scope() as session:
+        paper = save_paper(
+            session,
+            PaperRecord(title="Remove me", doi="10.1000/delete-me", status=PaperStatus.FOUND),
+        )
+        paper_id = paper.id
+        search = create_search_query(session, "topic", [], {})
+        attach_search_result(session, search.id, paper.id, 1, 0.5)
+    with session_scope() as session:
+        title, paths = delete_library_paper(session, paper_id)
+        assert title == "Remove me"
+        assert paths == []
+    with session_scope() as session:
+        assert session.get(Paper, paper_id) is None
+        leftover = session.scalars(select(SearchResult).where(SearchResult.paper_id == paper_id)).all()
+        assert leftover == []
+    client = TestClient(app)
+    created = client.post(
+        "/login",
+        data={"email": "admin@lab.test", "password": "secret123", "name": "Admin", "next": "/"},
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    with session_scope() as session:
+        other = save_paper(
+            session,
+            PaperRecord(title="Keep listing", doi="10.1000/keep-list", status=PaperStatus.FOUND),
+        )
+        other_id = other.id
+    page = client.get("/library")
+    assert page.status_code == 200
+    assert "Delete" in page.text
+    deleted = client.post(f"/papers/{other_id}/delete", data={"next": "/library"}, follow_redirects=False)
+    assert deleted.status_code == 303
+    with session_scope() as session:
+        assert session.get(Paper, other_id) is None
+
+
+def test_non_admin_cannot_delete_library_paper(tmp_db, monkeypatch):
+    user = {
+        "id": 1,
+        "email": "reader@gmail.com",
+        "name": "Reader",
+        "picture": "",
+        "role": "user",
+        "is_admin": False,
+        "has_password": True,
+    }
+    monkeypatch.setattr("app.web.google_login_enabled", lambda: True)
+    monkeypatch.setattr("app.auth.google_login_enabled", lambda: True)
+    monkeypatch.setattr("app.web.auth_required", lambda: True)
+    monkeypatch.setattr("app.auth.auth_required", lambda: True)
+    monkeypatch.setattr("app.web.current_user", lambda _request: user)
+    monkeypatch.setattr("app.auth.current_user", lambda _request: user)
+    monkeypatch.setattr("app.web.user_is_admin", lambda _request: False)
+    monkeypatch.setattr("app.auth.user_is_admin", lambda _request: False)
+    monkeypatch.setattr("app.web.user_role", lambda _value: "user")
+    with session_scope() as session:
+        paper = save_paper(
+            session,
+            PaperRecord(title="Stay put", doi="10.1000/stay", status=PaperStatus.FOUND),
+        )
+        paper_id = paper.id
+    client = TestClient(app, follow_redirects=False)
+    page = client.get("/library")
+    assert page.status_code == 200
+    assert ">Delete<" not in page.text
+    denied = client.post(f"/papers/{paper_id}/delete", data={"next": "/library"})
+    assert denied.status_code == 303
+    with session_scope() as session:
+        assert session.get(Paper, paper_id) is not None

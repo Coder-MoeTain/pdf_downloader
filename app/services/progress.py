@@ -7,7 +7,7 @@ from app.utils.time import format_local, utc_now
 from typing import Any
 
 MAX_LOGS = 120
-SEARCH_PHASES = ("starting", "searching", "merging", "oa", "storing", "downloading", "done", "error")
+SEARCH_PHASES = ("starting", "searching", "merging", "oa", "storing", "downloading", "done", "error", "cancelled")
 
 
 def _clip(text: str, limit: int = 88) -> str:
@@ -44,6 +44,7 @@ class ProgressTracker:
             "stats": {},
             "providers_done": 0,
             "providers_total": 0,
+            "cancelled": False,
         }
 
     def snapshot(self) -> dict[str, Any]:
@@ -113,12 +114,27 @@ class ProgressTracker:
         with self._lock:
             self._state["stats"].update(values)
 
-    def finish_search(self, *, error: str | None = None, stats: dict[str, Any] | None = None) -> None:
+    def request_cancel(self, message: str = "Stopping search…") -> None:
+        with self._lock:
+            self._state["cancelled"] = True
+            self._state["message"] = message
+            self._append_log(message, "warning")
+
+    def is_cancelled(self) -> bool:
+        with self._lock:
+            return bool(self._state.get("cancelled"))
+
+    def finish_search(self, *, error: str | None = None, stats: dict[str, Any] | None = None, cancelled: bool = False) -> None:
         with self._lock:
             if stats:
                 self._state["stats"].update(stats)
             self._state["active"] = False
-            if error:
+            if cancelled or self._state.get("cancelled"):
+                self._state["cancelled"] = True
+                self._state["phase"] = "cancelled"
+                self._state["message"] = "Search stopped."
+                self._append_log("Search stopped.", "warning")
+            elif error:
                 self._state["phase"] = "error"
                 self._state["error"] = error
                 self._state["message"] = error

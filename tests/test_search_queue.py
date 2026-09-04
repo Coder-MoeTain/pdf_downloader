@@ -8,9 +8,11 @@ from app.database.repository import (
     active_search_job_for_user,
     claim_next_search_job,
     enqueue_search_job,
+    get_search_job,
     queue_position,
     search_jobs_grouped_by_user,
 )
+from app.services.search_queue import cancel_search
 from app.database.source_catalog import DEFAULT_ENABLED_SOURCE_SLUGS
 
 
@@ -68,6 +70,64 @@ def test_active_job_for_user(tmp_db):
         active = active_search_job_for_user(session, user.id)
         assert active is not None
         assert active.id == job.id
+
+
+def test_cancel_pending_search(tmp_db):
+    with session_scope() as session:
+        user = _create_user(session, "erin@test.local")
+        job = enqueue_search_job(session, user_id=user.id, query="stop me", filters={"query": "stop me"})
+        job_id = job.id
+        user_id = user.id
+    was = cancel_search(job_id, user_id=user_id)
+    assert was == "pending"
+    with session_scope() as session:
+        row = get_search_job(session, job_id)
+        assert row.status == "cancelled"
+        assert claim_next_search_job(session) is None
+
+
+def test_cancel_search_rejects_other_user(tmp_db):
+    with session_scope() as session:
+        owner = _create_user(session, "owner@test.local")
+        other = _create_user(session, "other@test.local")
+        job = enqueue_search_job(session, user_id=owner.id, query="private", filters={"query": "private"})
+        job_id = job.id
+        other_id = other.id
+    try:
+        cancel_search(job_id, user_id=other_id, is_admin=False)
+        raise AssertionError("expected PermissionError")
+    except PermissionError:
+        pass
+    was = cancel_search(job_id, user_id=other_id, is_admin=True)
+    assert was == "pending"
+
+
+def test_search_page_shows_stop_and_cancels_pending(tmp_db):
+    from fastapi.testclient import TestClient
+
+    from app.auth import create_local_user
+    from app.web import app
+
+    with session_scope() as session:
+        user = create_local_user(session, email="stopper@test.local", password="password1", name="Stopper")
+        job = enqueue_search_job(session, user_id=user.id, query="pending stop", filters={"query": "pending stop"})
+        job_id = job.id
+    client = TestClient(app, follow_redirects=False)
+    login = client.post(
+        "/login",
+        data={"email": "stopper@test.local", "password": "password1", "next": "/search"},
+    )
+    assert login.status_code == 303
+    page = client.get("/search")
+    assert page.status_code == 200
+    assert f"/search/jobs/{job_id}/stop" in page.text
+    assert "pending" in page.text.lower()
+    stopped = client.post(f"/search/jobs/{job_id}/stop")
+    assert stopped.status_code == 303
+    with session_scope() as session:
+        row = get_search_job(session, job_id)
+        assert row is not None
+        assert row.status == "cancelled"
 
 
 def test_top20_default_sources():

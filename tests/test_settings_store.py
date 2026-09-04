@@ -57,6 +57,8 @@ def test_sources_page_lists_new_free_providers(tmp_db):
     assert response.status_code == 200
     for label in ("OpenAIRE", "Zenodo", "PLOS", "EconStor", "INSPIRE-HEP", "bioRxiv"):
         assert label in response.text
+    assert 'role="switch"' in response.text
+    assert "source-toggle" in response.text
 
 
 def test_sources_pagination_and_search(tmp_db):

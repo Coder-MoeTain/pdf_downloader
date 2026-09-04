@@ -17,13 +17,15 @@ from app.database.repository import (
 )
 from app.models.search import SearchFilters, SortMode
 from app.services.progress import job_registry
-from app.services.search_service import SearchService
+from app.services.search_service import SearchCancelled, SearchService
 from app.utils.logger import get_logger
 
 logger = get_logger("app.search_queue")
 
 _worker_task: asyncio.Task | None = None
 _running_job_ids: set[int] = set()
+_running_tasks: dict[int, asyncio.Task] = {}
+_cancel_requested: set[int] = set()
 _lock = asyncio.Lock()
 
 
@@ -68,6 +70,7 @@ def job_to_dict(job, *, position: int | None = None) -> dict[str, Any]:
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
         "search_query_id": job.search_query_id,
+        "can_stop": False,
     }
 
 
@@ -85,7 +88,10 @@ def queue_snapshot(*, user_id: int | None = None, is_admin: bool = False) -> dic
                 pos = queue_position(session, job.id) if job.status == "pending" else None
                 if not is_admin and user_id is not None and job.user_id != user_id:
                     continue
-                entries.append(job_to_dict(job, position=pos))
+                item = job_to_dict(job, position=pos)
+                owner = user_id is not None and job.user_id == user_id
+                item["can_stop"] = job.status in ("pending", "running") and (is_admin or owner)
+                entries.append(item)
             if entries:
                 users.append({"username": username, "jobs": entries})
         running = sum(1 for jobs in grouped.values() for j in jobs if j.status == "running")
@@ -100,6 +106,10 @@ async def _run_job(job_id: int) -> None:
         _running_job_ids.add(job_id)
 
     try:
+        if job_id in _cancel_requested:
+            with session_scope() as session:
+                complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+            return
         with session_scope() as session:
             job = get_search_job(session, job_id)
             if job is None or job.status != "running":
@@ -110,6 +120,12 @@ async def _run_job(job_id: int) -> None:
 
         filters = filters_from_dict(filters_data)
         progress = job_registry.create(job_id)
+        if job_id in _cancel_requested:
+            progress.request_cancel()
+            progress.finish_search(cancelled=True)
+            with session_scope() as session:
+                complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+            return
         progress.start_search(query)
         progress.log(f"Search job #{job_id} started for {query}", "info")
 
@@ -125,6 +141,21 @@ async def _run_job(job_id: int) -> None:
             )
 
         logger.info("Search job %s completed: %s unique papers", job_id, stats.unique_papers)
+    except SearchCancelled:
+        logger.info("Search job %s stopped", job_id)
+        prog = job_registry.get(job_id)
+        if prog:
+            prog.finish_search(cancelled=True)
+        with session_scope() as session:
+            complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+    except asyncio.CancelledError:
+        logger.info("Search job %s cancelled", job_id)
+        prog = job_registry.get(job_id)
+        if prog:
+            prog.request_cancel()
+            prog.finish_search(cancelled=True)
+        with session_scope() as session:
+            complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
     except Exception as exc:
         logger.exception("Search job %s failed", job_id)
         prog = job_registry.get(job_id)
@@ -133,6 +164,8 @@ async def _run_job(job_id: int) -> None:
         with session_scope() as session:
             complete_search_job(session, job_id, status="failed", error_message=str(exc))
     finally:
+        _cancel_requested.discard(job_id)
+        _running_tasks.pop(job_id, None)
         async with _lock:
             _running_job_ids.discard(job_id)
 
@@ -145,7 +178,8 @@ async def _dispatch_pending() -> None:
             if job is not None:
                 job_id = job.id
         if job_id is not None:
-            asyncio.create_task(_run_job(job_id))
+            task = asyncio.create_task(_run_job(job_id))
+            _running_tasks[job_id] = task
         await asyncio.sleep(0.4)
 
 
@@ -166,3 +200,29 @@ def enqueue_search(*, user_id: int | None, query: str, filters: dict) -> int:
     with session_scope() as session:
         job = enqueue_search_job(session, user_id=user_id, query=query, filters=payload)
         return job.id
+
+
+def cancel_search(job_id: int, *, user_id: int | None, is_admin: bool = False) -> str:
+    """Stop a pending or running search. Returns pending|running."""
+    with session_scope() as session:
+        job = get_search_job(session, job_id)
+        if job is None:
+            raise ValueError("Search job not found.")
+        owner = user_id is not None and job.user_id == user_id
+        if not is_admin and not owner:
+            raise PermissionError("You can only stop your own search.")
+        if job.status not in ("pending", "running"):
+            raise ValueError("That search is not in the queue.")
+        was = job.status
+        if was == "pending":
+            complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+            return was
+
+    _cancel_requested.add(job_id)
+    prog = job_registry.get(job_id)
+    if prog:
+        prog.request_cancel()
+    task = _running_tasks.get(job_id)
+    if task is not None and not task.done():
+        task.cancel()
+    return was

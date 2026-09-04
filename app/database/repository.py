@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from collections import Counter
 
-from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session, selectinload, selectinload
+from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy.orm import Session, selectinload
 
 from app.database.models import Author, Download, Paper, PaperAuthor, PaperFulltext, Provider, SearchJob, SearchQuery, SearchResult
 from app.models.paper import AuthorRecord, PaperRecord, PaperStatus
@@ -734,3 +734,17 @@ def search_jobs_grouped_by_user(session: Session, *, limit: int = 100) -> dict[s
         label = job.user.email if job.user else "Anonymous"
         grouped.setdefault(label, []).append(job)
     return grouped
+
+
+def delete_library_paper(session: Session, paper_id: int) -> tuple[str, list[str]]:
+    """Remove a paper, related rows, and return title plus local PDF paths to unlink."""
+    paper = session.scalar(select(Paper).options(selectinload(Paper.downloads)).where(Paper.id == paper_id))
+    if paper is None:
+        raise ValueError("Paper not found.")
+    title = paper.title
+    paths = [row.local_path for row in paper.downloads if row.local_path]
+    session.execute(delete(SearchResult).where(SearchResult.paper_id == paper_id))
+    session.execute(delete(PaperFulltext).where(PaperFulltext.paper_id == paper_id))
+    session.delete(paper)
+    session.flush()
+    return title, paths

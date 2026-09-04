@@ -94,10 +94,18 @@
     var active = !!data.active && data.kind === "search";
     jobEl.classList.toggle("is-live", active);
     jobEl.classList.toggle("is-done", data.phase === "done");
-    jobEl.classList.toggle("is-error", data.phase === "error");
+    jobEl.classList.toggle("is-error", data.phase === "error" || data.phase === "cancelled");
     jobEl.setAttribute("data-active", active ? "true" : "false");
     if (titleEl) {
-      titleEl.textContent = active ? "Live search" : data.phase === "done" ? "Last search" : data.phase === "error" ? "Search failed" : "Search activity";
+      titleEl.textContent = active
+        ? "Live search"
+        : data.phase === "done"
+          ? "Last search"
+          : data.phase === "error"
+            ? "Search failed"
+            : data.phase === "cancelled"
+              ? "Search stopped"
+              : "Search activity";
     }
     var titleWrap = document.getElementById("jobTitleWrap");
     if (titleWrap) {
@@ -109,6 +117,23 @@
       }
     }
     if (queryEl) queryEl.textContent = data.query || "";
+    var stopForm = document.getElementById("jobStopForm");
+    if (active && trackedJobId) {
+      if (!stopForm && queryEl && queryEl.parentElement) {
+        queryEl.parentElement.insertAdjacentHTML(
+          "beforeend",
+          '<form method="post" action="/search/jobs/' +
+            encodeURIComponent(trackedJobId) +
+            '/stop" class="d-inline" id="jobStopForm"><button class="btn btn-sm btn-outline-danger" type="submit">Stop</button></form>'
+        );
+        stopForm = document.getElementById("jobStopForm");
+      } else if (stopForm) {
+        stopForm.action = "/search/jobs/" + trackedJobId + "/stop";
+        stopForm.classList.remove("d-none");
+      }
+    } else if (stopForm) {
+      stopForm.classList.add("d-none");
+    }
     if (messageEl) messageEl.textContent = data.message || "Submit a topic to watch sources respond in real time.";
     if (countsEl) countsEl.textContent = data.total ? data.current + "/" + data.total : "";
     if (bar) {
@@ -148,6 +173,12 @@
             if (String(item.id) === String(trackedJobId) && item.status === "running") {
               trackedJobId = String(item.id);
             }
+            var stop =
+              item.can_stop
+                ? '<form method="post" action="/search/jobs/' +
+                  encodeURIComponent(item.id) +
+                  '/stop" class="d-inline"><button class="btn btn-sm btn-outline-danger queue-stop" type="submit">Stop</button></form>'
+                : "";
             return (
               '<li class="list-group-item d-flex justify-content-between gap-3 align-items-center py-2">' +
               '<div class="text-truncate" title="' +
@@ -155,10 +186,13 @@
               '">' +
               escapeHtml(item.query || "") +
               "</div>" +
+              '<span class="d-flex align-items-center gap-2 flex-shrink-0">' +
               '<span class="status-badge status-' +
               badgeClass +
               '">' +
               escapeHtml(label) +
+              "</span>" +
+              stop +
               "</span></li>"
             );
           })

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import source_toggle %}
 {% block title %}Settings · {{ app_name }}{% endblock %}
 {% block content %}
 <div class="page-head">
@@ -241,11 +242,9 @@
                 {% endif %}
               </td>
               <td class="text-nowrap">{{ s.requests_per_second }} /s</td>
-              <td class="text-end text-nowrap">
-                <form method="post" action="/settings/sources/{{ s.id }}/toggle" class="d-inline">
-                  <input type="hidden" name="next" value="/settings?section=sources">
-                  <button class="btn btn-sm btn-outline-secondary" type="submit">{{ 'Disable' if s.enabled else 'Enable' }}</button>
-                </form>
+              <td class="text-end source-actions-cell">
+                <div class="source-actions">
+                {{ source_toggle(s, "/settings?section=sources") }}
                 <button class="btn btn-sm btn-outline-primary" type="button" data-source-edit data-source-id="{{ s.id }}">Edit</button>
                 {% if not s.builtin %}
                 <form method="post" action="/settings/sources/{{ s.id }}/delete" class="d-inline" data-confirm="Remove {{ s.display_name }}?">
@@ -253,6 +252,7 @@
                   <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
                 </form>
                 {% endif %}
+                </div>
               </td>
             </tr>
           {% endfor %}

@@ -857,7 +857,67 @@ a.paper-meta:hover { color: var(--accent); }
 }
 .source-toolbar .form-control { max-width: 22rem; }
 .source-name { display: flex; align-items: flex-start; gap: 0.45rem; }
-.source-row.is-disabled { opacity: 0.62; }
+.source-row.is-disabled td:not(.source-actions-cell) { opacity: 0.62; }
+.source-actions-cell { width: 1%; }
+.source-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+.source-toggle-form { display: inline-flex; margin: 0; }
+.source-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  margin: 0;
+  padding: 0.12rem 0.15rem;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.source-toggle-track {
+  position: relative;
+  width: 2.4rem;
+  height: 1.32rem;
+  border-radius: 999px;
+  background: rgba(16, 36, 61, 0.16);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-highlight);
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+.source-toggle-knob {
+  position: absolute;
+  top: 0.12rem;
+  left: 0.12rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(16, 36, 61, 0.2);
+  transition: transform 0.16s ease;
+}
+.source-toggle.is-on { color: var(--ok); }
+.source-toggle.is-on .source-toggle-track {
+  background: var(--accent-2);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+.source-toggle.is-on .source-toggle-knob {
+  transform: translateX(1.06rem);
+}
+.source-toggle:hover .source-toggle-track { border-color: var(--accent); }
+.source-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 999px;
+}
 .card-footer {
   background: transparent;
   border-top: 1px solid var(--line);
@@ -1876,6 +1936,7 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
   gap: 0.35rem;
 }
 .page-library .lib-actions .btn { margin-left: 0; }
+.queue-stop { white-space: nowrap; }
 .page-library .lib-table td { padding-top: 0.85rem; padding-bottom: 0.85rem; }
 .page-library .lib-body {
   display: grid;

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import empty_state, sources_pager %}
+{% from "_macros.html" import empty_state, sources_pager, source_toggle %}
 {% block title %}Sources · {{ app_name }}{% endblock %}
 {% block body_class %}page-sources{% endblock %}
 {% block content %}
@@ -135,11 +135,9 @@
             {% endif %}
           </td>
           <td class="text-nowrap">{{ s.requests_per_second }} req/s</td>
-          <td class="text-end text-nowrap">
-            <form method="post" action="/settings/sources/{{ s.id }}/toggle" class="d-inline">
-              <input type="hidden" name="next" value="{{ sources_href(filters, page=pager.page) }}">
-              <button class="btn btn-sm btn-outline-secondary" type="submit">{{ 'Disable' if s.enabled else 'Enable' }}</button>
-            </form>
+          <td class="text-end source-actions-cell">
+            <div class="source-actions">
+            {{ source_toggle(s, sources_href(filters, page=pager.page)) }}
             <button class="btn btn-sm btn-outline-primary" type="button" data-source-edit data-source-id="{{ s.id }}">Edit</button>
             {% if not s.builtin %}
             <form method="post" action="/settings/sources/{{ s.id }}/delete" class="d-inline" data-confirm="Remove {{ s.display_name }}?">
@@ -147,6 +145,7 @@
               <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
             </form>
             {% endif %}
+            </div>
           </td>
         </tr>
       {% else %}

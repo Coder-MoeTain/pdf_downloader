@@ -45,6 +45,19 @@ def test_search_logs_and_nested_download():
     assert done["stats"]["unique_papers"] == 3
 
 
+def test_progress_cancel_marks_stopped():
+    tracker = ProgressTracker()
+    tracker.start_search("stop this")
+    tracker.request_cancel()
+    assert tracker.is_cancelled() is True
+    tracker.finish_search(cancelled=True)
+    snap = tracker.snapshot()
+    assert snap["active"] is False
+    assert snap["phase"] == "cancelled"
+    assert snap["cancelled"] is True
+    assert "stopped" in snap["message"].lower()
+
+
 def test_progress_percent_and_batch():
     tracker = ProgressTracker()
     tracker.start_batch(2, "Downloading")
