@@ -259,7 +259,7 @@ python main.py sync-lms
 
 `update-library` reads saved topics from `config.yaml` and can be scheduled with cron, Windows Task Scheduler, or a systemd timer.
 
-`sync-lms` copies downloaded open-access PDFs into the sibling **e-library** app as e-books (title, authors, abstract, DOI, first-page cover). Search and download already run this automatically when `LMS_SYNC_ENABLED=true`.
+`sync-lms` copies downloaded open-access PDFs into the sibling **e-library** app as e-books (title, authors, abstract, DOI, first-page cover). It matches existing rows only by exact `Collector-Paper-ID` or exact `DOI:` line, so a second run imports anything still missing. Search and download already run this automatically when `LMS_SYNC_ENABLED=true`.
 
 ### e-library on the same Linux server
 

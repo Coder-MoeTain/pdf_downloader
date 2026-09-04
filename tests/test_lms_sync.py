@@ -12,8 +12,10 @@ from app.services.lms_sync import (
     LmsSyncConfig,
     build_description,
     discover_lms_root,
+    doi_in_description,
     first_author_name,
     infer_category,
+    paper_marker_in_description,
     paper_release_date,
     sync_downloaded_papers_to_lms,
 )
@@ -39,12 +41,12 @@ class FakeCatalog:
         return self.categories[name]
 
     def find_ebook_id(self, *, paper_id: int, doi: str | None, title: str) -> int | None:
+        from app.services.lms_sync import doi_in_description, paper_marker_in_description
+
         for row in self.ebooks:
-            if f"Collector-Paper-ID: {paper_id}" in row["description"]:
+            if paper_marker_in_description(row["description"], paper_id):
                 return row["id"]
-            if doi and f"DOI: {doi}" in row["description"]:
-                return row["id"]
-            if row["title"] == title:
+            if doi_in_description(row["description"], doi):
                 return row["id"]
         return None
 
@@ -272,3 +274,89 @@ def test_sync_skips_when_pdf_missing(tmp_db, tmp_path):
     assert result.imported == 0
     assert result.skipped == 1
     assert catalog.ebooks == []
+
+
+def test_paper_id_marker_is_exact():
+    text = "Collector-Paper-ID: 12"
+    assert paper_marker_in_description(text, 12)
+    assert not paper_marker_in_description(text, 1)
+    assert not paper_marker_in_description(text, 2)
+    assert not paper_marker_in_description(text, 120)
+    assert doi_in_description("DOI: 10.1000/ids\nCollector-Paper-ID: 12", "10.1000/ids")
+    assert not doi_in_description("DOI: 10.1000/ids\n", "10.1000/id")
+
+
+def _downloaded_paper(tmp_path: Path, title: str, doi: str | None = None, pdf_name: str = "paper.pdf"):
+    pdf_path = tmp_path / "research_library" / pdf_name
+    _write_pdf(pdf_path, title)
+    record = PaperRecord(
+        title=title,
+        doi=doi,
+        authors=[AuthorRecord(name="Jane Smith")],
+        publication_year=2025,
+        status=PaperStatus.DOWNLOADED,
+        extra={"local_path": str(pdf_path)},
+    )
+    with session_scope() as session:
+        paper = save_paper(session, record)
+        session.add(
+            Download(
+                paper_id=paper.id,
+                local_path=str(pdf_path),
+                status=PaperStatus.DOWNLOADED.value,
+            )
+        )
+        return paper.id, str(pdf_path)
+
+
+def test_prefix_paper_id_does_not_skip_other_papers(tmp_db, tmp_path):
+    lms_root = _lms_layout(tmp_path)
+    catalog = FakeCatalog()
+    catalog.ebooks.append(
+        {
+            "id": 50,
+            "title": "Already imported twelve",
+            "description": "DOI: 10.1000/twelve\nCollector-Paper-ID: 12",
+            "pdf_file": "/uploads/eBooks/twelve.pdf",
+            "cover_image": None,
+            "author_id": 1,
+            "category_id": 1,
+            "release_date": None,
+        }
+    )
+    paper_id, _ = _downloaded_paper(tmp_path, "One", doi="10.1000/one")
+    result = sync_downloaded_papers_to_lms(paper_ids=[paper_id], catalog=catalog, config=_cfg(lms_root))
+    assert result.imported == 1
+    assert len(catalog.ebooks) == 2
+
+
+def test_same_title_does_not_block_import(tmp_db, tmp_path):
+    lms_root = _lms_layout(tmp_path)
+    catalog = FakeCatalog()
+    catalog.ebooks.append(
+        {
+            "id": 99,
+            "title": "Shared title",
+            "description": "An existing catalog book",
+            "pdf_file": "/uploads/eBooks/old.pdf",
+            "cover_image": None,
+            "author_id": 1,
+            "category_id": 1,
+            "release_date": None,
+        }
+    )
+    paper_id, _ = _downloaded_paper(tmp_path, "Shared title", doi="10.1000/new")
+    result = sync_downloaded_papers_to_lms(paper_ids=[paper_id], catalog=catalog, config=_cfg(lms_root))
+    assert result.imported == 1
+    assert len(catalog.ebooks) == 2
+
+
+def test_retries_false_imported_export(tmp_db, tmp_path):
+    lms_root = _lms_layout(tmp_path)
+    paper_id, _ = _downloaded_paper(tmp_path, "Needs retry", doi="10.1000/retry")
+    with session_scope() as session:
+        session.add(LmsExport(paper_id=paper_id, ebook_id=12, status="imported"))
+    catalog = FakeCatalog()
+    result = sync_downloaded_papers_to_lms(catalog=catalog, config=_cfg(lms_root))
+    assert result.imported == 1
+    assert len(catalog.ebooks) == 1

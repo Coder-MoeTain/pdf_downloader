@@ -184,6 +184,23 @@ def load_lms_sync_config(start: Path | None = None) -> LmsSyncConfig:
     )
 
 
+def paper_marker_in_description(description: str | None, paper_id: int) -> bool:
+    """True only for this paper id — `Collector-Paper-ID: 12` must not match 120."""
+    return bool(
+        re.search(
+            rf"{re.escape(PAPER_ID_MARKER)}\s+{int(paper_id)}(?!\d)",
+            description or "",
+        )
+    )
+
+
+def doi_in_description(description: str | None, doi: str | None) -> bool:
+    value = (doi or "").strip()
+    if not value:
+        return False
+    return bool(re.search(rf"(?im)^DOI:\s*{re.escape(value)}\s*$", description or ""))
+
+
 def first_author_name(paper: Paper) -> str:
     links = sorted(paper.authors or [], key=lambda row: row.position)
     for link in links:
@@ -310,26 +327,23 @@ class MysqlLmsCatalog:
             return int(cur.lastrowid)
 
     def find_ebook_id(self, *, paper_id: int, doi: str | None, title: str) -> int | None:
+        del title  # title-only match caused unrelated catalog rows to block imports
         with self.conn.cursor() as cur:
             cur.execute(
-                "SELECT eBooks_id FROM ebooks WHERE description LIKE %s LIMIT 1",
+                "SELECT eBooks_id, description FROM ebooks WHERE description LIKE %s",
                 (f"%{PAPER_ID_MARKER} {paper_id}%",),
             )
-            row = cur.fetchone()
-            if row:
-                return int(row[0])
+            for ebook_id, description in cur.fetchall():
+                if paper_marker_in_description(description, paper_id):
+                    return int(ebook_id)
             if doi:
                 cur.execute(
-                    "SELECT eBooks_id FROM ebooks WHERE description LIKE %s LIMIT 1",
+                    "SELECT eBooks_id, description FROM ebooks WHERE description LIKE %s",
                     (f"%DOI: {doi}%",),
                 )
-                row = cur.fetchone()
-                if row:
-                    return int(row[0])
-            cur.execute("SELECT eBooks_id FROM ebooks WHERE eBook_name = %s LIMIT 1", (title[:MAX_TITLE_LEN],))
-            row = cur.fetchone()
-            if row:
-                return int(row[0])
+                for ebook_id, description in cur.fetchall():
+                    if doi_in_description(description, doi):
+                        return int(ebook_id)
         return None
 
     def create_ebook(
@@ -379,13 +393,8 @@ def _record_export(paper_id: int, ebook_id: int | None, status: str, error: str 
         row.synced_at = utc_now()
 
 
-def _already_synced(paper_id: int) -> int | None:
-    with session_scope() as session:
-        row = session.scalar(select(LmsExport).where(LmsExport.paper_id == paper_id, LmsExport.status == "imported"))
-        return row.ebook_id if row else None
-
-
 def _load_papers(paper_ids: list[int] | None) -> list[Paper]:
+    """Load downloaded papers. Always re-check LMS: a prior false-positive skip must retry."""
     with session_scope() as session:
         stmt = (
             select(Paper)
@@ -402,9 +411,6 @@ def _load_papers(paper_ids: list[int] | None) -> list[Paper]:
         )
         if paper_ids:
             stmt = stmt.where(Paper.id.in_(paper_ids))
-        else:
-            synced = select(LmsExport.paper_id).where(LmsExport.status == "imported")
-            stmt = stmt.where(Paper.id.not_in(synced))
         return list(session.scalars(stmt).unique().all())
 
 
@@ -482,8 +488,9 @@ def sync_downloaded_papers_to_lms(
 
     papers = _load_papers(paper_ids)
     if not papers:
-        result.add("No new downloaded papers to add to the library")
+        result.add("No downloaded papers with a local PDF record to add to the library")
         return result
+    result.add(f"Checking {len(papers)} downloaded paper(s)")
 
     owned = False
     if catalog is None and not dry_run:
@@ -491,9 +498,6 @@ def sync_downloaded_papers_to_lms(
         owned = True
     try:
         for paper in papers:
-            if not dry_run and _already_synced(paper.id):
-                result.skipped += 1
-                continue
             try:
                 message = import_paper(paper, cfg, catalog, dry_run=dry_run)
             except Exception as exc:
