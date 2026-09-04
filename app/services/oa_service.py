@@ -7,7 +7,7 @@ from app.models.paper import PaperRecord, PaperStatus
 from app.utils.doi import normalize_doi
 from app.utils.http import AsyncHttpClient, HttpError
 from app.utils.logger import get_logger
-from app.utils.security import is_safe_url
+from app.utils.pdf_url import is_direct_pdf_url
 
 logger = get_logger("app.oa")
 
@@ -42,6 +42,9 @@ class OpenAccessService:
                     paper.open_access = True
                 elif paper.open_access is None:
                     paper.open_access = False
+
+        if paper.pdf_url and not _usable_pdf(paper.pdf_url):
+            paper.pdf_url = None
 
         if _usable_pdf(paper.pdf_url):
             paper.open_access = True
@@ -79,12 +82,20 @@ class OpenAccessService:
         except HttpError as exc:
             logger.info("Unpaywall lookup failed for %s: %s", canonical, exc)
             return None
-        best = data.get("best_oa_location") or {}
-        pdf = best.get("url_for_pdf")
-        license_ = best.get("license")
+        locations = [data.get("best_oa_location") or {}]
+        locations.extend(loc for loc in (data.get("oa_locations") or []) if isinstance(loc, dict))
+        pdf = None
+        license_ = None
+        for loc in locations:
+            candidate = loc.get("url_for_pdf")
+            if is_direct_pdf_url(candidate, prefer_https=False):
+                pdf = candidate
+                license_ = loc.get("license") or license_
+                break
+            license_ = license_ or loc.get("license")
         is_oa = bool(data.get("is_oa"))
         return pdf, license_, is_oa
 
 
 def _usable_pdf(url: str | None) -> bool:
-    return bool(url) and is_safe_url(url)
+    return is_direct_pdf_url(url, prefer_https=False)

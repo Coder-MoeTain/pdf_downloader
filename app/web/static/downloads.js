@@ -60,7 +60,7 @@
     var counts = document.getElementById("progress-counts");
     var detail = document.getElementById("progress-detail");
     var meta = document.getElementById("downloadLogMeta");
-    var isDownload = data.kind !== "search";
+    var isDownload = !data.kind || data.kind === "download";
     var active = !!data.active && isDownload;
     var show = isDownload && (active || (data.logs && data.logs.length));
 

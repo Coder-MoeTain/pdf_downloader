@@ -16,8 +16,9 @@ from app.models.paper import PaperRecord, PaperStatus
 from app.utils.filename import paper_filename, safe_join, slugify
 from app.utils.http import AsyncHttpClient
 from app.utils.logger import get_logger
-from app.utils.security import is_safe_url, looks_like_pdf, robots_allowed
-from app.services.progress import tracker
+from app.utils.pdf_url import is_direct_pdf_url
+from app.utils.security import looks_like_pdf, robots_allowed
+from app.services.progress import download_tracker
 
 logger = get_logger("app.download")
 
@@ -91,13 +92,13 @@ class DownloadService:
                 paper.extra["local_path"] = str(dest)
                 if on_progress:
                     on_progress(dest.stat().st_size, dest.stat().st_size)
-                tracker.log(f"Already on disk: {dest.name}", "success")
+                download_tracker.log(f"Already on disk: {dest.name}", "success")
                 return paper
 
-        if not paper.pdf_url or not is_safe_url(paper.pdf_url, prefer_https=self.config.prefer_https):
+        if not paper.pdf_url or not is_direct_pdf_url(paper.pdf_url, prefer_https=self.config.prefer_https):
             paper.status = PaperStatus.NO_PDF
-            upsert_download(session, paper_id, pdf_url=paper.pdf_url, status=PaperStatus.NO_PDF.value, error="No safe PDF URL")
-            tracker.log("No legal PDF URL", "info")
+            upsert_download(session, paper_id, pdf_url=paper.pdf_url, status=PaperStatus.NO_PDF.value, error="No legal PDF URL")
+            download_tracker.log("No legal PDF URL", "info")
             paper.extra["error"] = "No legal PDF URL"
             return paper
 
@@ -110,30 +111,42 @@ class DownloadService:
                 status=PaperStatus.SKIPPED.value,
                 error="Blocked by robots.txt",
             )
-            tracker.log(f"Blocked by robots.txt: {_clip_url(paper.pdf_url)}", "info")
+            download_tracker.log(f"Blocked by robots.txt: {_clip_url(paper.pdf_url)}", "info")
             paper.extra["error"] = "Blocked by robots.txt"
             return paper
 
         upsert_download(session, paper_id, pdf_url=paper.pdf_url, status=PaperStatus.DOWNLOADING.value)
         session.commit()
-        tracker.log(f"GET {_clip_url(paper.pdf_url)}")
+        download_tracker.log(f"GET {_clip_url(paper.pdf_url)}")
 
         try:
             size, digest = await self._stream_pdf(paper.pdf_url, dest, max_size, on_progress=on_progress)
         except DownloadError as exc:
             if dest.exists():
                 dest.unlink(missing_ok=True)
-            paper.status = PaperStatus.FAILED
+            message = str(exc)
+            if (
+                message.startswith("Not a PDF")
+                or "HTML" in message
+                or "magic bytes" in message.lower()
+                or "landing" in message.lower()
+            ):
+                status = PaperStatus.NO_PDF
+            elif "HTTP 401" in message or "HTTP 403" in message:
+                status = PaperStatus.PAYWALLED
+            else:
+                status = PaperStatus.FAILED
+            paper.status = status
             upsert_download(
                 session,
                 paper_id,
                 pdf_url=paper.pdf_url,
-                status=PaperStatus.FAILED.value,
-                error=str(exc),
+                status=status.value,
+                error=message,
                 increment_retry=True,
             )
             logger.warning("Download failed for %s: %s", paper.title[:80], exc)
-            paper.extra["error"] = str(exc)
+            paper.extra["error"] = message
             return paper
 
         if self._reuse_duplicate(session, paper_id, paper, dest, digest, size, user_id=user_id):
@@ -161,7 +174,12 @@ class DownloadService:
         max_size: int,
         on_progress: Callable[[int, int | None], None] | None = None,
     ) -> tuple[int, str]:
-        timeout = httpx.Timeout(self.config.env.download_timeout_seconds, connect=15.0)
+        timeout = httpx.Timeout(
+            connect=8.0,
+            read=min(float(self.config.env.download_timeout_seconds), 45.0),
+            write=30.0,
+            pool=10.0,
+        )
         hasher = hashlib.sha256()
         size = 0
         first_chunk = b""
@@ -177,15 +195,15 @@ class DownloadService:
                 headers={"User-Agent": self.config.user_agent_header()},
             ) as response:
                 if response.status_code >= 400:
-                    tracker.log(f"HTTP {response.status_code}", "danger")
+                    download_tracker.log(f"HTTP {response.status_code}", "danger")
                     raise DownloadError(f"HTTP {response.status_code}")
                 content_type = response.headers.get("content-type", "")
                 declared = response.headers.get("content-length")
                 if declared and int(declared) > max_size:
-                    tracker.log("Remote file exceeds max size", "danger")
+                    download_tracker.log("Remote file exceeds max size", "danger")
                     raise DownloadError("Remote file exceeds max size")
                 if "html" in content_type.lower() or "json" in content_type.lower():
-                    tracker.log(f"Not a PDF (Content-Type {content_type})", "danger")
+                    download_tracker.log(f"Not a PDF (Content-Type {content_type})", "danger")
                     raise DownloadError(f"Not a PDF (Content-Type {content_type})")
                 total = int(declared) if declared and declared.isdigit() else None
                 ctype = content_type.split(";")[0].strip()
@@ -194,7 +212,7 @@ class DownloadService:
                     header_note += f" · {total:,} bytes"
                 if ctype:
                     header_note += f" · {ctype}"
-                tracker.log(header_note)
+                download_tracker.log(header_note)
                 if on_progress:
                     on_progress(0, total)
 
@@ -329,7 +347,7 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
 
     cfg = get_runtime_config()
     library_root = cfg.resolve_path(cfg.library_dir)
-    tracker.start_batch(1, "Preparing PDF")
+    download_tracker.start_batch(1, "Preparing PDF")
     with session_scope() as session:
         paper = session.scalar(
             select(Paper)
@@ -337,7 +355,7 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
             .where(Paper.id == paper_id)
         )
         if paper is None:
-            tracker.finish_batch()
+            download_tracker.finish_batch()
             raise DownloadError("Paper not found")
         existing = existing_pdf_path(paper, library_root)
         if existing:
@@ -347,20 +365,20 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
                 )
                 if row is not None and row.downloaded_by_user_id is None:
                     row.downloaded_by_user_id = user_id
-            tracker.begin_item(paper_id, paper.title, 1)
-            tracker.log(f"Already on disk: {existing.name}", "success")
-            tracker.update_bytes(existing.stat().st_size, existing.stat().st_size)
-            tracker.finish_item("DOWNLOADED")
-            tracker.finish_batch()
+            download_tracker.begin_item(paper_id, paper.title, 1)
+            download_tracker.log(f"Already on disk: {existing.name}", "success")
+            download_tracker.update_bytes(existing.stat().st_size, existing.stat().st_size)
+            download_tracker.finish_item("DOWNLOADED")
+            download_tracker.finish_batch()
             return existing
         if paper.status == PaperStatus.PAYWALLED.value and not paper.pdf_url:
-            tracker.finish_item("FAILED", error="Paywalled and no legal PDF URL")
-            tracker.finish_batch()
+            download_tracker.finish_item("FAILED", error="Paywalled and no legal PDF URL")
+            download_tracker.finish_batch()
             raise DownloadError("This paper is paywalled and has no legal PDF URL")
         record = paper_to_record(paper)
         if not record.pdf_url:
-            tracker.finish_item("FAILED", error="No legally available PDF URL")
-            tracker.finish_batch()
+            download_tracker.finish_item("FAILED", error="No legally available PDF URL")
+            download_tracker.finish_batch()
             raise DownloadError("No legally available PDF URL")
 
     async with AsyncHttpClient(cfg) as client:
@@ -377,13 +395,13 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
             if paper is None:
                 raise DownloadError("Paper not found")
             record = paper_to_record(paper)
-            tracker.begin_item(paper_id, paper.title, 1)
+            download_tracker.begin_item(paper_id, paper.title, 1)
             updated = await downloader.download_paper(
                 session,
                 paper_id,
                 record,
                 topic_slug,
-                on_progress=lambda received, total: tracker.update_bytes(received, total),
+                on_progress=lambda received, total: download_tracker.update_bytes(received, total),
                 user_id=user_id,
             )
             save_paper(session, updated)
@@ -392,8 +410,8 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
                 select(Paper).options(selectinload(Paper.downloads)).where(Paper.id == paper_id)
             )
             path = existing_pdf_path(paper, library_root) if paper else None
-            tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
-            tracker.finish_batch()
+            download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
+            download_tracker.finish_batch()
             if path is None:
                 raise DownloadError(updated.extra.get("error") or updated.status.value)
             return path
@@ -433,27 +451,27 @@ async def download_open_access_papers(
                 )
             papers = session.scalars(stmt.limit(cap)).unique().all()
             jobs = [(paper.id, paper_to_record(paper)) for paper in papers]
-        tracker.start_batch(len(jobs), "Downloading open-access PDFs")
+        download_tracker.start_batch(len(jobs), "Downloading open-access PDFs")
         try:
             for index, (paper_id, record) in enumerate(jobs, start=1):
                 if not record.pdf_url:
                     stats["skipped"] += 1
-                    tracker.begin_item(paper_id, record.title, index)
-                    tracker.finish_item("SKIPPED", error="No legal PDF URL")
+                    download_tracker.begin_item(paper_id, record.title, index)
+                    download_tracker.finish_item("SKIPPED", error="No legal PDF URL")
                     continue
                 stats["attempted"] += 1
-                tracker.begin_item(paper_id, record.title, index)
+                download_tracker.begin_item(paper_id, record.title, index)
                 with session_scope() as session:
                     updated = await downloader.download_paper(
                         session,
                         paper_id,
                         record,
                         topic_slug,
-                        on_progress=lambda received, total: tracker.update_bytes(received, total),
+                        on_progress=lambda received, total: download_tracker.update_bytes(received, total),
                         user_id=user_id,
                     )
                     save_paper(session, updated)
-                tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
+                download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
                 if updated.status == PaperStatus.DOWNLOADED:
                     stats["downloaded"] += 1
                 elif updated.status == PaperStatus.FAILED:
@@ -461,7 +479,7 @@ async def download_open_access_papers(
                 else:
                     stats["skipped"] += 1
         finally:
-            tracker.finish_batch()
+            download_tracker.finish_batch()
     return stats
 
 

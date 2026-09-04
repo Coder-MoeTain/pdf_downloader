@@ -28,7 +28,7 @@ from app.services.dedup_service import deduplicate
 from app.services.download_service import DownloadService, write_topic_metadata_csv
 from app.services.export_service import ExportService
 from app.services.oa_service import OpenAccessService
-from app.services.progress import ProgressTracker, tracker
+from app.services.progress import ProgressTracker, download_tracker, tracker
 from app.services.query_expansion import expand_query
 from app.services.ranking_service import rank_papers
 from app.utils.http import AsyncHttpClient
@@ -189,12 +189,28 @@ class SearchService:
 
             if filters.download and to_download:
                 console.print()
-                self._progress.start_batch(len(to_download), "Downloading open-access PDFs")
+                total_pdfs = len(to_download)
+                self._progress.set_phase(
+                    "downloading",
+                    f"Downloading {total_pdfs} open-access PDF{'s' if total_pdfs != 1 else ''}…",
+                    current=0,
+                    total=total_pdfs,
+                    percent=82,
+                )
+                download_tracker.start_batch(total_pdfs, "Downloading open-access PDFs")
                 try:
                     for idx, (paper_id, paper) in enumerate(to_download, start=1):
                         await self._checkpoint()
-                        console.print(f"[blue]\\[DOWNLOAD][/] {idx}/{len(to_download)} {paper.title[:70]}")
-                        self._progress.begin_item(paper_id, paper.title, idx)
+                        console.print(f"[blue]\\[DOWNLOAD][/] {idx}/{total_pdfs} {paper.title[:70]}")
+                        download_tracker.begin_item(paper_id, paper.title, idx)
+                        self._progress.set_phase(
+                            "downloading",
+                            f"PDFs {idx}/{total_pdfs}",
+                            current=idx,
+                            total=total_pdfs,
+                            percent=round(82 + (idx / max(total_pdfs, 1)) * 13, 1),
+                            log=False,
+                        )
                         with session_scope() as session:
                             updated = await downloader.download_paper(
                                 session,
@@ -202,17 +218,22 @@ class SearchService:
                                 paper,
                                 filters.topic_slug,
                                 max_file_size=max_size,
-                                on_progress=lambda received, total: self._progress.update_bytes(received, total),
+                                on_progress=lambda received, total: download_tracker.update_bytes(received, total),
                                 user_id=user_id,
                             )
                             save_paper(session, updated)
-                        self._progress.finish_item(updated.status.value, error=updated.extra.get("error"))
+                        download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
                         if updated.status == PaperStatus.DOWNLOADED:
                             stats.pdfs_downloaded += 1
                         elif updated.status == PaperStatus.FAILED:
                             stats.failed_downloads += 1
                 finally:
-                    self._progress.finish_batch()
+                    download_tracker.finish_batch()
+                    dl = download_tracker.snapshot()
+                    self._progress.log(
+                        f"PDF downloads: {dl.get('downloaded', 0)} saved, "
+                        f"{dl.get('failed', 0)} failed, {dl.get('skipped', 0)} skipped"
+                    )
                 with session_scope() as session:
                     complete_search_query(session, search_id)
             elif not filters.download:

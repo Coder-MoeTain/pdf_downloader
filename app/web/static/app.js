@@ -256,11 +256,25 @@
     existing.innerHTML = '<span class="nav-live-dot" aria-hidden="true"></span><span class="nav-link-label">' + label + "</span>";
   }
   function pollNavLive() {
-    fetch("/api/search-progress", { headers: { Accept: "application/json" } })
-      .then(function (response) {
+    Promise.all([
+      fetch("/api/download-progress", { headers: { Accept: "application/json" } }).then(function (response) {
         return response.json();
+      }),
+      fetch("/api/search-progress", { headers: { Accept: "application/json" } }).then(function (response) {
+        return response.json();
+      }),
+    ])
+      .then(function (results) {
+        var download = results[0] || {};
+        var search = results[1] || {};
+        if (download.active && download.kind !== "search") {
+          renderNavLive(download);
+        } else if (search.active && search.kind === "search") {
+          renderNavLive(search);
+        } else {
+          renderNavLive({ active: false });
+        }
       })
-      .then(renderNavLive)
       .catch(function () {});
   }
   pollNavLive();

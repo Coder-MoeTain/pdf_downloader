@@ -85,7 +85,7 @@ class ProgressTracker:
             self._state["providers_total"] = max(total, 0)
             self._state["providers_done"] = 0
 
-    def set_phase(self, phase: str, message: str, *, current: int | None = None, total: int | None = None, percent: float | None = None) -> None:
+    def set_phase(self, phase: str, message: str, *, current: int | None = None, total: int | None = None, percent: float | None = None, log: bool = True) -> None:
         with self._lock:
             self._state["phase"] = phase
             self._state["message"] = message
@@ -95,7 +95,8 @@ class ProgressTracker:
                 self._state["total"] = total
             if percent is not None:
                 self._state["percent"] = percent
-            self._append_log(message, "info")
+            if log:
+                self._append_log(message, "info")
 
     def provider_finished(self, name: str, count: int | None = None, error: str | None = None) -> None:
         with self._lock:
@@ -148,14 +149,8 @@ class ProgressTracker:
 
     def start_batch(self, total: int, message: str = "") -> None:
         with self._lock:
-            nested = self._state.get("kind") == "search" and self._state.get("active")
-            if not nested:
-                logs = list(self._state.get("logs") or [])
-                query = self._state.get("query") or ""
-                self._state = self._empty()
-                self._state["kind"] = "download"
-                self._state["logs"] = logs
-                self._state["query"] = query
+            self._state = self._empty()
+            self._state["kind"] = "download"
             self._state["active"] = True
             self._state["current"] = 0
             self._state["downloaded"] = 0
@@ -168,9 +163,6 @@ class ProgressTracker:
             self._state["bytes_total"] = None
             self._state["percent"] = None
             self._state["message"] = message or f"Starting {total} download{'s' if total != 1 else ''}"
-            if nested:
-                self._state["phase"] = "downloading"
-                self._state["percent"] = 82
             self._append_log(self._state["message"], "info")
 
     def begin_item(self, paper_id: int, title: str, index: int) -> None:
@@ -228,7 +220,6 @@ class ProgressTracker:
 
     def finish_batch(self) -> None:
         with self._lock:
-            nested = self._state.get("kind") == "search"
             if self._state["total"]:
                 done = self._state["downloaded"] + self._state["failed"] + self._state["skipped"]
                 self._state["current"] = min(done, self._state["total"])
@@ -238,13 +229,13 @@ class ProgressTracker:
             )
             self._state["message"] = message
             self._append_log(message, "info")
-            if nested:
-                self._state["percent"] = 96
-                return
             self._state["active"] = False
+            if self._state.get("kind") == "download" and self._state.get("percent") is None:
+                self._state["percent"] = 100
 
 
 tracker = ProgressTracker()
+download_tracker = ProgressTracker()
 
 
 class JobProgressRegistry:
@@ -276,5 +267,29 @@ class JobProgressRegistry:
         snap["job_id"] = job_id
         return snap
 
+    def first_active_snapshot(self) -> dict[str, Any] | None:
+        with self._lock:
+            items = list(self._jobs.items())
+        for job_id, prog in items:
+            snap = prog.snapshot()
+            if snap.get("active"):
+                snap["job_id"] = job_id
+                return snap
+        return None
+
 
 job_registry = JobProgressRegistry()
+
+
+def live_progress() -> dict[str, Any]:
+    """Nav/dashboard snapshot: prefer an active download, then an active search."""
+    download = download_tracker.snapshot()
+    if download.get("active") and download.get("kind") != "search":
+        return download
+    active_job = job_registry.first_active_snapshot()
+    if active_job and active_job.get("active"):
+        return active_job
+    search = tracker.snapshot()
+    if search.get("active"):
+        return search
+    return search

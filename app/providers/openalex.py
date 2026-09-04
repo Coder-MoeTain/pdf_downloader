@@ -9,6 +9,7 @@ from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
 from app.utils.doi import doi_url, normalize_doi
 from app.utils.logger import get_logger
+from app.utils.pdf_url import is_direct_pdf_url
 
 logger = get_logger("app.providers.openalex")
 
@@ -78,6 +79,8 @@ class OpenAlexProvider(ResearchProvider):
         source = primary.get("source") or {}
         oa = item.get("open_access") or {}
         pdf_url = primary.get("pdf_url") or oa.get("oa_url")
+        if not is_direct_pdf_url(pdf_url, prefer_https=False):
+            pdf_url = None
         biblio = item.get("biblio") or {}
         ids = item.get("ids") or {}
         doi = normalize_doi(item.get("doi") or ids.get("doi"))

@@ -4,45 +4,75 @@ from app.services.download_service import safe_library_pdf
 from app.services.progress import ProgressTracker
 
 
-def test_search_logs_and_nested_download():
-    tracker = ProgressTracker()
-    tracker.start_search("machine learning IDS")
-    snap = tracker.snapshot()
+def test_search_logs_stay_separate_from_download():
+    search = ProgressTracker()
+    download = ProgressTracker()
+    search.start_search("machine learning IDS")
+    snap = search.snapshot()
     assert snap["active"] is True
     assert snap["kind"] == "search"
     assert snap["phase"] == "starting"
     assert snap["logs"]
-    tracker.set_providers_total(2)
-    tracker.set_phase("searching", "Querying 2 academic sources…", percent=8)
-    tracker.provider_finished("OpenAlex", 12)
-    tracker.provider_finished("arXiv", 4)
-    searching = tracker.snapshot()
+    search.set_providers_total(2)
+    search.set_phase("searching", "Querying 2 academic sources…", percent=8)
+    search.provider_finished("OpenAlex", 12)
+    search.provider_finished("arXiv", 4)
+    searching = search.snapshot()
     assert searching["providers_done"] == 2
     assert any("OpenAlex: 12 results" in entry["message"] for entry in searching["logs"])
 
-    tracker.start_batch(1, "Downloading open-access PDFs")
-    nested = tracker.snapshot()
-    assert nested["kind"] == "search"
-    assert nested["active"] is True
-    assert nested["phase"] == "downloading"
-    assert nested["percent"] == 82
-    assert any("Queued search" in entry["message"] for entry in nested["logs"])
-    tracker.begin_item(1, "A paper", 1)
-    tracker.update_bytes(50, 100)
-    bytes_snap = tracker.snapshot()
-    assert 82 <= bytes_snap["percent"] <= 96
-    assert any("1/1: A paper" in entry["message"] for entry in bytes_snap["logs"])
-    tracker.finish_item("DOWNLOADED")
-    tracker.finish_batch()
-    after_pdfs = tracker.snapshot()
-    assert after_pdfs["active"] is True
-    assert after_pdfs["kind"] == "search"
-    tracker.finish_search(stats={"unique_papers": 3, "pdfs_downloaded": 1})
-    done = tracker.snapshot()
+    search.set_phase(
+        "downloading",
+        "Downloading 1 open-access PDF…",
+        current=0,
+        total=1,
+        percent=82,
+    )
+    download.start_batch(1, "Downloading open-access PDFs")
+    search_during_pdfs = search.snapshot()
+    download_during_pdfs = download.snapshot()
+    assert search_during_pdfs["kind"] == "search"
+    assert search_during_pdfs["active"] is True
+    assert search_during_pdfs["phase"] == "downloading"
+    assert any("Queued search" in entry["message"] for entry in search_during_pdfs["logs"])
+    assert download_during_pdfs["kind"] == "download"
+    assert not any("Queued search" in entry["message"] for entry in download_during_pdfs["logs"])
+
+    download.begin_item(1, "A paper", 1)
+    download.log("GET https://example.com/paper.pdf")
+    download.update_bytes(50, 100)
+    download.finish_item("DOWNLOADED")
+    download.finish_batch()
+    search.log("PDF downloads: 1 saved, 0 failed, 0 skipped")
+    search.finish_search(stats={"unique_papers": 3, "pdfs_downloaded": 1})
+
+    search_messages = [entry["message"] for entry in search.snapshot()["logs"]]
+    download_messages = [entry["message"] for entry in download.snapshot()["logs"]]
+    assert any("OpenAlex: 12 results" in msg for msg in search_messages)
+    assert any("PDF downloads:" in msg for msg in search_messages)
+    assert not any("GET " in msg for msg in search_messages)
+    assert not any("1/1: A paper" in msg for msg in search_messages)
+    assert any("GET https://example.com/paper.pdf" in msg for msg in download_messages)
+    assert any("Saved" in msg and "A paper" in msg for msg in download_messages)
+    assert not any("Queued search" in msg for msg in download_messages)
+
+    done = search.snapshot()
     assert done["active"] is False
     assert done["phase"] == "done"
     assert done["percent"] == 100
     assert done["stats"]["unique_papers"] == 3
+
+
+def test_download_start_does_not_keep_search_logs():
+    tracker = ProgressTracker()
+    tracker.start_search("queued topic")
+    tracker.start_batch(1, "Downloading")
+    snap = tracker.snapshot()
+    assert snap["kind"] == "download"
+    assert snap["active"] is True
+    messages = [entry["message"] for entry in snap["logs"]]
+    assert not any("Queued search" in msg for msg in messages)
+    assert any("Downloading" in msg for msg in messages)
 
 
 def test_progress_cancel_marks_stopped():
@@ -56,6 +86,26 @@ def test_progress_cancel_marks_stopped():
     assert snap["phase"] == "cancelled"
     assert snap["cancelled"] is True
     assert "stopped" in snap["message"].lower()
+
+
+def test_live_progress_prefers_download_over_search():
+    from app.services.progress import download_tracker, live_progress, tracker
+
+    tracker.start_search("topic")
+    download_tracker.start_batch(1, "Downloading")
+    try:
+        snap = live_progress()
+        assert snap["kind"] == "download"
+        assert snap["active"] is True
+        download_tracker.finish_batch()
+        snap = live_progress()
+        assert snap["kind"] == "search"
+        assert snap["active"] is True
+    finally:
+        if download_tracker.snapshot().get("active"):
+            download_tracker.finish_batch()
+        if tracker.snapshot().get("active"):
+            tracker.finish_search()
 
 
 def test_progress_percent_and_batch():

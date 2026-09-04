@@ -14,25 +14,25 @@
   <a class="btn btn-outline-secondary" href="/library">Open library</a>
 </div>
 
-<div id="download-progress" class="card dl-progress mb-3 {% if progress.kind == 'search' or not (progress.active or progress.logs) %}d-none{% endif %}" data-active="{{ 'true' if progress.active and progress.kind != 'search' else 'false' }}">
+<div id="download-progress" class="card dl-progress mb-3 {% if not (download_progress.active or download_progress.logs) %}d-none{% endif %}" data-active="{{ 'true' if download_progress.active else 'false' }}">
   <div class="card-body">
     <div class="d-flex justify-content-between align-items-baseline gap-2">
-      <strong id="progress-label">{{ progress.message or "Downloading…" }}</strong>
-      <span id="progress-counts" class="text-muted small">{% if progress.total %}{{ progress.current }}/{{ progress.total }}{% endif %}</span>
+      <strong id="progress-label">{{ download_progress.message or "Downloading…" }}</strong>
+      <span id="progress-counts" class="text-muted small">{% if download_progress.total %}{{ download_progress.current }}/{{ download_progress.total }}{% endif %}</span>
     </div>
-    <div class="progress mt-2" role="progressbar" aria-valuenow="{{ progress.percent or 0 }}">
-      <div id="progress-bar" class="progress-bar progress-bar-striped {% if progress.active and progress.kind != 'search' %}progress-bar-animated{% endif %}" style="width: {{ progress.percent or 0 }}%">
-        {% if progress.percent is not none %}{{ progress.percent }}%{% endif %}
+    <div class="progress mt-2" role="progressbar" aria-valuenow="{{ download_progress.percent or 0 }}">
+      <div id="progress-bar" class="progress-bar progress-bar-striped {% if download_progress.active %}progress-bar-animated{% endif %}" style="width: {{ download_progress.percent or 0 }}%">
+        {% if download_progress.percent is not none %}{{ download_progress.percent }}%{% endif %}
       </div>
     </div>
-    <div class="small text-muted mt-2" id="progress-detail">{{ progress.title }}</div>
+    <div class="small text-muted mt-2" id="progress-detail">{{ download_progress.title }}</div>
     <div class="dl-log-meta mt-2" id="downloadLogMeta">
-      <span>Saved {{ progress.downloaded or 0 }}</span>
-      <span>Failed {{ progress.failed or 0 }}</span>
-      <span>Skipped {{ progress.skipped or 0 }}</span>
+      <span>Saved {{ download_progress.downloaded or 0 }}</span>
+      <span>Failed {{ download_progress.failed or 0 }}</span>
+      <span>Skipped {{ download_progress.skipped or 0 }}</span>
     </div>
     <div class="log-panel mt-3" id="downloadLogs" aria-live="polite" aria-label="Download log">
-      {% for entry in progress.logs %}
+      {% for entry in download_progress.logs %}
       <div class="log-line log-{{ entry.level }}"><time>{{ entry.time }}</time><span>{{ entry.message }}</span></div>
       {% else %}
       <div class="log-line log-muted">Waiting for a download to start…</div>

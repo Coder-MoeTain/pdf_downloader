@@ -35,3 +35,20 @@ def test_merge_prefers_authoritative_fields():
     assert merged.pdf_url.endswith(".pdf")
     assert "crossref" in merged.source_provider
     assert merged.metadata_sources.get("publisher") == "crossref"
+
+
+def test_merge_ignores_doi_landing_pdf_urls():
+    crossref = PaperRecord(
+        title="Paywalled",
+        doi="10.1016/j.cose.2023.103532",
+        pdf_url="https://doi.org/10.1016/j.cose.2023.103532",
+        source_provider="crossref",
+    )
+    arxiv = PaperRecord(
+        title="Paywalled",
+        doi="10.1016/j.cose.2023.103532",
+        pdf_url="https://arxiv.org/pdf/2301.00001.pdf",
+        source_provider="arxiv",
+    )
+    merged = merge_papers([crossref, arxiv])
+    assert merged.pdf_url == "https://arxiv.org/pdf/2301.00001.pdf"

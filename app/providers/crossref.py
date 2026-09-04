@@ -9,6 +9,7 @@ from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
 from app.utils.doi import doi_url, normalize_doi
 from app.utils.logger import get_logger
+from app.utils.pdf_url import is_direct_pdf_url
 
 logger = get_logger("app.providers.crossref")
 
@@ -85,8 +86,9 @@ class CrossrefProvider(ResearchProvider):
         pdf_url = None
         for link in item.get("link") or []:
             content = (link.get("content-type") or "").lower()
-            if "pdf" in content:
-                pdf_url = link.get("URL")
+            href = link.get("URL")
+            if "pdf" in content and is_direct_pdf_url(href, prefer_https=False):
+                pdf_url = href
                 break
 
         licenses = item.get("license") or []

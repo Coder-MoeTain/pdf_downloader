@@ -10,6 +10,7 @@ from app.providers.base import ResearchProvider
 from app.utils.doi import doi_url, normalize_doi
 from app.utils.http import HttpError
 from app.utils.logger import get_logger
+from app.utils.pdf_url import is_direct_pdf_url
 
 logger = get_logger("app.providers.semantic_scholar")
 
@@ -99,6 +100,7 @@ class SemanticScholarProvider(ResearchProvider):
         journal_info = item.get("journal") or {}
         venue_info = item.get("publicationVenue") or {}
         oa = item.get("openAccessPdf") or {}
+        oa_pdf = (oa or {}).get("url")
         pub_types = [t.lower() for t in (item.get("publicationTypes") or [])]
         is_conf = any("conference" in t for t in pub_types)
         conference = venue_info.get("name") if is_conf else None
@@ -122,7 +124,7 @@ class SemanticScholarProvider(ResearchProvider):
             arxiv_id=ext.get("ArXiv"),
             semantic_scholar_id=item.get("paperId"),
             url=item.get("url") or doi_url(doi),
-            pdf_url=(oa or {}).get("url"),
+            pdf_url=oa_pdf if is_direct_pdf_url(oa_pdf, prefer_https=False) else None,
             citation_count=item.get("citationCount"),
             reference_count=item.get("referenceCount"),
             research_fields=[f for f in fields if f],

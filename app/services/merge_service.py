@@ -6,6 +6,7 @@ from collections.abc import Iterable
 
 from app.models.paper import AuthorRecord, PaperRecord
 from app.utils.doi import normalize_doi
+from app.utils.pdf_url import is_direct_pdf_url
 
 FIELD_PRIORITY: dict[str, list[str]] = {
     "doi": ["crossref", "openalex", "elsevier", "springer", "ieee", "europe_pmc", "pubmed", "semantic_scholar"],
@@ -108,7 +109,7 @@ def merge_papers(records: Iterable[PaperRecord]) -> PaperRecord:
             doi, doi_rank = incoming_doi, rank
             sources["doi"] = rec.source_provider
         rank = _rank("pdf_url", rec.source_provider)
-        if rec.pdf_url and (pdf_url is None or rank < pdf_rank):
+        if rec.pdf_url and is_direct_pdf_url(rec.pdf_url, prefer_https=False) and (pdf_url is None or rank < pdf_rank):
             pdf_url, pdf_rank = rec.pdf_url, rank
             sources["pdf_url"] = rec.source_provider
         year = year or rec.publication_year

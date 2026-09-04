@@ -78,7 +78,7 @@ from app.services.download_service import (
     pdf_button_state,
     safe_library_pdf,
 )
-from app.services.progress import job_registry, tracker
+from app.services.progress import download_tracker, job_registry, live_progress, tracker
 from app.services.search_queue import cancel_search, enqueue_search, queue_snapshot, start_search_queue_worker
 from app.services.search_service import SearchService, filters_from_cli
 from app.utils.git_update import GitUpdateError, git_pull, git_status
@@ -438,7 +438,8 @@ def _ctx(request: Request, **extra):
         "version": __version__,
         "flash": _search_message,
         "page": active_page(request.url.path),
-        "progress": tracker.snapshot(),
+        "progress": live_progress(),
+        "download_progress": download_tracker.snapshot(),
         "timezone": cfg.timezone,
         "timezone_abbrev": timezone_abbrev(cfg.timezone),
         "timezone_offset": timezone_offset_label(cfg.timezone),
@@ -868,7 +869,7 @@ def preview_paper_pdf(paper_id: int):
 
 @app.get("/api/download-progress")
 def download_progress():
-    return JSONResponse(tracker.snapshot(), headers={"Cache-Control": "no-store"})
+    return JSONResponse(download_tracker.snapshot(), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/search-progress")
@@ -965,7 +966,6 @@ def downloads_page(
             filters=filters_state,
             page_sizes=PAGE_SIZES,
             has_filters=has_filters,
-            progress=tracker.snapshot(),
         ),
     )
 
