@@ -18,9 +18,13 @@
   --radius-sm: 0.9rem;
   --radius-btn: 0.95rem;
   --shadow: 0 12px 40px rgba(16, 36, 61, 0.08);
+  --page-inset-x: 4pt;
 }
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+}
 body {
   position: relative;
   isolation: isolate;
@@ -36,6 +40,10 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+body:not(.login-page) {
+  padding-left: var(--page-inset-x);
+  padding-right: var(--page-inset-x);
 }
 body::before {
   content: "";
@@ -729,10 +737,18 @@ a.paper-meta:hover { color: var(--accent); }
 .container-fluid {
   max-width: none;
   width: 100%;
-  padding-left: 4pt;
-  padding-right: 4pt;
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+#main > .row {
+  margin-left: 0;
+  margin-right: 0;
 }
 @media (min-width: 1200px) {
+  .container-fluid {
+    padding-left: 1.75rem;
+    padding-right: 1.75rem;
+  }
   .app-nav.navbar-dark .navbar-collapse {
     flex: 1 1 auto;
   }
