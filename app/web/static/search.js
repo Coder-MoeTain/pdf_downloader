@@ -91,6 +91,14 @@
       .join("");
   }
 
+  function renderDownloadAction(phase, stats) {
+    var form = document.getElementById("jobDownloadForm");
+    if (!form) return;
+    var oa = (stats && stats.open_access_papers) || 0;
+    var pdfs = (stats && stats.pdfs_downloaded) || 0;
+    form.classList.toggle("d-none", phase !== "done" || !oa || pdfs > 0);
+  }
+
   function apply(data) {
     if (!data || data.kind === "download") return;
     if (data.job_id) trackedJobId = String(data.job_id);
@@ -152,6 +160,7 @@
     if (data.phase === "done" || data.phase === "error") {
       if (resultEl) resultEl.classList.toggle("d-none", data.phase !== "done");
       renderStats(data.stats || {});
+      renderDownloadAction(data.phase, data.stats || {});
     }
     wasActive = active;
   }

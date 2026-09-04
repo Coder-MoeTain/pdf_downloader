@@ -248,7 +248,10 @@ class SearchService:
                     complete_search_query(session, search_id)
             elif not filters.download:
                 console.print("[dim]Skipping downloads (--no-download).[/]")
-                self._progress.log("PDF download skipped (disabled for this run).")
+                self._progress.log(
+                    "PDF download skipped (not enabled for this run). "
+                    "Papers are in the library; e-books import only after a legal PDF is saved."
+                )
 
             unique = [p for _, p in persisted]
 
@@ -330,19 +333,24 @@ class SearchService:
         stats: SearchStats,
     ) -> list[PaperRecord]:
         timeout = max(0.1, float(getattr(self.config, "provider_timeout_seconds", 12) or 12))
-        phase_limit = max(timeout, float(getattr(self.config, "provider_phase_seconds", 16) or 16))
+        slots = max(1, int(getattr(self.config.env, "max_concurrent_requests", 5) or 5))
+        waves = max(1, (len(providers) + slots - 1) // slots)
+        configured_phase = max(timeout, float(getattr(self.config, "provider_phase_seconds", 16) or 16))
+        phase_limit = max(configured_phase, timeout * waves + min(timeout, 2.0))
+        run_slot = asyncio.Semaphore(slots)
 
         async def _one(provider) -> tuple[str, list[PaperRecord] | Exception]:
-            try:
-                results = await asyncio.wait_for(provider.search(query, filters), timeout=timeout)
-                return provider.display_name, results
-            except asyncio.CancelledError:
-                raise
-            except TimeoutError:
-                return provider.display_name, TimeoutError(f"timed out after {timeout:.0f}s")
-            except Exception as exc:
-                logger.exception("Provider %s failed", provider.name)
-                return provider.display_name, exc
+            async with run_slot:
+                try:
+                    results = await asyncio.wait_for(provider.search(query, filters), timeout=timeout)
+                    return provider.display_name, results
+                except asyncio.CancelledError:
+                    raise
+                except TimeoutError:
+                    return provider.display_name, TimeoutError(f"timed out after {timeout:.0f}s")
+                except Exception as exc:
+                    logger.exception("Provider %s failed", provider.name)
+                    return provider.display_name, exc
 
         gathered_tasks = [asyncio.create_task(_one(p), name=p.display_name) for p in providers]
         outcomes: list[tuple[str, list[PaperRecord] | Exception]] = []

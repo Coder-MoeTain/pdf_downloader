@@ -79,7 +79,7 @@
             <label class="form-check-label" for="oa">Open access only</label>
           </div>
           <div class="form-check">
-            <input class="form-check-input" type="checkbox" name="download" id="dl" value="1">
+            <input class="form-check-input" type="checkbox" name="download" id="dl" value="1" checked>
             <label class="form-check-label" for="dl">Download legal PDFs during this run</label>
           </div>
         </div>
@@ -141,7 +141,13 @@
             </div>
             {% endfor %}
           </div>
-          <a class="btn btn-primary w-100 mt-3" href="/library?latest=1">View results in library</a>
+          {% set oa_count = job.stats.get("open_access_papers", 0) if job.stats else 0 %}
+          {% set pdf_count = job.stats.get("pdfs_downloaded", 0) if job.stats else 0 %}
+          <form method="post" action="/download-oa" id="jobDownloadForm" class="mt-3{% if job.phase != 'done' or not oa_count or pdf_count %} d-none{% endif %}" data-busy="Starting…">
+            <input type="hidden" name="latest" value="1">
+            <button class="btn btn-outline-primary w-100" type="submit">Download open-access PDFs and import e-books</button>
+          </form>
+          <a class="btn btn-primary w-100 mt-2" href="/library?latest=1">View results in library</a>
         </div>
       </div>
     </div>
