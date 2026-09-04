@@ -618,20 +618,29 @@ async def search_submit(
 
 
 @app.post("/search/jobs/{job_id}/stop")
-def search_stop(request: Request, job_id: int):
+async def search_stop(request: Request, job_id: int):
     user_id = _request_user_id(request)
+    accept = (request.headers.get("accept") or "").lower()
+    wants_json = "application/json" in accept and "text/html" not in accept
     try:
         was = cancel_search(job_id, user_id=user_id, is_admin=user_is_admin(request))
     except PermissionError as exc:
+        if wants_json:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=403)
         _search_message["text"] = str(exc)
         _search_message["level"] = "warning"
         return RedirectResponse("/search", status_code=303)
     except ValueError as exc:
+        if wants_json:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
         _search_message["text"] = str(exc)
         _search_message["level"] = "warning"
         return RedirectResponse("/search", status_code=303)
-    _search_message["text"] = "Search stopped." if was == "pending" else "Stopping search…"
+    message = "Search stopped." if was == "pending" else "Stopping search…"
+    _search_message["text"] = message
     _search_message["level"] = "info"
+    if wants_json:
+        return JSONResponse({"ok": True, "was": was, "message": message})
     return RedirectResponse("/search?live=1", status_code=303)
 
 

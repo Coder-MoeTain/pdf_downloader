@@ -27,6 +27,7 @@ _running_job_ids: set[int] = set()
 _running_tasks: dict[int, asyncio.Task] = {}
 _cancel_requested: set[int] = set()
 _lock = asyncio.Lock()
+_loop: asyncio.AbstractEventLoop | None = None
 
 
 def filters_from_dict(data: dict[str, Any]) -> SearchFilters:
@@ -127,12 +128,17 @@ async def _run_job(job_id: int) -> None:
                 complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
             return
         progress.start_search(query)
+        if job_id in _cancel_requested or progress.is_cancelled():
+            raise SearchCancelled("Search stopped.")
         progress.log(f"Search job #{job_id} started for {query}", "info")
 
         service = SearchService(progress=progress)
         stats = await service.run(filters, user_id=user_id, skip_progress_start=True)
 
         with session_scope() as session:
+            row = get_search_job(session, job_id)
+            if row is None or row.status == "cancelled":
+                return
             complete_search_job(
                 session,
                 job_id,
@@ -184,7 +190,8 @@ async def _dispatch_pending() -> None:
 
 
 async def start_search_queue_worker() -> None:
-    global _worker_task
+    global _worker_task, _loop
+    _loop = asyncio.get_running_loop()
     if _worker_task is not None and not _worker_task.done():
         return
     _worker_task = asyncio.create_task(_dispatch_pending(), name="search-queue-worker")
@@ -202,6 +209,12 @@ def enqueue_search(*, user_id: int | None, query: str, filters: dict) -> int:
         return job.id
 
 
+def _interrupt_running_job(job_id: int) -> None:
+    task = _running_tasks.get(job_id)
+    if task is not None and not task.done():
+        task.cancel()
+
+
 def cancel_search(job_id: int, *, user_id: int | None, is_admin: bool = False) -> str:
     """Stop a pending or running search. Returns pending|running."""
     with session_scope() as session:
@@ -214,15 +227,22 @@ def cancel_search(job_id: int, *, user_id: int | None, is_admin: bool = False) -
         if job.status not in ("pending", "running"):
             raise ValueError("That search is not in the queue.")
         was = job.status
+        complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
         if was == "pending":
-            complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
             return was
 
     _cancel_requested.add(job_id)
     prog = job_registry.get(job_id)
     if prog:
         prog.request_cancel()
-    task = _running_tasks.get(job_id)
-    if task is not None and not task.done():
-        task.cancel()
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+    if running_loop is not None:
+        _interrupt_running_job(job_id)
+    elif _loop is not None and _loop.is_running():
+        _loop.call_soon_threadsafe(_interrupt_running_job, job_id)
+    else:
+        _interrupt_running_job(job_id)
     return was

@@ -14,10 +14,13 @@
   var steps = jobEl.querySelectorAll(".job-steps li");
   var queueBody = document.getElementById("searchQueueBody");
   var queueSummary = document.getElementById("queueSummary");
+  var queueCard = document.getElementById("searchQueueCard");
   var wasActive = jobEl.getAttribute("data-active") === "true";
   var lastFingerprint = "";
+  var lastQueueJson = "";
   var params = new URLSearchParams(window.location.search);
   var trackedJobId = params.get("job") || jobEl.getAttribute("data-job-id") || "";
+  var stopping = false;
 
   function setSteps(phase) {
     var idx = PHASE_ORDER.indexOf(phase);
@@ -118,7 +121,8 @@
     }
     if (queryEl) queryEl.textContent = data.query || "";
     var stopForm = document.getElementById("jobStopForm");
-    if (active && trackedJobId) {
+    var showStop = (active || stopping) && trackedJobId;
+    if (showStop) {
       if (!stopForm && queryEl && queryEl.parentElement) {
         queryEl.parentElement.insertAdjacentHTML(
           "beforeend",
@@ -154,6 +158,9 @@
 
   function renderQueue(data) {
     if (!queueBody || !data) return;
+    var encoded = JSON.stringify(data);
+    if (encoded === lastQueueJson) return;
+    lastQueueJson = encoded;
     if (queueSummary) {
       queueSummary.textContent = (data.running || 0) + " running · " + (data.pending || 0) + " pending";
     }
@@ -240,6 +247,38 @@
       })
       .catch(function () {});
   }
+
+  function postStop(action) {
+    stopping = true;
+    document.querySelectorAll(".queue-stop, #jobStopForm button").forEach(function (btn) {
+      btn.disabled = true;
+      btn.textContent = "Stopping…";
+    });
+    return fetch(action, { method: "POST", headers: { Accept: "application/json" } })
+      .then(function (response) {
+        return response.json().catch(function () {
+          return {};
+        });
+      })
+      .then(function () {
+        window.location.href = "/search?live=1";
+      })
+      .catch(function () {
+        window.location.href = "/search?live=1";
+      });
+  }
+
+  function onStopSubmit(event) {
+    var form = event.target;
+    if (!form || form.tagName !== "FORM") return;
+    var action = form.getAttribute("action") || "";
+    if (action.indexOf("/search/jobs/") === -1 || action.indexOf("/stop") === -1) return;
+    event.preventDefault();
+    postStop(action);
+  }
+
+  jobEl.addEventListener("submit", onStopSubmit);
+  if (queueCard) queueCard.addEventListener("submit", onStopSubmit);
 
   if (logsEl) logsEl.scrollTop = logsEl.scrollHeight;
   if (params.has("live")) {

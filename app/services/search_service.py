@@ -64,6 +64,9 @@ class SearchService:
         except SearchCancelled:
             self._progress.finish_search(cancelled=True)
             raise
+        except asyncio.CancelledError:
+            self._progress.finish_search(cancelled=True)
+            raise
         except Exception as exc:
             self._progress.finish_search(error=str(exc))
             raise
@@ -71,6 +74,11 @@ class SearchService:
     def _raise_if_cancelled(self) -> None:
         if self._progress.is_cancelled():
             raise SearchCancelled("Search stopped.")
+
+    async def _checkpoint(self) -> None:
+        self._raise_if_cancelled()
+        await asyncio.sleep(0)
+        self._raise_if_cancelled()
 
     async def _run(self, filters: SearchFilters, user_id: int | None = None) -> SearchStats:
         stats = SearchStats(query=filters.query)
@@ -90,7 +98,7 @@ class SearchService:
                 return stats
 
             self._progress.set_providers_total(len(providers))
-            self._raise_if_cancelled()
+            await self._checkpoint()
             self._progress.set_phase(
                 "searching",
                 f"Querying {len(providers)} academic source{'s' if len(providers) != 1 else ''}…",
@@ -102,7 +110,7 @@ class SearchService:
             raw: list[PaperRecord] = []
             console.print()
             raw.extend(await self._search_providers(providers, filters.query, filters, stats))
-            self._raise_if_cancelled()
+            await self._checkpoint()
 
             stats.raw_records = len(raw)
             console.print(f"[cyan]\\[MERGE][/] Total records............{stats.raw_records}")
@@ -137,7 +145,7 @@ class SearchService:
             ) as progress:
                 task = progress.add_task("[OA] Resolving open access", total=len(unique))
                 for index, paper in enumerate(unique, start=1):
-                    self._raise_if_cancelled()
+                    await self._checkpoint()
                     try:
                         await oa.resolve(paper)
                     except Exception as exc:
@@ -168,7 +176,7 @@ class SearchService:
             )
 
             self._progress.set_phase("storing", f"Saving {len(unique)} papers to the library…", percent=78)
-            self._raise_if_cancelled()
+            await self._checkpoint()
             search_id = 0
             persisted: list[tuple[int, PaperRecord]] = []
             downloader = DownloadService(client, self.config)
@@ -206,7 +214,7 @@ class SearchService:
                 self._progress.start_batch(len(to_download), "Downloading open-access PDFs")
                 try:
                     for idx, (paper_id, paper) in enumerate(to_download, start=1):
-                        self._raise_if_cancelled()
+                        await self._checkpoint()
                         console.print(f"[blue]\\[DOWNLOAD][/] {idx}/{len(to_download)} {paper.title[:70]}")
                         self._progress.begin_item(paper_id, paper.title, idx)
                         with session_scope() as session:
@@ -277,10 +285,17 @@ class SearchService:
 
         gathered_tasks = [asyncio.create_task(_one(p), name=p.display_name) for p in providers]
         outcomes: list[tuple[str, list[PaperRecord] | Exception]] = []
+        pending = set(gathered_tasks)
         try:
-            for fut in asyncio.as_completed(gathered_tasks):
+            while pending:
                 self._raise_if_cancelled()
-                outcomes.append(await fut)
+                done, pending = await asyncio.wait(
+                    pending,
+                    timeout=0.2,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for fut in done:
+                    outcomes.append(fut.result())
         except (SearchCancelled, asyncio.CancelledError):
             for task in gathered_tasks:
                 if not task.done():
