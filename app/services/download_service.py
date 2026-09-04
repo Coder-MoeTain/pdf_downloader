@@ -370,9 +370,9 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
             download_tracker.update_bytes(existing.stat().st_size, existing.stat().st_size)
             download_tracker.finish_item("DOWNLOADED")
             download_tracker.finish_batch()
-            from app.services.lms_sync import maybe_sync_to_lms
+            from app.services.lms_watch import schedule_lms_sync
 
-            maybe_sync_to_lms(paper_ids=[paper_id])
+            schedule_lms_sync(paper_ids=[paper_id])
             return existing
         if paper.status == PaperStatus.PAYWALLED.value and not paper.pdf_url:
             download_tracker.finish_item("FAILED", error="Paywalled and no legal PDF URL")
@@ -417,9 +417,9 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
             download_tracker.finish_batch()
             if path is None:
                 raise DownloadError(updated.extra.get("error") or updated.status.value)
-            from app.services.lms_sync import maybe_sync_to_lms
+            from app.services.lms_watch import schedule_lms_sync
 
-            maybe_sync_to_lms(paper_ids=[paper_id])
+            schedule_lms_sync(paper_ids=[paper_id])
             return path
 
 
@@ -487,9 +487,9 @@ async def download_open_access_papers(
         finally:
             download_tracker.finish_batch()
     if stats["downloaded"] > 0:
-        from app.services.lms_sync import maybe_sync_to_lms
+        from app.services.lms_watch import schedule_lms_sync
 
-        maybe_sync_to_lms()
+        schedule_lms_sync()
     return stats
 
 

@@ -181,6 +181,13 @@ async def _startup() -> None:
     except Exception:
         pass
     await start_search_queue_worker()
+    try:
+        from app.services.lms_watch import schedule_lms_sync, start_lms_watch
+
+        start_lms_watch()
+        schedule_lms_sync()
+    except Exception:
+        pass
 
 
 def _login_ctx(request: Request, next_url: str = "/") -> dict:

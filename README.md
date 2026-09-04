@@ -285,8 +285,19 @@ The collector reads `/var/www/elibrary/.env` (`DB_HOST`, `DB_NAME`, `DB_USER`, `
 cd /var/www/pdf_downloader
 source venv/bin/activate
 python main.py sync-lms
-python main.py sync-lms --dry-run
+python main.py watch-lms
 ```
+
+`watch-lms` keeps running in the background and imports each newly downloaded PDF into e-library. Run it under PM2:
+
+```bash
+cd /opt/apps/pdf_downloader
+source venv/bin/activate
+pm2 start "python main.py watch-lms" --name lms-sync --cwd /opt/apps/pdf_downloader
+pm2 save
+```
+
+The dashboard also starts this watcher on boot. After a search/download, papers appear under **Admin → Imported papers** (and in **e-Books**).
 
 ## Web dashboard
 

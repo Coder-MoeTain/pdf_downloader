@@ -236,6 +236,15 @@ def test_sync_copies_pdf_and_creates_ebook(tmp_db, tmp_path, monkeypatch):
     assert len(catalog.ebooks) == 1
 
 
+def test_schedule_lms_sync_is_non_blocking(tmp_db, monkeypatch):
+    monkeypatch.setenv("LMS_SYNC_ENABLED", "false")
+    load_config.cache_clear()
+    from app.services.lms_watch import schedule_lms_sync, stop_lms_watch
+
+    schedule_lms_sync(paper_ids=[1])
+    stop_lms_watch()
+
+
 def test_sync_skips_when_pdf_missing(tmp_db, tmp_path):
     lms_root = _lms_layout(tmp_path)
     record = PaperRecord(

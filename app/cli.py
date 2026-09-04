@@ -300,6 +300,17 @@ def sync_lms(
         raise typer.Exit(1)
 
 
+@app.command("watch-lms")
+def watch_lms(
+    interval: int = typer.Option(15, "--interval", help="Seconds between catch-up scans"),
+) -> None:
+    """Keep importing downloaded PDFs into e-library in the background (use with PM2)."""
+    from app.services.lms_watch import run_lms_watch_forever
+
+    console.print("[green]e-library import watcher running.[/] Ctrl+C to stop.")
+    run_lms_watch_forever(interval=interval)
+
+
 @app.command()
 def version() -> None:
     """Print application version."""
@@ -418,9 +429,9 @@ async def _download_pending(download_limit: int | None, max_file_size: str | Non
                 session.commit()
                 count += 1
             console.print(f"Processed {count} pending downloads.")
-    from app.services.lms_sync import maybe_sync_to_lms
+    from app.services.lms_watch import schedule_lms_sync
 
-    maybe_sync_to_lms()
+    schedule_lms_sync()
 
 
 async def _retry_failed() -> None:
@@ -441,9 +452,9 @@ async def _retry_failed() -> None:
                 await downloader.download_paper(session, row.paper_id, record, "library")
                 session.commit()
             console.print(f"Retried {len(rows)} downloads.")
-    from app.services.lms_sync import maybe_sync_to_lms
+    from app.services.lms_watch import schedule_lms_sync
 
-    maybe_sync_to_lms()
+    schedule_lms_sync()
 
 
 async def _update_topics() -> None:

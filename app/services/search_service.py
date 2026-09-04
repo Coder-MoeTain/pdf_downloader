@@ -239,14 +239,11 @@ class SearchService:
                         f"{dl.get('failed', 0)} failed, {dl.get('skipped', 0)} skipped"
                     )
                 if downloaded_ids:
-                    from app.services.lms_sync import maybe_sync_to_lms
+                    from app.services.lms_watch import schedule_lms_sync
 
-                    lms_result = maybe_sync_to_lms(paper_ids=downloaded_ids)
-                    if lms_result and lms_result.imported:
-                        console.print(
-                            f"[green]Library Management:[/] added {lms_result.imported} e-book(s)"
-                        )
-                        self._progress.log(f"Library Management: added {lms_result.imported} e-book(s)")
+                    schedule_lms_sync(paper_ids=downloaded_ids)
+                    console.print("[dim]e-library import queued in background[/]")
+                    self._progress.log("e-library import queued in background")
                 with session_scope() as session:
                     complete_search_query(session, search_id)
             elif not filters.download:
