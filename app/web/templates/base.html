@@ -16,7 +16,7 @@
 {% from "_macros.html" import nav_icon %}
 <a class="skip-link" href="#main">Skip to content</a>
 <nav class="navbar navbar-expand-xl navbar-dark app-nav sticky-top" aria-label="Main">
-  <div class="container-fluid app-nav-inner">
+  <div class="container-xl app-nav-inner">
     <a class="navbar-brand" href="/" title="{{ app_name }}">
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 32 32" focusable="false">
@@ -90,7 +90,7 @@
     </div>
   </div>
 </nav>
-<main id="main" class="container-fluid py-4">
+<main id="main" class="container-xl py-4">
   {% if flash and flash.text %}
   <div class="alert alert-{{ flash.level or 'info' }} alert-dismissible fade show shadow-sm" role="status">
     {{ flash.text }}
@@ -100,7 +100,7 @@
   {% block content %}{% endblock %}
 </main>
 <footer class="app-footer">
-  <div class="container-fluid d-flex flex-wrap justify-content-between gap-2">
+  <div class="container-xl d-flex flex-wrap justify-content-between gap-2">
     <span>Make with love by Coder-MoeTain</span>
     <span>Times in {{ timezone }} ({{ timezone_offset }})</span>
     <a href="/search">New search</a>
