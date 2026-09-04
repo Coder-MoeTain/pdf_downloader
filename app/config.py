@@ -31,9 +31,9 @@ class EnvSettings(BaseSettings):
     ieee_api_key: str = ""
     ncbi_api_key: str = ""
     nasa_ads_token: str = ""
-    max_concurrent_requests: int = 5
+    max_concurrent_requests: int = 8
     max_concurrent_downloads: int = 3
-    request_timeout_seconds: float = 30
+    request_timeout_seconds: float = 15
     download_timeout_seconds: float = 120
     max_redirects: int = 5
     database_path: str = "data/research.db"
@@ -80,7 +80,7 @@ class QueryExpansionConfig(BaseModel):
 
 
 class RetryConfig(BaseModel):
-    max_attempts: int = 4
+    max_attempts: int = 2
     base_delay: float = 1.0
     max_delay: float = 30.0
     jitter: float = 0.3
@@ -120,6 +120,9 @@ class AppConfig(BaseModel):
     timezone: str = "UTC"
     default_max_results: int = 50
     default_sort: str = "relevance"
+    provider_timeout_seconds: float = 12
+    provider_phase_seconds: float = 16
+    oa_concurrency: int = 8
     ranking: RankingConfig = Field(default_factory=RankingConfig)
     dedup: DedupConfig = Field(default_factory=DedupConfig)
     query_expansion: QueryExpansionConfig = Field(default_factory=QueryExpansionConfig)
@@ -214,6 +217,9 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
         timezone=timezone_name,
         default_max_results=int(search.get("default_max_results", 50)),
         default_sort=str(search.get("default_sort", "relevance")),
+        provider_timeout_seconds=float(search.get("provider_timeout_seconds", 12)),
+        provider_phase_seconds=float(search.get("provider_phase_seconds", 16)),
+        oa_concurrency=int(search.get("oa_concurrency", 8)),
         ranking=ranking,
         dedup=DedupConfig(**(data.get("dedup") or {})),
         query_expansion=QueryExpansionConfig(**(data.get("query_expansion") or {})),

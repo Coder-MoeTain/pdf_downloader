@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import time
 from typing import Any
 
 from rich.console import Console
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
 from app.config import AppConfig, get_runtime_config, load_config, parse_size
 from app.database.connection import init_db, session_scope
@@ -136,29 +136,7 @@ class SearchService:
                 total=len(unique),
                 percent=52,
             )
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("{task.description}"),
-                BarColumn(),
-                console=console,
-                transient=True,
-            ) as progress:
-                task = progress.add_task("[OA] Resolving open access", total=len(unique))
-                for index, paper in enumerate(unique, start=1):
-                    await self._checkpoint()
-                    try:
-                        await oa.resolve(paper)
-                    except Exception as exc:
-                        logger.warning("OA resolve failed for %s: %s", paper.title[:60], exc)
-                    progress.advance(task)
-                    if index == len(unique) or index % 8 == 0:
-                        self._progress.set_phase(
-                            "oa",
-                            f"Open access {index}/{len(unique)}",
-                            current=index,
-                            total=len(unique),
-                            percent=round(52 + (index / max(len(unique), 1)) * 22, 1),
-                        )
+            await self._resolve_open_access(oa, unique)
 
             stats.open_access_papers = sum(1 for p in unique if p.status == PaperStatus.OA_AVAILABLE or p.open_access)
             stats.paywalled = sum(1 for p in unique if p.status == PaperStatus.PAYWALLED)
@@ -268,6 +246,51 @@ class SearchService:
             self._print_summary(stats)
             return stats
 
+    async def _resolve_open_access(self, oa: OpenAccessService, unique: list[PaperRecord]) -> None:
+        if not unique:
+            return
+        concurrency = max(1, int(getattr(self.config, "oa_concurrency", 8) or 8))
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _resolve_one(paper: PaperRecord) -> None:
+            async with sem:
+                await self._checkpoint()
+                try:
+                    await oa.resolve(paper)
+                except SearchCancelled:
+                    raise
+                except Exception as exc:
+                    logger.warning("OA resolve failed for %s: %s", paper.title[:60], exc)
+
+        tasks = [asyncio.create_task(_resolve_one(paper)) for paper in unique]
+        pending = set(tasks)
+        completed = 0
+        try:
+            while pending:
+                await self._checkpoint()
+                done, pending = await asyncio.wait(
+                    pending,
+                    timeout=0.2,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for fut in done:
+                    fut.result()
+                completed += len(done)
+                if completed == len(unique) or completed % 8 == 0:
+                    self._progress.set_phase(
+                        "oa",
+                        f"Open access {completed}/{len(unique)}",
+                        current=completed,
+                        total=len(unique),
+                        percent=round(52 + (completed / max(len(unique), 1)) * 22, 1),
+                    )
+        except (SearchCancelled, asyncio.CancelledError):
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+
     async def _search_providers(
         self,
         providers,
@@ -275,10 +298,17 @@ class SearchService:
         filters: SearchFilters,
         stats: SearchStats,
     ) -> list[PaperRecord]:
+        timeout = max(0.1, float(getattr(self.config, "provider_timeout_seconds", 12) or 12))
+        phase_limit = max(timeout, float(getattr(self.config, "provider_phase_seconds", 16) or 16))
+
         async def _one(provider) -> tuple[str, list[PaperRecord] | Exception]:
             try:
-                results = await provider.search(query, filters)
+                results = await asyncio.wait_for(provider.search(query, filters), timeout=timeout)
                 return provider.display_name, results
+            except asyncio.CancelledError:
+                raise
+            except TimeoutError:
+                return provider.display_name, TimeoutError(f"timed out after {timeout:.0f}s")
             except Exception as exc:
                 logger.exception("Provider %s failed", provider.name)
                 return provider.display_name, exc
@@ -286,15 +316,28 @@ class SearchService:
         gathered_tasks = [asyncio.create_task(_one(p), name=p.display_name) for p in providers]
         outcomes: list[tuple[str, list[PaperRecord] | Exception]] = []
         pending = set(gathered_tasks)
+        deadline = time.monotonic() + phase_limit
         try:
             while pending:
                 self._raise_if_cancelled()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    slow = list(pending)
+                    for task in slow:
+                        task.cancel()
+                    await asyncio.gather(*slow, return_exceptions=True)
+                    for task in slow:
+                        outcomes.append((task.get_name(), TimeoutError("source too slow; skipped")))
+                    break
                 done, pending = await asyncio.wait(
                     pending,
-                    timeout=0.2,
+                    timeout=min(0.2, remaining),
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 for fut in done:
+                    if fut.cancelled():
+                        outcomes.append((fut.get_name(), TimeoutError("source too slow; skipped")))
+                        continue
                     outcomes.append(fut.result())
         except (SearchCancelled, asyncio.CancelledError):
             for task in gathered_tasks:

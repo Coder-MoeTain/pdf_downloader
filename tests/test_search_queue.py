@@ -159,6 +159,55 @@ def test_search_providers_stop_while_waiting():
     asyncio.run(main())
 
 
+def test_search_skips_slow_providers(tmp_db):
+    import asyncio
+    import time
+
+    from app.config import load_config
+    from app.models.paper import PaperRecord
+    from app.models.search import SearchFilters, SearchStats
+    from app.services.progress import ProgressTracker
+    from app.services.search_service import SearchService
+
+    class FastProvider:
+        name = "fast"
+        display_name = "Fast"
+
+        async def search(self, query, filters):
+            return [PaperRecord(title="Quick paper")]
+
+    class SlowProvider:
+        name = "slow"
+        display_name = "Slow"
+
+        async def search(self, query, filters):
+            await asyncio.sleep(5)
+            return [PaperRecord(title="Late paper")]
+
+    async def main():
+        tracker = ProgressTracker()
+        tracker.start_search("wait")
+        cfg = load_config()
+        cfg.provider_timeout_seconds = 0.2
+        cfg.provider_phase_seconds = 0.4
+        service = SearchService(config=cfg, progress=tracker)
+        stats = SearchStats(query="wait")
+        started = time.monotonic()
+        raw = await service._search_providers(
+            [FastProvider(), SlowProvider()],
+            "wait",
+            SearchFilters(query="wait"),
+            stats,
+        )
+        elapsed = time.monotonic() - started
+        assert elapsed < 2.0
+        assert any(p.title == "Quick paper" for p in raw)
+        assert all(p.title != "Late paper" for p in raw)
+        assert stats.provider_counts.get("Fast") == 1
+
+    asyncio.run(main())
+
+
 def test_search_page_shows_stop_and_cancels_pending(tmp_db):
     from fastapi.testclient import TestClient
 

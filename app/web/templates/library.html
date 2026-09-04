@@ -227,26 +227,10 @@
     <tbody>
     {% for p in papers %}
       {% set state = pdf_button_state(p) %}
-      {% set paper_tags = ((p.research_fields|tags) + (p.keywords|tags))[:3] %}
       <tr>
         <td class="lib-year">{{ p.publication_year or "—" }}</td>
         <td>
           <div class="paper-title" title="{{ p.title }}">{{ p.title }}</div>
-          <div class="paper-meta">
-            {% if p.journal or p.publisher %}{{ p.journal or p.publisher }}{% endif %}
-            {% if p.source %}{% if p.journal or p.publisher %} · {% endif %}{{ source_label(p.source) }}{% endif %}
-            {% if p.created_at %} · Added {{ p.created_at|localdt }}{% endif %}
-          </div>
-          {% if p.doi %}
-          <a class="doi-link" href="https://doi.org/{{ p.doi }}" target="_blank" rel="noopener">{{ p.doi }}</a>
-          {% endif %}
-          {% if paper_tags %}
-          <div class="lib-row-tags">
-            {% for tag in paper_tags %}
-            <a class="lib-tag {% if category == tag %}is-active{% endif %}" href="{{ library_href(filters, category=tag, page=1) }}">{{ tag }}</a>
-            {% endfor %}
-          </div>
-          {% endif %}
         </td>
         <td class="score-pill">{{ "%.0f"|format(p.relevance_score or 0) }}</td>
         <td>{{ star_rating(p) }}</td>

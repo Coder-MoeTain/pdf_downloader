@@ -21,6 +21,9 @@ search:
   year_to: null
   open_access_only: false
   min_citations: 0
+  provider_timeout_seconds: 12
+  provider_phase_seconds: 16
+  oa_concurrency: 8
 
 ranking:
   title_weight: 0.35
@@ -305,13 +308,13 @@ providers:
     requires_key: false
 
 http:
-  max_concurrent_requests: 5
+  max_concurrent_requests: 8
   max_concurrent_downloads: 3
-  request_timeout_seconds: 30
+  request_timeout_seconds: 15
   download_timeout_seconds: 120
   max_redirects: 5
   retry:
-    max_attempts: 4
+    max_attempts: 2
     base_delay: 1.0
     max_delay: 30.0
     jitter: 0.3
