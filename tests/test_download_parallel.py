@@ -22,7 +22,7 @@ async def test_download_papers_parallel_respects_concurrency(monkeypatch):
     provider = DownloadService(_Client())  # type: ignore[arg-type]
     provider.config.env.max_concurrent_downloads = 2
 
-    async def fake_download(session, paper_id, paper, topic_slug, **kwargs):
+    async def fake_download(paper_id, paper, topic_slug, **kwargs):
         nonlocal active, peak
         async with lock:
             active += 1
@@ -34,15 +34,6 @@ async def test_download_papers_parallel_respects_concurrency(monkeypatch):
         return paper
 
     monkeypatch.setattr(provider, "download_paper", fake_download)
-
-    from contextlib import contextmanager
-
-    @contextmanager
-    def fake_session():
-        yield object()
-
-    monkeypatch.setattr("app.database.connection.session_scope", fake_session)
-    monkeypatch.setattr("app.database.repository.save_paper", lambda _session, paper: paper)
 
     jobs = [
         (index, PaperRecord(title=f"Paper {index}", source_provider="test"))

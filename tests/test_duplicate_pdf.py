@@ -69,11 +69,9 @@ async def test_duplicate_pdf_is_not_stored_twice(tmp_db, tmp_path, monkeypatch):
     monkeypatch.setattr(DownloadService, "_stream_pdf", fake_stream)
     monkeypatch.setattr("app.services.download_service.robots_allowed", lambda *_args, **_kwargs: True)
 
-    with session_scope() as session:
-        updated = await service.download_paper(session, second_id, record_b, "library")
-        save_paper(session, updated)
-        assert updated.status == PaperStatus.DUPLICATE
-        assert updated.extra["duplicate_of"] == first_id
+    updated = await service.download_paper(second_id, record_b, "library")
+    assert updated.status == PaperStatus.DUPLICATE
+    assert updated.extra["duplicate_of"] == first_id
 
     with session_scope() as session:
         paper_b = session.scalar(

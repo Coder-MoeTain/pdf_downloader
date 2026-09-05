@@ -100,7 +100,7 @@
 </nav>
 <main id="main" class="container-xl py-4">
   {% if flash and flash.text %}
-  <div class="alert alert-{{ flash.level or 'info' }} alert-dismissible fade show shadow-sm" role="status">
+  <div class="alert alert-{{ flash.level or 'info' }} alert-dismissible fade show" role="status">
     {{ flash.text }}
     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button>
   </div>

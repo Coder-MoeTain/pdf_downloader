@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -76,12 +76,12 @@ from app.database.source_catalog import BUILTIN_SOURCES, SOURCE_KEY_FIELDS
 from app.providers import PROVIDER_CLASSES, provider_status
 from app.services.download_service import (
     DownloadError,
-    download_open_access_papers,
     ensure_local_pdf,
     existing_pdf_path,
     pdf_button_state,
     safe_library_pdf,
 )
+from app.services.download_queue import enqueue_oa_download, oa_download_active, start_download_worker
 from app.services.crawl_queue import (
     cancel_crawl,
     crawl_progress_snapshot,
@@ -208,6 +208,7 @@ async def _startup() -> None:
         pass
     await start_search_queue_worker()
     await start_crawl_queue_worker()
+    await start_download_worker()
     try:
         from app.services.lms_watch import schedule_lms_sync, start_lms_watch
 
@@ -1116,31 +1117,27 @@ async def download_paper_pdf(request: Request, paper_id: int):
 
 
 @app.post("/download-oa")
-async def download_oa(request: Request, background_tasks: BackgroundTasks, latest: str | None = Form(None)):
+async def download_oa(request: Request, latest: str | None = Form(None)):
     search_id = None
     if latest:
         with session_scope() as session:
             row = session.scalar(select(SearchQuery).order_by(SearchQuery.id.desc()).limit(1))
             if row:
                 search_id = row.id
-    _search_message["text"] = "Downloading legally available PDFs. This can take a few minutes."
-    _search_message["level"] = "info"
     user_id = _request_user_id(request)
     record_usage(request, "download", "Open-access PDF batch")
-
-    async def _job():
-        try:
-            stats = await download_open_access_papers(search_id=search_id, user_id=user_id)
-            _search_message["text"] = (
-                f"PDF download finished: {stats['downloaded']} saved, "
-                f"{stats['failed']} failed, {stats['skipped']} skipped."
-            )
-            _search_message["level"] = "success"
-        except Exception as exc:
-            _search_message["text"] = f"PDF download failed: {exc}"
-            _search_message["level"] = "danger"
-
-    background_tasks.add_task(_job)
+    if oa_download_active():
+        _search_message["text"] = "A PDF download is already running. Watch progress on the Downloads page."
+        _search_message["level"] = "info"
+    elif enqueue_oa_download(search_id=search_id, user_id=user_id):
+        _search_message["text"] = (
+            "Downloading legally available PDFs. This can take a few minutes — "
+            "you can browse other pages while downloads continue in the background."
+        )
+        _search_message["level"] = "info"
+    else:
+        _search_message["text"] = "Could not start the download queue. Try again in a moment."
+        _search_message["level"] = "warning"
     return RedirectResponse("/downloads", status_code=303)
 
 

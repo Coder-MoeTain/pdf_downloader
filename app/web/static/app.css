@@ -853,11 +853,13 @@ a.paper-meta:hover { color: var(--accent); }
   font-weight: 700;
 }
 .alert {
+  --bs-alert-bg: var(--alert-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  background-color: rgba(255, 255, 255, 0.72);
+  background: var(--alert-bg);
+  background-color: var(--alert-bg);
 }
 @media (min-width: 1200px) {
   .container-xl {
@@ -2744,8 +2746,21 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
   line-height: 1;
 }
 .page-downloads a.lib-page:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--glass-border);
+  color: var(--ink);
+}
+.page-downloads .chip:hover:not(.active) {
+  background: var(--surface-chip);
+  color: var(--ink);
+  border-color: var(--glass-border);
+}
+.page-downloads a.paper-meta:hover,
+.page-downloads a.doi-link:hover {
+  color: var(--ink-soft);
+}
+.page-downloads .lib-table tbody tr:hover > * {
+  background-color: transparent;
+  box-shadow: none;
 }
 .page-downloads .lib-page.is-current {
   background: var(--ink);

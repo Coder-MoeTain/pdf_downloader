@@ -68,6 +68,7 @@
   --role-admin-fg: #1d5c38;
   --role-user-bg: #ece6da;
   --role-user-fg: #3a4d63;
+  --alert-bg: rgba(255, 255, 255, 0.72);
 }
 
 body {
@@ -380,6 +381,7 @@ a.stat-card:hover {
   --role-admin-fg: #b7e4c7;
   --role-user-bg: rgba(255, 255, 255, 0.08);
   --role-user-fg: #b8c4d0;
+  --alert-bg: transparent;
 }
 
 [data-bs-theme="dark"] .chip:hover,
@@ -408,17 +410,31 @@ a.stat-card:hover {
   border-color: rgba(255, 255, 255, 0.14);
 }
 
-[data-bs-theme="dark"] .alert {
+[data-bs-theme="dark"] .alert,
+[data-bs-theme="dark"] .alert-info,
+[data-bs-theme="dark"] .alert-success,
+[data-bs-theme="dark"] .alert-warning,
+[data-bs-theme="dark"] .alert-danger,
+[data-bs-theme="dark"] .alert-primary,
+[data-bs-theme="dark"] .alert-secondary {
   --bs-alert-bg: transparent;
-  background: transparent;
-  background-color: transparent;
+  --bs-info-bg-subtle: transparent;
+  --bs-success-bg-subtle: transparent;
+  --bs-warning-bg-subtle: transparent;
+  --bs-danger-bg-subtle: transparent;
+  --bs-primary-bg-subtle: transparent;
+  --bs-secondary-bg-subtle: transparent;
+  --bs-alert-border-color: var(--glass-border);
+  background: transparent !important;
+  background-color: transparent !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   box-shadow: none;
 }
 
 [data-bs-theme="dark"] .alert-info {
-  --bs-alert-border-color: var(--glass-border);
+  --bs-alert-color: var(--ink);
+  color: var(--ink);
 }
 
 [data-bs-theme="dark"] .dash-live {
@@ -489,6 +505,7 @@ a.stat-card:hover {
     --surface-chip: #121c28;
     --footer-bg: #0e1824;
     --login-panel-inner-bg: #182432;
+    --alert-bg: transparent;
   }
 
   [data-bs-theme="dark"] body::before {

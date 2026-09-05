@@ -423,7 +423,7 @@ async def _download_pending(download_limit: int | None, max_file_size: str | Non
                 if not record.pdf_url:
                     continue
                 updated = await downloader.download_paper(
-                    session, paper.id, record, "library", max_file_size=max_size
+                    paper.id, record, "library", max_file_size=max_size
                 )
                 save_paper(session, updated)
                 session.commit()
@@ -449,7 +449,7 @@ async def _retry_failed() -> None:
                 record = paper_to_record(row.paper)
                 record.pdf_url = row.pdf_url or record.pdf_url
                 console.print(f"Retrying: {record.title[:70]}")
-                await downloader.download_paper(session, row.paper_id, record, "library")
+                await downloader.download_paper(row.paper_id, record, "library")
                 session.commit()
             console.print(f"Retried {len(rows)} downloads.")
     from app.services.lms_watch import schedule_lms_sync

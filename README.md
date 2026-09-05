@@ -48,8 +48,8 @@ It does **not** scrape Google Scholar, ResearchGate, or Academia.edu. It does **
 ## Features
 
 - **Multi-source search** — 30+ official APIs (OpenAlex, Crossref, arXiv, PLOS, OpenAIRE, HAL, Zenodo, and more). IEEE / Springer / Elsevier / NASA ADS when keys are present
-- **Persistent search queue** — per-user jobs with live progress logs
-- **Source crawler** — harvest metadata from configured academic sources (admin)
+- **Persistent search queue** — per-user jobs with live progress logs; queued jobs stay visible in the log until they finish
+- **Source crawler** — harvest metadata from configured academic sources (admin); crawl queue uses the same reliable progress tracking as search
 - **Query expansion** with configurable synonyms
 - **DOI normalization** and fuzzy duplicate detection
 - **Relevance ranking** (keyword by default; optional `sentence-transformers`)
@@ -57,7 +57,7 @@ It does **not** scrape Google Scholar, ResearchGate, or Academia.edu. It does **
 - **Validated PDF downloads** (`Content-Type`, `%PDF-` magic bytes, size limits, SHA-256)
 - **Resume-safe downloads** with retries and status tracking
 - **SQLite paper library**, CSV / JSON / XLSX reports, and per-topic `metadata.csv`
-- **Interactive CLI** and an optional **FastAPI dashboard**
+- **Interactive CLI** and an optional **FastAPI dashboard** with light / dark theme
 - **Optional local full-text index** with PyMuPDF
 - **Scheduled topic updates** from `config.yaml`
 
@@ -71,7 +71,7 @@ It does **not** scrape Google Scholar, ResearchGate, or Academia.edu. It does **
     </td>
     <td width="50%">
       <img src="docs/images/library.png" alt="Paper library">
-      <p align="center"><sub>Library with source logos, detail modal, and legal PDF actions</sub></p>
+      <p align="center"><sub>Library with detail modal, category sidebar, and legal PDF actions</sub></p>
     </td>
   </tr>
   <tr>
@@ -315,6 +315,16 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
 Pages: **Dashboard**, **Search**, **Library**, **Downloads**, **Sources**, **Crawler** (admin), **Settings**.
 
+### Dashboard UI
+
+- **Cyber Scholar** branding with logo, favicon, and **Myanmar Space Agency** subtitle
+- Redesigned **Dashboard** — KPI cards with icons, quick actions, publications-by-year chart, access mix, and recent searches
+- **Light / dark theme** — sun/moon toggle in the header (and on the login page); preference saved in the browser and applied before first paint to avoid flash
+- **Settings** sidebar navigation with icons for each section
+- **Library** — streamlined filters (search, year, sort, PDF toggle, category sidebar); **Detail** modal shows authors, year, rating, status, and categories; PDF preview stays open while the live-results view refreshes in the background
+- **Search & Crawler** — live job cards and queue groups with readable progress logs; status banners and progress panels use transparent backgrounds in dark mode
+- **Search & download progress** — dashboard “Live” card and Downloads progress panel show real-time counts (e.g. `Downloading 14 of 100`) with log output; large PDF batches run in a background worker so other pages stay responsive
+
 Open [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login) to create the first **admin** account (email and password). After that, every visitor must log in. **User** accounts can search and use the library; **admin** accounts also open Sources, Crawler, Settings, and User settings people/roles. Signed-in accounts see **User settings** and **Log out** in the header. Google sign-in is optional when `GOOGLE_CLIENT_ID` is set.
 
 On a server you can seed the default admin instead:
@@ -377,6 +387,9 @@ Full rules: [COMPLIANCE.md](COMPLIANCE.md).
 | NASA ADS unused | Create a free token at [NASA ADS API help](https://ui.adsabs.harvard.edu/help/api/) and store it as `NASA_ADS_TOKEN` |
 | 429 errors | Lower `requests_per_second` in `config.yaml`; the client already backs off |
 | HTML saved instead of PDF | The validator rejects non-PDF bodies; check `logs/download.log` |
+| Library Detail shows empty fields | Hard-refresh the page; paper metadata is embedded in the Detail button as JSON |
+| Theme looks wrong after update | Hard-refresh (`Ctrl+Shift+R` / `Cmd+Shift+R`) so `theme.css` reloads |
+| Pages hang during large PDF downloads | Downloads now run in a background worker; refresh or open another tab — the server should stay responsive |
 | Semantic ranking | Install `sentence-transformers` and set `ranking.semantic.enabled: true` |
 
 ## Development

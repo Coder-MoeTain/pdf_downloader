@@ -49,9 +49,153 @@ class DownloadService:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def _prepare_download(
+        self,
+        paper_id: int,
+        paper: PaperRecord,
+        dest: Path,
+        *,
+        user_id: int | None = None,
+        on_progress: Callable[[int, int | None], None] | None = None,
+    ) -> tuple[PaperRecord, bool]:
+        """Sync DB/file checks before network I/O. Returns (paper, should_download)."""
+        from app.database.connection import session_scope
+        from app.database.repository import save_paper
+
+        if dest.exists() and dest.stat().st_size >= self.config.min_pdf_size_bytes:
+            digest = _sha256_file(dest)
+            with dest.open("rb") as handle:
+                if handle.read(5) == b"%PDF-":
+                    with session_scope() as session:
+                        if self._reuse_duplicate(
+                            session,
+                            paper_id,
+                            paper,
+                            dest,
+                            digest,
+                            dest.stat().st_size,
+                            user_id=user_id,
+                        ):
+                            save_paper(session, paper)
+                            return paper, False
+                        paper.status = PaperStatus.DOWNLOADED
+                        upsert_download(
+                            session,
+                            paper_id,
+                            pdf_url=paper.pdf_url,
+                            status=PaperStatus.DOWNLOADED.value,
+                            local_path=str(dest),
+                            file_size=dest.stat().st_size,
+                            sha256=digest,
+                            user_id=user_id,
+                        )
+                        paper.extra["local_path"] = str(dest)
+                        save_paper(session, paper)
+                    if on_progress:
+                        on_progress(dest.stat().st_size, dest.stat().st_size)
+                    download_tracker.log(f"Already on disk: {dest.name}", "success")
+                    return paper, False
+
+        if not paper.pdf_url or not is_direct_pdf_url(paper.pdf_url, prefer_https=self.config.prefer_https):
+            with session_scope() as session:
+                paper.status = PaperStatus.NO_PDF
+                upsert_download(
+                    session,
+                    paper_id,
+                    pdf_url=paper.pdf_url,
+                    status=PaperStatus.NO_PDF.value,
+                    error="No legal PDF URL",
+                )
+                save_paper(session, paper)
+            download_tracker.log("No legal PDF URL", "info")
+            paper.extra["error"] = "No legal PDF URL"
+            return paper, False
+
+        if not robots_allowed(paper.pdf_url, self.config.user_agent_header()):
+            with session_scope() as session:
+                paper.status = PaperStatus.SKIPPED
+                upsert_download(
+                    session,
+                    paper_id,
+                    pdf_url=paper.pdf_url,
+                    status=PaperStatus.SKIPPED.value,
+                    error="Blocked by robots.txt",
+                )
+                save_paper(session, paper)
+            download_tracker.log(f"Blocked by robots.txt: {_clip_url(paper.pdf_url)}", "info")
+            paper.extra["error"] = "Blocked by robots.txt"
+            return paper, False
+
+        with session_scope() as session:
+            upsert_download(session, paper_id, pdf_url=paper.pdf_url, status=PaperStatus.DOWNLOADING.value)
+        return paper, True
+
+    def _finalize_download(
+        self,
+        paper_id: int,
+        paper: PaperRecord,
+        dest: Path,
+        size: int,
+        digest: str,
+        *,
+        user_id: int | None = None,
+        error: DownloadError | None = None,
+    ) -> PaperRecord:
+        from app.database.connection import session_scope
+        from app.database.repository import save_paper
+
+        with session_scope() as session:
+            if error is not None:
+                if dest.exists():
+                    dest.unlink(missing_ok=True)
+                message = str(error)
+                if (
+                    message.startswith("Not a PDF")
+                    or "HTML" in message
+                    or "magic bytes" in message.lower()
+                    or "landing" in message.lower()
+                ):
+                    status = PaperStatus.NO_PDF
+                elif "HTTP 401" in message or "HTTP 403" in message:
+                    status = PaperStatus.PAYWALLED
+                else:
+                    status = PaperStatus.FAILED
+                paper.status = status
+                upsert_download(
+                    session,
+                    paper_id,
+                    pdf_url=paper.pdf_url,
+                    status=status.value,
+                    error=message,
+                    increment_retry=True,
+                )
+                save_paper(session, paper)
+                logger.warning("Download failed for %s: %s", paper.title[:80], error)
+                paper.extra["error"] = message
+                return paper
+
+            if self._reuse_duplicate(session, paper_id, paper, dest, digest, size, user_id=user_id):
+                save_paper(session, paper)
+                return paper
+
+            paper.status = PaperStatus.DOWNLOADED
+            paper.extra["local_path"] = str(dest)
+            upsert_download(
+                session,
+                paper_id,
+                pdf_url=paper.pdf_url,
+                status=PaperStatus.DOWNLOADED.value,
+                local_path=str(dest),
+                file_size=size,
+                sha256=digest,
+                user_id=user_id,
+            )
+            save_paper(session, paper)
+            logger.info("Downloaded %s (%s bytes)", dest.name, size)
+            return paper
+
     async def download_paper(
         self,
-        session: Session,
         paper_id: int,
         paper: PaperRecord,
         topic_slug: str,
@@ -71,102 +215,41 @@ class DownloadService:
         )
         dest = dest_dir / filename
 
-        if dest.exists() and dest.stat().st_size >= self.config.min_pdf_size_bytes:
-            digest = _sha256_file(dest)
-            if dest.read_bytes()[:5] == b"%PDF-":
-                reused = self._reuse_duplicate(
-                    session, paper_id, paper, dest, digest, dest.stat().st_size, user_id=user_id
-                )
-                if reused:
-                    return paper
-                paper.status = PaperStatus.DOWNLOADED
-                upsert_download(
-                    session,
-                    paper_id,
-                    pdf_url=paper.pdf_url,
-                    status=PaperStatus.DOWNLOADED.value,
-                    local_path=str(dest),
-                    file_size=dest.stat().st_size,
-                    sha256=digest,
-                    user_id=user_id,
-                )
-                paper.extra["local_path"] = str(dest)
-                if on_progress:
-                    on_progress(dest.stat().st_size, dest.stat().st_size)
-                download_tracker.log(f"Already on disk: {dest.name}", "success")
-                return paper
-
-        if not paper.pdf_url or not is_direct_pdf_url(paper.pdf_url, prefer_https=self.config.prefer_https):
-            paper.status = PaperStatus.NO_PDF
-            upsert_download(session, paper_id, pdf_url=paper.pdf_url, status=PaperStatus.NO_PDF.value, error="No legal PDF URL")
-            download_tracker.log("No legal PDF URL", "info")
-            paper.extra["error"] = "No legal PDF URL"
+        paper, should_download = await asyncio.to_thread(
+            self._prepare_download,
+            paper_id,
+            paper,
+            dest,
+            user_id=user_id,
+            on_progress=on_progress,
+        )
+        if not should_download:
             return paper
 
-        if not robots_allowed(paper.pdf_url, self.config.user_agent_header()):
-            paper.status = PaperStatus.SKIPPED
-            upsert_download(
-                session,
-                paper_id,
-                pdf_url=paper.pdf_url,
-                status=PaperStatus.SKIPPED.value,
-                error="Blocked by robots.txt",
-            )
-            download_tracker.log(f"Blocked by robots.txt: {_clip_url(paper.pdf_url)}", "info")
-            paper.extra["error"] = "Blocked by robots.txt"
-            return paper
-
-        upsert_download(session, paper_id, pdf_url=paper.pdf_url, status=PaperStatus.DOWNLOADING.value)
-        session.commit()
         download_tracker.log(f"GET {_clip_url(paper.pdf_url)}")
-
         try:
             size, digest = await self._stream_pdf(paper.pdf_url, dest, max_size, on_progress=on_progress)
         except DownloadError as exc:
-            if dest.exists():
-                dest.unlink(missing_ok=True)
-            message = str(exc)
-            if (
-                message.startswith("Not a PDF")
-                or "HTML" in message
-                or "magic bytes" in message.lower()
-                or "landing" in message.lower()
-            ):
-                status = PaperStatus.NO_PDF
-            elif "HTTP 401" in message or "HTTP 403" in message:
-                status = PaperStatus.PAYWALLED
-            else:
-                status = PaperStatus.FAILED
-            paper.status = status
-            upsert_download(
-                session,
+            return await asyncio.to_thread(
+                self._finalize_download,
                 paper_id,
-                pdf_url=paper.pdf_url,
-                status=status.value,
-                error=message,
-                increment_retry=True,
+                paper,
+                dest,
+                0,
+                "",
+                user_id=user_id,
+                error=exc,
             )
-            logger.warning("Download failed for %s: %s", paper.title[:80], exc)
-            paper.extra["error"] = message
-            return paper
 
-        if self._reuse_duplicate(session, paper_id, paper, dest, digest, size, user_id=user_id):
-            return paper
-
-        paper.status = PaperStatus.DOWNLOADED
-        paper.extra["local_path"] = str(dest)
-        upsert_download(
-            session,
+        return await asyncio.to_thread(
+            self._finalize_download,
             paper_id,
-            pdf_url=paper.pdf_url,
-            status=PaperStatus.DOWNLOADED.value,
-            local_path=str(dest),
-            file_size=size,
-            sha256=digest,
+            paper,
+            dest,
+            size,
+            digest,
             user_id=user_id,
         )
-        logger.info("Downloaded %s (%s bytes)", dest.name, size)
-        return paper
 
     async def _stream_pdf(
         self,
@@ -384,44 +467,31 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
             download_tracker.finish_item("FAILED", error="No legally available PDF URL")
             download_tracker.finish_batch()
             raise DownloadError("No legally available PDF URL")
+        title = paper.title
 
     async with AsyncHttpClient(cfg) as client:
         downloader = DownloadService(client, cfg)
+        download_tracker.begin_item(paper_id, title, 1)
+        updated = await downloader.download_paper(
+            paper_id,
+            record,
+            topic_slug,
+            on_progress=lambda received, total: download_tracker.update_bytes(received, total),
+            user_id=user_id,
+        )
         with session_scope() as session:
-            paper = session.scalar(
-                select(Paper)
-                .options(
-                    selectinload(Paper.authors).selectinload(PaperAuthor.author),
-                    selectinload(Paper.downloads),
-                )
-                .where(Paper.id == paper_id)
-            )
-            if paper is None:
-                raise DownloadError("Paper not found")
-            record = paper_to_record(paper)
-            download_tracker.begin_item(paper_id, paper.title, 1)
-            updated = await downloader.download_paper(
-                session,
-                paper_id,
-                record,
-                topic_slug,
-                on_progress=lambda received, total: download_tracker.update_bytes(received, total),
-                user_id=user_id,
-            )
-            save_paper(session, updated)
-            session.flush()
             paper = session.scalar(
                 select(Paper).options(selectinload(Paper.downloads)).where(Paper.id == paper_id)
             )
             path = existing_pdf_path(paper, library_root) if paper else None
-            download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
-            download_tracker.finish_batch()
-            if path is None:
-                raise DownloadError(updated.extra.get("error") or updated.status.value)
-            from app.services.lms_watch import schedule_lms_sync
+        download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
+        download_tracker.finish_batch()
+        if path is None:
+            raise DownloadError(updated.extra.get("error") or updated.status.value)
+        from app.services.lms_watch import schedule_lms_sync
 
-            schedule_lms_sync(paper_ids=[paper_id])
-            return path
+        schedule_lms_sync(paper_ids=[paper_id])
+        return path
 
 
 async def download_papers_parallel(
@@ -437,9 +507,6 @@ async def download_papers_parallel(
     checkpoint: Callable[[], Awaitable[None]] | None = None,
 ) -> list[tuple[int, PaperRecord]]:
     """Download many PDFs concurrently with a shared progress tracker."""
-    from app.database.connection import session_scope
-    from app.database.repository import save_paper
-
     if not jobs:
         return []
 
@@ -475,9 +542,7 @@ async def download_papers_parallel(
                     percent=round(82 + (index / max(total, 1)) * 13, 1),
                     log=False,
                 )
-            with session_scope() as session:
-                updated = await downloader.download_paper(
-                    session,
+            updated = await downloader.download_paper(
                     paper_id,
                     paper,
                     topic_slug,
@@ -487,7 +552,6 @@ async def download_papers_parallel(
                     else None,
                     user_id=user_id,
                 )
-                save_paper(session, updated)
             if use_download_tracker:
                 download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
             if job_progress is not None:
