@@ -33,8 +33,8 @@ def test_settings_activity_shows_online_user_and_login(tmp_db):
     assert signed.status_code == 303
     page = client.get("/settings?section=activity")
     assert page.status_code == 200
-    assert "Online now" in page.text
-    assert "Usage log" in page.text
+    assert "Online" in page.text
+    assert "Recent activity" in page.text
     assert "Administrator" in page.text or "admin@localhost" in page.text
     assert "Signed in" in page.text
     payload = client.get("/api/activity").json()

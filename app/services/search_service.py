@@ -25,7 +25,7 @@ from app.models.paper import PaperRecord, PaperStatus
 from app.models.search import SearchFilters, SearchStats
 from app.providers import build_providers
 from app.services.dedup_service import deduplicate
-from app.services.download_service import DownloadService, write_topic_metadata_csv
+from app.services.download_service import DownloadService, download_papers_parallel, write_topic_metadata_csv
 from app.services.export_service import ExportService
 from app.services.oa_service import OpenAccessService
 from app.services.progress import ProgressTracker, download_tracker, tracker
@@ -197,33 +197,19 @@ class SearchService:
                     total=total_pdfs,
                     percent=82,
                 )
-                download_tracker.start_batch(total_pdfs, "Downloading open-access PDFs")
                 downloaded_ids: list[int] = []
                 try:
-                    for idx, (paper_id, paper) in enumerate(to_download, start=1):
-                        await self._checkpoint()
-                        console.print(f"[blue]\\[DOWNLOAD][/] {idx}/{total_pdfs} {paper.title[:70]}")
-                        download_tracker.begin_item(paper_id, paper.title, idx)
-                        self._progress.set_phase(
-                            "downloading",
-                            f"PDFs {idx}/{total_pdfs}",
-                            current=idx,
-                            total=total_pdfs,
-                            percent=round(82 + (idx / max(total_pdfs, 1)) * 13, 1),
-                            log=False,
-                        )
-                        with session_scope() as session:
-                            updated = await downloader.download_paper(
-                                session,
-                                paper_id,
-                                paper,
-                                filters.topic_slug,
-                                max_file_size=max_size,
-                                on_progress=lambda received, total: download_tracker.update_bytes(received, total),
-                                user_id=user_id,
-                            )
-                            save_paper(session, updated)
-                        download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
+                    results = await download_papers_parallel(
+                        downloader,
+                        to_download,
+                        topic_slug=filters.topic_slug,
+                        max_file_size=max_size,
+                        user_id=user_id,
+                        job_progress=self._progress,
+                        use_download_tracker=True,
+                        checkpoint=self._checkpoint,
+                    )
+                    for paper_id, updated in results:
                         if updated.status == PaperStatus.DOWNLOADED:
                             stats.pdfs_downloaded += 1
                             downloaded_ids.append(paper_id)
@@ -232,7 +218,6 @@ class SearchService:
                         elif updated.status == PaperStatus.FAILED:
                             stats.failed_downloads += 1
                 finally:
-                    download_tracker.finish_batch()
                     dl = download_tracker.snapshot()
                     self._progress.log(
                         f"PDF downloads: {dl.get('downloaded', 0)} saved, "

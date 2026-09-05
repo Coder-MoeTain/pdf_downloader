@@ -1,7 +1,8 @@
 app:
-  name: ResearchPaper Collector
-  version: "1.0.0"
-  user_agent: "ResearchPaperCollector/1.0 (academic research; mailto:{email})"
+  name: Cyber Scholar
+  subtitle: Myanmar Space Agency
+  version: "1.2.0"
+  user_agent: "CyberScholar/1.2 (academic research; mailto:{email})"
   library_dir: research_library
   exports_dir: exports
   logs_dir: logs
@@ -24,6 +25,7 @@ search:
   provider_timeout_seconds: 12
   provider_phase_seconds: 16
   oa_concurrency: 8
+  max_concurrent_search_jobs_per_user: 2
 
 ranking:
   title_weight: 0.35

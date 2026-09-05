@@ -101,6 +101,8 @@
 
   function apply(data) {
     if (!data || data.kind === "download") return;
+    if (trackedJobId && data.job_id && String(data.job_id) !== String(trackedJobId)) return;
+    if (trackedJobId && !data.job_id && data.phase === "idle" && !(data.logs && data.logs.length)) return;
     if (data.job_id) trackedJobId = String(data.job_id);
     var active = !!data.active && data.kind === "search";
     jobEl.classList.toggle("is-live", active);
@@ -238,6 +240,7 @@
   }
 
   function pollQueue() {
+    var previousJobId = trackedJobId;
     fetch("/api/search-queue", { headers: { Accept: "application/json" } })
       .then(function (response) {
         return response.json();
@@ -245,13 +248,20 @@
       .then(function (data) {
         renderQueue(data);
         if (!trackedJobId && data.users) {
+          var pendingId = "";
           data.users.forEach(function (group) {
             (group.jobs || []).forEach(function (item) {
               if (item.status === "running" && !trackedJobId) {
                 trackedJobId = String(item.id);
+              } else if (item.status === "pending" && !pendingId) {
+                pendingId = String(item.id);
               }
             });
           });
+          if (!trackedJobId && pendingId) trackedJobId = pendingId;
+        }
+        if (trackedJobId && trackedJobId !== previousJobId) {
+          pollProgress();
         }
       })
       .catch(function () {});

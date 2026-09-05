@@ -8,8 +8,7 @@
 {% set rank = phase_rank.get(job.phase, -1) %}
 <div class="page-head">
   <div>
-    <div class="page-kicker">Discover</div>
-    <h1 class="h2 mb-0">Search academic sources</h1>
+    <h1 class="h2 mb-0">Search</h1>
   </div>
   {% if is_admin %}<a class="store-pill is-mysql" href="/sources">{% else %}<div class="store-pill is-mysql">{% endif %}
     <span class="store-dot" aria-hidden="true"></span>
@@ -23,15 +22,13 @@
 <div class="row g-4">
   <div class="col-lg-7">
     <form method="post" action="/search" class="card search-form" data-busy="Starting…">
-      <div class="card-header">New search</div>
       <fieldset>
       <div class="card-body">
         <div class="mb-3">
-          <label class="form-label fw-semibold" for="query">Research topic</label>
+          <label class="form-label" for="query">Research topic</label>
           <input class="form-control form-control-lg" id="query" name="query" required autocomplete="off"
                  placeholder="e.g. reinforcement learning for intrusion detection"
                  value="{{ job.query if job.query else '' }}">
-          <div class="form-hint">Try a saved topic or type a precise query. Sources run in parallel.</div>
           <div class="chip-row mt-2">
             {% for topic in topics %}
             <button class="topic-chip" type="button" data-query="{{ topic.query }}">{{ topic.name }}</button>
@@ -85,11 +82,8 @@
         </div>
       </div>
       </fieldset>
-      <div class="card-footer settings-footer d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <span class="paper-meta mb-0" id="searchFormHint">{% if job.active %}Your search is running — watch the live log.{% else %}Searches are queued; each user runs in parallel.{% endif %}</span>
-        <button class="btn btn-primary btn-lg" type="submit">
-          Run search
-        </button>
+      <div class="card-footer settings-footer d-flex justify-content-end">
+        <button class="btn btn-primary btn-lg" type="submit">Run search</button>
       </div>
     </form>
   </div>

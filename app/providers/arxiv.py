@@ -7,6 +7,7 @@ from typing import Any
 
 import feedparser
 
+from app.models.crawl import BrowsePage, CrawlFilters
 from app.models.paper import AuthorRecord, PaperRecord
 from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
@@ -21,17 +22,43 @@ ARXIV_ID_RE = re.compile(r"arxiv\.org/abs/([0-9.]+|[a-z\-]+/\d+)", re.I)
 class ArxivProvider(ResearchProvider):
     name = "arxiv"
     display_name = "arXiv"
+    supports_browse = True
     BASE = "https://export.arxiv.org/api/query"
 
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
         search_query = f"all:{query}"
         if filters.authors:
             search_query += f" AND au:{filters.authors}"
+        return await self._fetch(search_query, start=0, max_results=min(filters.max_results, 100), filters=filters)
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        start = int(cursor or "0")
+        page_size = min(filters.page_size, 100)
+        search_query = filters.query.strip() or "all:*"
+        papers = await self._fetch(search_query, start=start, max_results=page_size, filters=filters)
+        next_start = start + len(papers)
+        has_more = len(papers) >= page_size
+        return BrowsePage(
+            records=papers,
+            next_cursor=str(next_start) if has_more else None,
+            has_more=has_more,
+            page_number=(start // page_size) + 1,
+            total_results=None,
+        )
+
+    async def _fetch(
+        self,
+        search_query: str,
+        *,
+        start: int,
+        max_results: int,
+        filters: SearchFilters | CrawlFilters,
+    ) -> list[PaperRecord]:
         params: dict[str, Any] = {
             "search_query": search_query,
-            "start": 0,
-            "max_results": min(filters.max_results, 100),
-            "sortBy": "relevance",
+            "start": start,
+            "max_results": max_results,
+            "sortBy": "submittedDate",
             "sortOrder": "descending",
         }
         xml = await self.request_text(self.BASE, params=params, allow_http=False)

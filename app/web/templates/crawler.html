@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% from "_macros.html" import source_mark %}
+{% block title %}Source Crawler · {{ app_name }}{% endblock %}
+{% block extra_js %}
+<script src="/static/crawler.js?v={{ version }}"></script>
+{% endblock %}
+{% block content %}
+{% set phase_rank = {"idle": -1, "starting": 0, "crawling": 1, "oa": 2, "storing": 3, "downloading": 4, "done": 5, "error": 5, "cancelled": 5} %}
+{% set rank = phase_rank.get(job.phase, -1) %}
+<div class="page-head">
+  <div>
+    <h1 class="h2 mb-0">Source crawler</h1>
+  </div>
+  <div class="store-pill is-mysql">
+    <span class="store-dot" aria-hidden="true"></span>
+    <div>
+      <strong>{{ crawlable_count }} crawlable</strong>
+      <div class="store-meta">{{ crawl_sources|length }} in catalog</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <form method="post" action="/crawler" class="card search-form" id="crawlForm" data-busy="Queueing crawl…">
+      <div class="card-body">
+        <section class="crawl-source-panel" aria-labelledby="crawlSourceHeading">
+          <div class="crawl-source-toolbar">
+            <div class="crawl-source-heading">
+              <h2 class="h6 mb-0" id="crawlSourceHeading">Sources</h2>
+              <span class="crawl-source-summary" id="crawlSourceSummary" aria-live="polite">None selected</span>
+            </div>
+            <div class="chip-row crawl-source-filters" role="tablist" aria-label="Source filters">
+              <button class="chip active" type="button" data-crawl-filter="crawlable" role="tab" aria-selected="true">Crawlable · {{ crawlable_count }}</button>
+              <button class="chip" type="button" data-crawl-filter="all" role="tab" aria-selected="false">All · {{ crawl_sources|length }}</button>
+              {% set other_count = crawl_sources|length - crawlable_count %}
+              {% if other_count %}
+              <button class="chip" type="button" data-crawl-filter="other" role="tab" aria-selected="false">Other · {{ other_count }}</button>
+              {% endif %}
+            </div>
+            <div class="crawl-source-actions">
+              <input class="form-control form-control-sm" id="crawlSourceFilter" type="search" placeholder="Search name or id" autocomplete="off" aria-label="Search sources">
+              <button class="btn btn-sm btn-outline-secondary" type="button" id="crawlSelectAll">Select all</button>
+              <button class="btn btn-sm btn-outline-secondary" type="button" id="crawlClearAll">Clear</button>
+            </div>
+          </div>
+          <div class="chip-row crawl-selected-chips d-none" id="crawlSelectedChips" aria-label="Selected sources"></div>
+          <div class="crawl-source-grid crawl-source-grid--tiles" id="crawlSourceGrid">
+            {% for src in crawl_sources %}
+            <label class="crawl-source-item{% if not src.crawlable %} is-muted{% endif %}"
+                   data-filter="{{ src.display_name }} {{ src.slug }}"
+                   data-crawlable="{{ 'true' if src.crawlable else 'false' }}"
+                   data-kind="{% if src.crawlable %}crawlable{% elif not src.supports_browse %}search-only{% else %}unavailable{% endif %}">
+              <input class="visually-hidden crawl-source-input" type="checkbox" name="sources" value="{{ src.slug }}"
+                     {% if not src.crawlable %}disabled{% endif %}
+                     aria-label="{{ src.display_name }}{% if not src.crawlable %} (not crawlable){% endif %}">
+              <span class="crawl-source-mark" aria-hidden="true"></span>
+              {{ source_mark(src.slug, src.homepage_url, src.display_name, false, 22) }}
+              <span class="crawl-source-copy">
+                <strong>{{ src.display_name }}</strong>
+                <span class="crawl-source-meta">{{ src.slug }}</span>
+              </span>
+              {% if src.crawlable %}
+              <span class="status-badge status-success crawl-source-badge">Crawl</span>
+              {% elif not src.supports_browse %}
+              <span class="status-badge status-secondary crawl-source-badge">Search only</span>
+              {% elif not src.enabled %}
+              <span class="status-badge status-secondary crawl-source-badge">Disabled</span>
+              {% elif src.requires_key and not src.has_key %}
+              <span class="status-badge status-warning crawl-source-badge">Needs key</span>
+              {% else %}
+              <span class="status-badge status-secondary crawl-source-badge">Unavailable</span>
+              {% endif %}
+            </label>
+            {% else %}
+            <p class="paper-meta mb-0 crawl-source-empty">No sources configured.</p>
+            {% endfor %}
+          </div>
+          <p class="crawl-source-empty-msg paper-meta mb-0 d-none" id="crawlSourceEmpty">No sources match this filter.</p>
+          <p class="crawl-source-error paper-meta mb-0 d-none" id="crawlSourceError" role="alert">Select at least one crawlable source.</p>
+          <p class="paper-meta mb-0 crawl-source-note">Crawlable sources support paginated harvest. Others are search-only until their API adds browse support.</p>
+        </section>
+        <div class="mb-3 mt-1">
+          <label class="form-label" for="query">Filter query</label>
+          <input class="form-control" id="query" name="query" autocomplete="off"
+                 placeholder="Optional — blank crawls all records">
+        </div>
+        <div class="row">
+          <div class="col-sm-6 mb-3">
+            <label class="form-label" for="year_from">Year from</label>
+            <input class="form-control" id="year_from" name="year_from" inputmode="numeric" placeholder="Optional">
+          </div>
+          <div class="col-sm-6 mb-3">
+            <label class="form-label" for="year_to">Year to</label>
+            <input class="form-control" id="year_to" name="year_to" inputmode="numeric" placeholder="Optional">
+          </div>
+          <div class="col-sm-4 mb-3">
+            <label class="form-label" for="page_size">Page size</label>
+            <input class="form-control" type="number" id="page_size" name="page_size" value="100" min="10" max="200">
+          </div>
+          <div class="col-sm-4 mb-3">
+            <label class="form-label" for="max_pages">Max pages</label>
+            <input class="form-control" type="number" id="max_pages" name="max_pages" value="0" min="0" max="10000">
+            <div class="form-text">0 = crawl until the source has no more pages</div>
+          </div>
+          <div class="col-sm-4 mb-3">
+            <label class="form-label" for="max_papers">Max papers</label>
+            <input class="form-control" type="number" id="max_papers" name="max_papers" value="50000" min="10" max="50000">
+          </div>
+        </div>
+        <div class="search-options">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="skip_existing" id="skip_existing" value="1" checked>
+            <label class="form-check-label" for="skip_existing">Skip papers already in the local library</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="open_access_only" id="oa" value="1">
+            <label class="form-check-label" for="oa">Open access only at the source API</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="pdfs_only" id="pdfs_only" value="1">
+            <label class="form-check-label" for="pdfs_only">Save only papers with a downloadable PDF</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="download" id="dl" value="1" checked>
+            <label class="form-check-label" for="dl">Download PDF files during this crawl</label>
+          </div>
+          <p class="paper-meta mb-0 mt-2">By default, all metadata is saved and pagination continues until the source is exhausted or max papers is reached.</p>
+        </div>
+      </div>
+      <div class="card-footer settings-footer d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <span class="paper-meta mb-0" id="crawlFooterHint">Pick one or more crawlable sources.</span>
+        <button class="btn btn-primary btn-lg" type="submit" id="crawlSubmit" disabled>Start crawl</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card search-job {% if job.active %}is-live{% elif job.phase == 'done' %}is-done{% elif job.phase in ['error', 'cancelled'] %}is-error{% endif %}" id="crawlJob" data-active="{{ 'true' if job.active else 'false' }}" data-job-id="{{ active_job_id or '' }}">
+      <div class="card-header d-flex justify-content-between align-items-baseline gap-2">
+        <span class="job-live-mark" id="jobTitleWrap">
+          {% if job.active %}<span class="nav-live-dot" aria-hidden="true"></span>{% endif %}
+          <span id="jobTitle">{{ "Live crawl" if job.active else "Crawl activity" }}</span>
+        </span>
+        <span class="paper-meta mb-0 job-query" id="jobQuery" title="{{ job.query }}">{{ job.query }}</span>
+        <form method="post" action="/crawler/jobs/{{ active_job_id or 0 }}/stop" class="d-inline{% if not active_job_id %} d-none{% endif %}" id="jobStopForm">
+          <button class="btn btn-sm btn-outline-danger" type="submit">Stop</button>
+        </form>
+      </div>
+      <div class="card-body">
+        <ol class="job-steps" id="jobSteps">
+          {% for key, label in [("crawling", "Pages"), ("oa", "Open access"), ("storing", "Save"), ("downloading", "PDFs")] %}
+          <li data-phase="{{ key }}" class="{% if rank == loop.index or (job.phase == 'starting' and key == 'crawling') %}is-current{% elif rank > loop.index %}is-done{% endif %}">{{ label }}</li>
+          {% endfor %}
+        </ol>
+        <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
+          <strong id="jobMessage">{{ job.message or "Select sources and start a crawl." }}</strong>
+          <span class="paper-meta mb-0" id="jobCounts">{% if job.total %}{{ job.current }}/{{ job.total }}{% endif %}</span>
+        </div>
+        <div class="progress search-progress" role="progressbar">
+          <div id="jobBar" class="progress-bar {% if job.active %}progress-bar-striped progress-bar-animated{% endif %}" style="width: {{ job.percent or 0 }}%">
+            {% if job.percent is defined and job.percent is not none %}{{ job.percent|int }}%{% endif %}
+          </div>
+        </div>
+        <div class="log-panel mt-3" id="jobLogs" aria-live="polite">
+          {% for entry in job.logs %}
+          <div class="log-line log-{{ entry.level }}"><time>{{ entry.time }}</time><span>{{ entry.message }}</span></div>
+          {% else %}
+          <div class="log-line log-muted">Waiting for a crawl to start…</div>
+          {% endfor %}
+        </div>
+        <div class="job-result {% if job.phase != 'done' %}d-none{% endif %}" id="jobResult">
+          <div class="row g-2 mt-3" id="jobStats">
+            {% for label, key in [("Saved", "new_papers"), ("Existing", "skipped_existing"), ("No PDF", "no_pdf"), ("Downloaded", "pdfs_downloaded")] %}
+            <div class="col-6">
+              <div class="result-stat">
+                <div class="stat-label">{{ label }}</div>
+                <div class="stat-value tone-primary">{{ job.stats.get(key, 0) if job.stats else 0 }}</div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          <a class="btn btn-primary w-100 mt-3" href="/library">View library</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-4" id="crawlQueueCard">
+      <div class="card-header d-flex justify-content-between align-items-baseline gap-2">
+        <span>Crawl queue</span>
+        <span class="paper-meta mb-0" id="queueSummary">{{ crawl_queue.running }} running · {{ crawl_queue.pending }} pending</span>
+      </div>
+      <div class="card-body p-0" id="crawlQueueBody">
+        {% if crawl_queue.users %}
+        {% for group in crawl_queue.users %}
+        <div class="queue-user-group border-bottom">
+          <div class="px-3 py-2 bg-light fw-semibold small">{{ group.username }}</div>
+          <ul class="list-group list-group-flush">
+            {% for item in group.jobs %}
+            <li class="list-group-item d-flex justify-content-between gap-3 align-items-center py-2">
+              <div class="text-truncate" title="{{ item.source_label or item.source }}">{{ item.source_label or item.source }}</div>
+              <span class="status-badge status-{{ 'primary' if item.status == 'running' else 'secondary' }}">
+                {% if item.status == 'pending' and item.position %}#{{ item.position }} pending{% else %}{{ item.status }}{% endif %}
+              </span>
+              {% if item.status in ['pending', 'running'] %}
+              <form method="post" action="/crawler/jobs/{{ item.id }}/stop" class="d-inline">
+                <button class="btn btn-sm btn-outline-danger queue-stop" type="submit">Stop</button>
+              </form>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="p-3 paper-meta mb-0">No crawls in the queue.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

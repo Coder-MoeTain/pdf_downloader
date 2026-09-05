@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from math import ceil
 from typing import Annotated, Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from pydantic import BeforeValidator
 
@@ -32,7 +32,7 @@ def status_meta(code: str | None) -> dict[str, str]:
     return STATUS_META.get(code, {"label": str(code).replace("_", " ").title(), "tone": "secondary"})
 
 
-def paper_authors_line(paper, limit: int = 6) -> str:
+def paper_authors_line(paper, limit: int | None = 6) -> str:
     """Comma-separated author names for library and abstract preview."""
     links = sorted(getattr(paper, "authors", None) or [], key=lambda item: item.position or 0)
     names = [
@@ -42,9 +42,24 @@ def paper_authors_line(paper, limit: int = 6) -> str:
     ]
     if not names:
         return ""
-    if len(names) > limit:
+    if limit is not None and len(names) > limit:
         return ", ".join(names[:limit]) + f" +{len(names) - limit}"
     return ", ".join(names)
+
+
+def paper_categories(paper) -> list[str]:
+    """Distinct research-field and keyword tags for a paper."""
+    from app.database.repository import split_tags
+
+    seen: set[str] = set()
+    tags: list[str] = []
+    for raw in (getattr(paper, "research_fields", None), getattr(paper, "keywords", None)):
+        for tag in split_tags(raw):
+            key = tag.lower()
+            if key not in seen:
+                seen.add(key)
+                tags.append(tag)
+    return tags
 
 
 def paper_downloader_name(paper) -> str:
@@ -107,7 +122,7 @@ def active_page(path: str) -> str:
         ("/library", "library"),
         ("/downloads", "downloads"),
         ("/sources", "sources"),
-        ("/statistics", "statistics"),
+        ("/crawler", "crawler"),
         ("/settings", "settings"),
         ("/account", "account"),
         ("/login", "login"),
@@ -138,6 +153,29 @@ def source_label(slug: str | None) -> str:
 
     labels = {str(item["slug"]): str(item["display_name"]) for item in BUILTIN_SOURCES}
     return labels.get(slug, slug.replace("_", " ").title())
+
+
+def source_homepage(slug: str | None, homepage_url: str | None = None) -> str:
+    if homepage_url:
+        return homepage_url.strip()
+    if not slug:
+        return ""
+    from app.database.source_catalog import BUILTIN_SOURCES
+
+    for item in BUILTIN_SOURCES:
+        if str(item["slug"]) == slug:
+            return str(item.get("homepage_url") or "")
+    return ""
+
+
+def source_logo_url(slug: str | None, homepage_url: str | None = None) -> str:
+    url = source_homepage(slug, homepage_url)
+    if url:
+        parsed = urlparse(url if "://" in url else f"https://{url}")
+        domain = parsed.netloc or parsed.path.split("/")[0]
+        if domain:
+            return f"https://www.google.com/s2/favicons?domain={domain}&sz=32"
+    return "/static/favicon.svg"
 
 
 def _blank_query_int(default: int):

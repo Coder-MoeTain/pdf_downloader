@@ -4,9 +4,7 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="page-kicker">Account</div>
-    <h1 class="h2 mb-1">User settings</h1>
-    <p class="lede mb-0">Your profile, password, and role. Admins can add people and switch them between <strong>user</strong> and <strong>admin</strong>.</p>
+    <h1 class="h2 mb-0">Account</h1>
   </div>
   <form method="post" action="/logout">
     <button class="btn btn-outline-danger" type="submit">Log out</button>
@@ -29,7 +27,6 @@
         <div class="mb-0">
           <span class="form-label d-block">Role</span>
           <span class="role-badge role-{{ user.role }}">{{ user.role }}</span>
-          <div class="form-hint mt-2">{% if user.is_admin %}Admins can open Sources and Settings.{% else %}Users can search, browse the library, and download open-access PDFs.{% endif %}</div>
         </div>
       </div>
       <div class="card-footer settings-footer">

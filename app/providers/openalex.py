@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.models.crawl import BrowsePage, CrawlFilters
 from app.models.paper import AuthorRecord, PaperRecord
 from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
@@ -17,9 +18,10 @@ logger = get_logger("app.providers.openalex")
 class OpenAlexProvider(ResearchProvider):
     name = "openalex"
     display_name = "OpenAlex"
+    supports_browse = True
     BASE = "https://api.openalex.org/works"
 
-    async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
+    def _search_params(self, query: str, filters: SearchFilters) -> dict[str, Any]:
         params: dict[str, Any] = {
             "search": query,
             "per_page": min(filters.max_results, 200),
@@ -38,11 +40,46 @@ class OpenAlexProvider(ResearchProvider):
             filt.append(f"cited_by_count:>{filters.min_citations - 1}")
         if filt:
             params["filter"] = ",".join(filt)
+        return params
 
+    async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
+        params = self._search_params(query, filters)
         data = await self.request_json(self.BASE, params=params)
         results = (data or {}).get("results") or []
         papers = [self._parse(item) for item in results]
         return [p for p in papers if p and p.title]
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        params: dict[str, Any] = {
+            "per_page": min(filters.page_size, 200),
+            "sort": "publication_date:desc",
+            "mailto": self.config.env.polite_email,
+            "cursor": cursor or "*",
+        }
+        if filters.query.strip():
+            params["search"] = filters.query.strip()
+        filt: list[str] = ["type:article|preprint|posted-content"]
+        if filters.year_from and filters.year_to:
+            filt.append(f"publication_year:{filters.year_from}-{filters.year_to}")
+        elif filters.year_from:
+            filt.append(f"from_publication_date:{filters.year_from}-01-01")
+        elif filters.year_to:
+            filt.append(f"to_publication_date:{filters.year_to}-12-31")
+        if filters.open_access_only:
+            filt.append("is_oa:true")
+        params["filter"] = ",".join(filt)
+        data = await self.request_json(self.BASE, params=params)
+        meta = (data or {}).get("meta") or {}
+        results = (data or {}).get("results") or []
+        records = [p for p in (self._parse(item) for item in results) if p and p.title]
+        next_cursor = meta.get("next_cursor")
+        return BrowsePage(
+            records=records,
+            next_cursor=next_cursor,
+            has_more=bool(next_cursor),
+            page_number=int(meta.get("page") or 1),
+            total_results=meta.get("count"),
+        )
 
     async def get_paper(self, identifier: str) -> PaperRecord | None:
         doi = normalize_doi(identifier)

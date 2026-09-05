@@ -1,4 +1,4 @@
-"""Local FastAPI dashboard for ResearchPaper Collector."""
+"""Local FastAPI dashboard for Cyber Scholar."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import selectinload
 
-from app import __app_name__, __version__
+from app import __app_name__, __app_subtitle__, __version__
 from app.auth import (
     PASSWORD_MIN_LENGTH,
     ROLE_ADMIN,
@@ -42,10 +42,13 @@ from app.config import ROOT_DIR, get_runtime_config
 from app.database.connection import init_db, retry_on_sqlite_lock, session_scope
 from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuery, SearchResult, User
 from app.database.repository import (
+    active_crawl_job_for_user,
     active_search_job_for_user,
     delete_library_paper,
     download_user_options,
     downloadable_clause,
+    get_crawl_job,
+    get_search_job,
     library_facets,
     query_library,
     set_paper_rating,
@@ -79,9 +82,24 @@ from app.services.download_service import (
     pdf_button_state,
     safe_library_pdf,
 )
-from app.services.progress import download_tracker, job_registry, live_progress, tracker
-from app.services.search_queue import cancel_search, enqueue_search, queue_snapshot, start_search_queue_worker
+from app.services.crawl_queue import (
+    cancel_crawl,
+    crawl_progress_snapshot,
+    enqueue_crawl,
+    queue_snapshot as crawl_queue_snapshot,
+    start_crawl_queue_worker,
+)
+from app.services.crawl_service import filters_from_form
+from app.services.progress import crawl_idle_snapshot, crawl_job_registry, download_tracker, job_registry, live_progress, tracker
+from app.services.search_queue import (
+    cancel_search,
+    enqueue_search,
+    queue_snapshot,
+    search_progress_snapshot,
+    start_search_queue_worker,
+)
 from app.services.search_service import SearchService, filters_from_cli
+from app.services.library_reset import reset_library_repository
 from app.services.usage import activity_payload, drop_presence, record_usage, touch_presence
 from app.utils.git_update import GitUpdateError, git_pull, git_status
 from app.utils.pm2_control import Pm2Error, pm2_logs, pm2_restart, pm2_status
@@ -106,11 +124,15 @@ from app.web.ui import (
     pagination_spec,
     source_matches,
     paper_abstract_meta,
+    paper_authors_line,
+    paper_categories,
     paper_downloader_name,
     paper_record_date,
     download_record_date,
     share,
     source_label,
+    source_logo_url,
+    source_homepage,
     source_row_status,
     sources_href,
     status_meta,
@@ -125,7 +147,11 @@ templates.env.globals["library_href"] = library_href
 templates.env.globals["downloads_href"] = downloads_href
 templates.env.globals["sources_href"] = sources_href
 templates.env.globals["source_label"] = source_label
+templates.env.globals["source_logo_url"] = source_logo_url
+templates.env.globals["source_homepage"] = source_homepage
 templates.env.globals["paper_abstract_meta"] = paper_abstract_meta
+templates.env.globals["paper_authors_line"] = paper_authors_line
+templates.env.globals["paper_categories"] = paper_categories
 templates.env.globals["paper_downloader_name"] = paper_downloader_name
 templates.env.globals["paper_record_date"] = paper_record_date
 templates.env.globals["download_actor_name"] = download_actor_name
@@ -181,6 +207,7 @@ async def _startup() -> None:
     except Exception:
         pass
     await start_search_queue_worker()
+    await start_crawl_queue_worker()
     try:
         from app.services.lms_watch import schedule_lms_sync, start_lms_watch
 
@@ -461,6 +488,7 @@ def _ctx(request: Request, **extra):
     payload = {
         "request": request,
         "app_name": cfg.name,
+        "app_subtitle": cfg.subtitle or __app_subtitle__,
         "version": __version__,
         "flash": _search_message,
         "page": active_page(request.url.path),
@@ -515,6 +543,15 @@ def dashboard(request: Request):
             .where(Paper.journal.is_not(None), Paper.journal != "", *visible)
             .group_by(Paper.journal)
             .order_by(func.count(Paper.id).desc())
+            .limit(6)
+        ).all()
+        authors = session.execute(
+            select(Author.name, func.count(PaperAuthor.id))
+            .join(PaperAuthor, PaperAuthor.author_id == Author.id)
+            .join(Paper, Paper.id == PaperAuthor.paper_id)
+            .where(*visible)
+            .group_by(Author.name)
+            .order_by(func.count(PaperAuthor.id).desc())
             .limit(6)
         ).all()
         status_rows = session.execute(
@@ -574,6 +611,7 @@ def dashboard(request: Request):
             statuses=statuses,
             publishers=[{"name": name, "count": count, "pct": share(count, total)} for name, count in publishers],
             journals=[{"name": name, "count": count, "pct": share(count, total)} for name, count in journals],
+            authors=[{"name": name, "count": count, "pct": share(count, total)} for name, count in authors],
             top_cited=top_cited,
             recent=recent,
             latest_search=recent[0] if recent else None,
@@ -591,13 +629,22 @@ def search_page(request: Request):
     cfg = get_runtime_config()
     user_id = _request_user_id(request)
     is_admin = user_is_admin(request)
+    job_id_param = request.query_params.get("job")
     with session_scope() as session:
         recent = session.scalars(select(SearchQuery).order_by(SearchQuery.created_at.desc()).limit(8)).all()
         active_job = active_search_job_for_user(session, user_id)
+        focus_job = active_job
+        if focus_job is None and job_id_param:
+            try:
+                jid = int(job_id_param)
+                row = get_search_job(session, jid)
+                if row and row.status in ("pending", "running"):
+                    if is_admin or row.user_id == user_id:
+                        focus_job = row
+            except ValueError:
+                pass
     available = [row for row in provider_status() if row.get("available")]
-    job_progress = job_registry.snapshot(active_job.id) if active_job else tracker.snapshot()
-    if active_job and job_progress:
-        job_progress.setdefault("query", active_job.query)
+    job_progress = search_progress_snapshot(focus_job.id) if focus_job else tracker.snapshot()
     queue = queue_snapshot(user_id=user_id, is_admin=is_admin)
     return templates.TemplateResponse(
         request,
@@ -608,7 +655,7 @@ def search_page(request: Request):
             recent_searches=recent,
             available_sources=available,
             job=job_progress or tracker.snapshot(),
-            active_job_id=active_job.id if active_job else None,
+            active_job_id=focus_job.id if focus_job else None,
             search_queue=queue,
             topics=cfg.topics[:6],
         ),
@@ -640,9 +687,175 @@ async def search_submit(
     user_id = _request_user_id(request)
     job_id = enqueue_search(user_id=user_id, query=query.strip(), filters=filters)
     record_usage(request, "search", query.strip())
-    _search_message["text"] = f"Search queued (job #{job_id}). Each user runs in parallel — watch the live log."
+    _search_message["text"] = f"Search queued (job #{job_id}). Sources and PDF downloads run in parallel — watch the live log."
     _search_message["level"] = "info"
     return RedirectResponse(f"/search?live=1&job={job_id}", status_code=303)
+
+
+@app.get("/crawler", response_class=HTMLResponse)
+def crawler_page(request: Request):
+    if not user_is_admin(request):
+        return RedirectResponse("/", status_code=302)
+    user_id = _request_user_id(request)
+    crawl_sources = _crawl_source_rows()
+    crawlable_count = sum(1 for row in crawl_sources if row["crawlable"])
+    job_id_param = request.query_params.get("job")
+    with session_scope() as session:
+        active_job = active_crawl_job_for_user(session, user_id)
+        focus_job = active_job
+        if focus_job is None and job_id_param:
+            try:
+                jid = int(job_id_param)
+                row = get_crawl_job(session, jid)
+                if row and row.status in ("pending", "running"):
+                    focus_job = row
+            except ValueError:
+                pass
+    job_progress = crawl_progress_snapshot(focus_job.id) if focus_job else crawl_idle_snapshot()
+    if not job_progress:
+        job_progress = crawl_idle_snapshot()
+    if focus_job:
+        job_progress.setdefault("query", focus_job.source)
+    queue = crawl_queue_snapshot(user_id=user_id, is_admin=True)
+    return templates.TemplateResponse(
+        request,
+        "crawler.html",
+        _ctx(
+            request,
+            crawl_sources=crawl_sources,
+            crawlable_count=crawlable_count,
+            job=job_progress,
+            active_job_id=focus_job.id if focus_job else None,
+            crawl_queue=queue,
+        ),
+    )
+
+
+@app.post("/crawler")
+async def crawler_submit(
+    request: Request,
+    sources: list[str] = Form(default=[]),
+    query: str = Form(""),
+    year_from: str = Form(""),
+    year_to: str = Form(""),
+    page_size: int = Form(100),
+    max_pages: int = Form(0),
+    max_papers: int = Form(50000),
+    skip_existing: str | None = Form(None),
+    open_access_only: str | None = Form(None),
+    pdfs_only: str | None = Form(None),
+    download: str | None = Form(None),
+):
+    if not user_is_admin(request):
+        return RedirectResponse("/", status_code=302)
+    lookup = _crawl_source_lookup()
+    selected = [slug.strip() for slug in sources if slug.strip()]
+    if not selected:
+        _search_message["text"] = "Select at least one source to crawl."
+        _search_message["level"] = "warning"
+        return RedirectResponse("/crawler", status_code=303)
+
+    queued: list[str] = []
+    skipped: list[str] = []
+    job_ids: list[int] = []
+    user_id = _request_user_id(request)
+    for slug in selected:
+        row = lookup.get(slug)
+        if row is None:
+            skipped.append(slug)
+            continue
+        if not row["crawlable"]:
+            skipped.append(row["display_name"])
+            continue
+        filters = filters_from_form(
+            source=slug,
+            query=query,
+            year_from=int(year_from) if year_from.strip() else None,
+            year_to=int(year_to) if year_to.strip() else None,
+            open_access_only=bool(open_access_only),
+            skip_existing=skip_existing is not None,
+            download=bool(download),
+            pdfs_only=bool(pdfs_only),
+            page_size=page_size,
+            max_pages=max_pages,
+            max_papers=max_papers,
+        )
+        job_ids.append(enqueue_crawl(user_id=user_id, filters=filters))
+        queued.append(str(row["display_name"]))
+
+    if not job_ids:
+        _search_message["text"] = "No crawlable sources selected. Enable sources and pick ones that support paginated browse."
+        _search_message["level"] = "warning"
+        return RedirectResponse("/crawler", status_code=303)
+
+    record_usage(request, "crawl", ", ".join(queued))
+    if len(job_ids) == 1:
+        msg = f"Crawl queued (job #{job_ids[0]}) for {queued[0]}."
+    else:
+        msg = f"Queued {len(job_ids)} crawls: {', '.join(queued)}."
+    if skipped:
+        msg += f" Skipped {len(skipped)} unavailable or search-only source(s)."
+    _search_message["text"] = msg
+    _search_message["level"] = "info"
+    return RedirectResponse(f"/crawler?live=1&job={job_ids[0]}", status_code=303)
+
+
+@app.get("/api/crawl-progress")
+def crawl_progress(request: Request, job_id: int | None = None):
+    if not user_is_admin(request):
+        return JSONResponse({"ok": False, "error": "Admin access required"}, status_code=403)
+    user_id = _request_user_id(request)
+    target_id = job_id
+    if target_id is None and user_id is not None:
+        with session_scope() as session:
+            active = active_crawl_job_for_user(session, user_id)
+            if active:
+                target_id = active.id
+    if target_id is not None:
+        snap = crawl_progress_snapshot(target_id)
+        if snap:
+            return JSONResponse(snap, headers={"Cache-Control": "no-store"})
+    return JSONResponse(crawl_idle_snapshot(), headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/crawl-queue")
+def crawl_queue_api(request: Request):
+    if not user_is_admin(request):
+        return JSONResponse({"ok": False, "error": "Admin access required"}, status_code=403)
+    user_id = _request_user_id(request)
+    return JSONResponse(
+        crawl_queue_snapshot(user_id=user_id, is_admin=True),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/crawler/jobs/{job_id}/stop")
+async def crawl_stop(request: Request, job_id: int):
+    if not user_is_admin(request):
+        return RedirectResponse("/", status_code=302)
+    user_id = _request_user_id(request)
+    accept = (request.headers.get("accept") or "").lower()
+    wants_json = "application/json" in accept and "text/html" not in accept
+    try:
+        was = cancel_crawl(job_id, user_id=user_id, is_admin=True)
+    except PermissionError as exc:
+        if wants_json:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=403)
+        _search_message["text"] = str(exc)
+        _search_message["level"] = "warning"
+        return RedirectResponse("/crawler", status_code=303)
+    except ValueError as exc:
+        if wants_json:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        _search_message["text"] = str(exc)
+        _search_message["level"] = "warning"
+        return RedirectResponse("/crawler", status_code=303)
+    message = "Crawl stopped." if was == "pending" else "Stopping crawl…"
+    _search_message["text"] = message
+    _search_message["level"] = "info"
+    if wants_json:
+        return JSONResponse({"ok": True, "was": was, "message": message})
+    return RedirectResponse(f"/crawler?live=1&job={job_id}", status_code=303)
 
 
 @app.post("/search/jobs/{job_id}/stop")
@@ -784,28 +997,28 @@ def library_page(
             "active": bool(downloadable),
         },
         {
-            "href": library_href(filters, status="DOWNLOADED", page=1),
+            "href": "/downloads?status=DOWNLOADED",
             "label": "Downloaded",
             "value": stats["downloaded"],
             "tone": "info",
             "hint": "Saved locally",
-            "active": status == "DOWNLOADED",
+            "active": False,
         },
         {
-            "href": library_href(filters, status="OA_AVAILABLE", page=1),
+            "href": library_href({"latest": use_latest, "sort": sort, "per_page": per_page}, pdf=True, page=1),
             "label": "Open access",
             "value": stats["open_access"],
             "tone": "secondary",
             "hint": "Legal PDF available",
-            "active": status == "OA_AVAILABLE",
+            "active": False,
         },
         {
-            "href": library_href(filters, status="PAYWALLED", page=1),
+            "href": "/library",
             "label": "Paywalled",
             "value": stats["paywalled"],
             "tone": "warning",
             "hint": "Metadata only",
-            "active": status == "PAYWALLED",
+            "active": False,
         },
     ]
     return templates.TemplateResponse(
@@ -838,10 +1051,10 @@ def library_page(
             latest=use_latest,
             latest_search=latest_search,
             oa_pending=oa_pending,
-            search_running=bool(latest_search and latest_search.status == "running"),
+            search_running=bool(use_latest and latest_search and latest_search.status == "running"),
             kpis=kpis,
-            statuses=stats["statuses"],
             has_library_stats=stats["has_stats"],
+            source_catalog={row["slug"]: row for row in _source_rows()},
         ),
     )
 
@@ -968,7 +1181,7 @@ def search_progress(request: Request, job_id: int | None = None):
             if active:
                 target_id = active.id
     if target_id is not None:
-        snap = job_registry.snapshot(target_id)
+        snap = search_progress_snapshot(target_id)
         if snap:
             return JSONResponse(snap, headers={"Cache-Control": "no-store"})
     return JSONResponse(tracker.snapshot(), headers={"Cache-Control": "no-store"})
@@ -1129,6 +1342,22 @@ def _source_rows() -> list[dict]:
     return sources
 
 
+def _crawl_source_rows() -> list[dict]:
+    """All configured sources with crawl capability flags (same catalog as /sources)."""
+    browse = {cls.name: bool(getattr(cls, "supports_browse", False)) for cls in PROVIDER_CLASSES}
+    rows: list[dict] = []
+    for item in _source_rows():
+        row = dict(item)
+        row["supports_browse"] = browse.get(item["slug"], False)
+        row["crawlable"] = row["supports_browse"] and item["available"]
+        rows.append(row)
+    return rows
+
+
+def _crawl_source_lookup() -> dict[str, dict]:
+    return {row["slug"]: row for row in _crawl_source_rows()}
+
+
 def _settings_ctx(request: Request, section: str = "workspace"):
     cfg = get_runtime_config()
     sources = _source_rows()
@@ -1260,6 +1489,35 @@ def settings_save_workspace(
         return _settings_redirect("workspace", "Workspace settings saved to MySQL.")
     except SettingsError as exc:
         return _settings_redirect("workspace", str(exc), "danger")
+
+
+@app.post("/settings/reset")
+def settings_reset_repository(request: Request, confirm: str = Form("")):
+    if not user_is_admin(request):
+        return RedirectResponse("/", status_code=302)
+    if confirm.strip().upper() != "RESET":
+        return _settings_redirect(
+            "workspace",
+            "Reset cancelled — type RESET in the confirmation box.",
+            "warning",
+        )
+    try:
+        stats = reset_library_repository()
+    except Exception as exc:
+        return _settings_redirect("workspace", f"Reset failed: {exc}", "danger")
+    record_usage(
+        request,
+        "reset",
+        f"{stats.papers} papers, {stats.search_jobs} search jobs, {stats.pdf_files_removed} PDFs",
+    )
+    return _settings_redirect(
+        "workspace",
+        (
+            f"Library reset complete — removed {stats.papers} papers, "
+            f"{stats.search_queries} searches, {stats.search_jobs} search jobs, "
+            f"{stats.crawl_jobs} crawl jobs, and {stats.pdf_files_removed} PDF file(s)."
+        ),
+    )
 
 
 @app.post("/settings/search")
@@ -1410,174 +1668,6 @@ def settings_toggle_source(source_id: int, request: Request, next: str = Form(""
         if "application/json" in (request.headers.get("accept") or ""):
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
         return _settings_redirect("sources", str(exc), "danger", next_url=next)
-
-
-def _named_counts(rows, total: int) -> list[dict]:
-    return [{"name": name, "count": count, "pct": share(count, total)} for name, count in rows if name]
-
-
-@app.get("/statistics", response_class=HTMLResponse)
-def statistics_page(request: Request):
-    source_names = {str(item["slug"]): str(item["display_name"]) for item in BUILTIN_SOURCES}
-    visible = visible_paper_clauses()
-    with session_scope() as session:
-        stored_total = session.scalar(select(func.count(Paper.id))) or 0
-        total = session.scalar(select(func.count(Paper.id)).where(*visible)) or 0
-        oa = session.scalar(select(func.count(Paper.id)).where(Paper.open_access.is_(True), *visible)) or 0
-        downloadable = session.scalar(select(func.count(Paper.id)).where(downloadable_clause(), *visible)) or 0
-        downloaded = session.scalar(select(func.count(Download.id)).where(Download.status == "DOWNLOADED")) or 0
-        paywalled = session.scalar(select(func.count(Paper.id)).where(Paper.status == "PAYWALLED")) or 0
-        failed = session.scalar(select(func.count(Download.id)).where(Download.status == "FAILED")) or 0
-        rated = session.scalar(
-            select(func.count(Paper.id)).where(Paper.user_rating.is_not(None), *visible)
-        ) or 0
-        searches = session.scalar(select(func.count(SearchQuery.id))) or 0
-        avg_citations = session.scalar(
-            select(func.avg(Paper.citation_count)).where(Paper.citation_count.is_not(None), *visible)
-        )
-        avg_rating = session.scalar(
-            select(func.avg(Paper.user_rating)).where(Paper.user_rating.is_not(None), *visible)
-        )
-        year_bounds = session.execute(
-            select(func.min(Paper.publication_year), func.max(Paper.publication_year)).where(
-                Paper.publication_year.is_not(None), *visible
-            )
-        ).one()
-        years = session.execute(
-            select(Paper.publication_year, func.count(Paper.id))
-            .where(Paper.publication_year.is_not(None), *visible)
-            .group_by(Paper.publication_year)
-            .order_by(Paper.publication_year)
-        ).all()
-        publishers = session.execute(
-            select(Paper.publisher, func.count(Paper.id))
-            .where(Paper.publisher.is_not(None), Paper.publisher != "", *visible)
-            .group_by(Paper.publisher)
-            .order_by(func.count(Paper.id).desc())
-            .limit(10)
-        ).all()
-        journals = session.execute(
-            select(Paper.journal, func.count(Paper.id))
-            .where(Paper.journal.is_not(None), Paper.journal != "", *visible)
-            .group_by(Paper.journal)
-            .order_by(func.count(Paper.id).desc())
-            .limit(10)
-        ).all()
-        authors = session.execute(
-            select(Author.name, func.count(PaperAuthor.id))
-            .join(PaperAuthor, PaperAuthor.author_id == Author.id)
-            .join(Paper, Paper.id == PaperAuthor.paper_id)
-            .where(*visible)
-            .group_by(Author.name)
-            .order_by(func.count(PaperAuthor.id).desc())
-            .limit(10)
-        ).all()
-        sources = session.execute(
-            select(Paper.source, func.count(Paper.id))
-            .where(Paper.source.is_not(None), Paper.source != "", *visible)
-            .group_by(Paper.source)
-            .order_by(func.count(Paper.id).desc())
-            .limit(10)
-        ).all()
-        status_rows = session.execute(
-            select(Paper.status, func.count(Paper.id)).where(*visible).group_by(Paper.status)
-        ).all()
-        rating_rows = session.execute(
-            select(Paper.user_rating, func.count(Paper.id))
-            .where(Paper.user_rating.is_not(None), *visible)
-            .group_by(Paper.user_rating)
-            .order_by(Paper.user_rating.desc())
-        ).all()
-        top_cited = session.scalars(
-            select(Paper)
-            .where(Paper.citation_count.is_not(None), *visible)
-            .order_by(Paper.citation_count.desc())
-            .limit(8)
-        ).all()
-        topics = session.execute(
-            select(SearchQuery.original_query, func.count(SearchQuery.id))
-            .group_by(SearchQuery.original_query)
-            .order_by(func.count(SearchQuery.id).desc())
-            .limit(6)
-        ).all()
-
-    year_counts = [
-        {"year": year, "yy": f"{year % 100:02d}", "count": count, "pct": share(count, total)}
-        for year, count in years
-    ]
-    year_max = max((row["count"] for row in year_counts), default=0)
-    year_chart = year_counts[-16:]
-    for row in year_chart:
-        row["bar"] = round((row["count"] / year_max) * 100, 1) if year_max else 0
-    peak = max(year_counts, key=lambda row: row["count"]) if year_counts else None
-    statuses = [
-        {
-            "code": code,
-            "count": count,
-            "pct": share(count, total),
-            **status_meta(code),
-        }
-        for code, count in status_rows
-        if code
-    ]
-    statuses.sort(key=lambda row: (-row["count"], row["label"]))
-    source_rows = [
-        {
-            "name": source_names.get(slug, (slug or "").replace("_", " ").title()),
-            "slug": slug,
-            "count": count,
-            "pct": share(count, total),
-        }
-        for slug, count in sources
-        if slug
-    ]
-    kpis = [
-        {"href": "/library", "label": "Papers in library", "value": total, "tone": "primary", "hint": "All stored records" if get_runtime_config().show_paywalled else "Visible records"},
-        {"href": "/library?pdf=1", "label": "Downloadable PDFs", "value": downloadable, "tone": "success", "hint": f"{share(downloadable, total)}% of library"},
-        {"href": "/downloads?status=DOWNLOADED", "label": "Downloaded", "value": downloaded, "tone": "info", "hint": "Saved to disk"},
-        {"href": "/library?status=PAYWALLED", "label": "Paywalled", "value": paywalled, "tone": "warning", "hint": f"{share(paywalled, stored_total)}% of library"},
-        {"href": "/library?status=OA_AVAILABLE", "label": "Open access", "value": oa, "tone": "secondary", "hint": f"{share(oa, total)}% of library"},
-        {"href": "/library?min_rating=1", "label": "Rated papers", "value": rated, "tone": "primary", "hint": f"Avg {avg_rating:.1f}" if avg_rating else "No ratings yet"},
-    ]
-    insights = []
-    if year_bounds[0] and year_bounds[1]:
-        insights.append(f"Coverage {year_bounds[0]}–{year_bounds[1]}")
-    if peak:
-        insights.append(f"Peak year {peak['year']} · {peak['count']} papers")
-    if total:
-        if get_runtime_config().show_paywalled:
-            insights.append(f"{share(paywalled, stored_total)}% paywalled")
-        insights.append(f"{share(downloadable, total)}% have a legal PDF")
-    if avg_citations:
-        insights.append(f"Avg citations {avg_citations:.0f}")
-    if failed:
-        insights.append(f"{failed} failed download{'s' if failed != 1 else ''}")
-    return templates.TemplateResponse(
-        request,
-        "statistics.html",
-        _ctx(
-            request,
-            total=total,
-            stored_total=stored_total,
-            failed=failed,
-            avg_citations=avg_citations,
-            year_span=year_bounds,
-            years=year_counts,
-            year_chart=year_chart,
-            year_max=year_max,
-            no_year=max(total - sum(row["count"] for row in year_counts), 0),
-            publishers=_named_counts(publishers, total),
-            journals=_named_counts(journals, total),
-            authors=_named_counts(authors, total),
-            sources=source_rows,
-            statuses=statuses,
-            ratings=[{"rating": rating, "count": count, "pct": share(count, rated)} for rating, count in rating_rows],
-            top_cited=top_cited,
-            topics=[{"name": name, "count": count} for name, count in topics],
-            kpis=kpis,
-            insights=insights,
-        ),
-    )
 
 
 def _mask(value: str) -> str:

@@ -1,4 +1,4 @@
-"""Typer CLI and interactive menu for ResearchPaper Collector."""
+"""Typer CLI and interactive menu for Cyber Scholar."""
 
 from __future__ import annotations
 

@@ -50,6 +50,111 @@
     });
   }
 
+  var paperDetailDialog = document.getElementById("paperDetailDialog");
+  var paperDetailTitle = document.getElementById("paperDetailTitle");
+  var paperDetailBody = document.getElementById("paperDetailBody");
+
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function renderPaperDetailBody(detail) {
+    var categories = detail.categories || [];
+    var categoryHtml = categories.length
+      ? categories
+          .map(function (tag) {
+            return '<span class="paper-detail-tag">' + escapeHtml(tag) + "</span>";
+          })
+          .join("")
+      : "—";
+    var stars = "";
+    var rating = Number(detail.rating || 0);
+    var paperId = detail.paper_id;
+    for (var n = 1; n <= 5; n += 1) {
+      stars +=
+        '<button type="button" class="star-btn ' +
+        (rating >= n ? "on" : "") +
+        '" data-value="' +
+        n +
+        '" aria-label="' +
+        n +
+        ' star' +
+        (n === 1 ? "" : "s") +
+        '" aria-pressed="' +
+        (rating >= n ? "true" : "false") +
+        '">★</button>';
+    }
+    return (
+      '<div class="paper-detail-dl">' +
+      '<div class="paper-detail-row"><div class="paper-detail-label">Authors</div><div class="paper-detail-value">' +
+      escapeHtml(detail.authors || "—") +
+      "</div></div>" +
+      '<div class="paper-detail-row"><div class="paper-detail-label">Year</div><div class="paper-detail-value">' +
+      escapeHtml(detail.year == null || detail.year === "" ? "—" : detail.year) +
+      "</div></div>" +
+      '<div class="paper-detail-row"><div class="paper-detail-label">Rating</div><div class="paper-detail-value"><div class="star-rating" data-paper-id="' +
+      escapeHtml(paperId) +
+      '" data-rating="' +
+      rating +
+      '" role="group" aria-label="Your rating">' +
+      stars +
+      "</div></div></div>" +
+      '<div class="paper-detail-row"><div class="paper-detail-label">Status</div><div class="paper-detail-value"><span class="status-badge status-' +
+      escapeHtml(detail.status_tone || "secondary") +
+      '">' +
+      escapeHtml(detail.status_label || "Unknown") +
+      "</span></div></div>" +
+      '<div class="paper-detail-row"><div class="paper-detail-label">Categories</div><div class="paper-detail-value">' +
+      (categories.length ? '<div class="paper-detail-tags">' + categoryHtml + "</div>" : "—") +
+      "</div></div></div>"
+    );
+  }
+
+  function openPaperDetail(button) {
+    if (!paperDetailDialog) return;
+    var detail = {};
+    try {
+      detail = JSON.parse(button.getAttribute("data-detail") || "{}");
+    } catch (error) {
+      detail = {};
+    }
+    if (paperDetailTitle) {
+      paperDetailTitle.textContent = button.getAttribute("data-detail-title") || "Paper";
+    }
+    if (paperDetailBody) {
+      paperDetailBody.innerHTML = renderPaperDetailBody(detail);
+    }
+    if (typeof paperDetailDialog.showModal === "function") {
+      paperDetailDialog.showModal();
+    }
+  }
+
+  document.addEventListener("click", function (event) {
+    var detailButton = event.target.closest(".detail-btn");
+    if (detailButton) {
+      event.preventDefault();
+      openPaperDetail(detailButton);
+      return;
+    }
+    if (event.target.closest("[data-close-detail]")) {
+      paperDetailDialog && paperDetailDialog.close();
+      return;
+    }
+    if (paperDetailDialog && event.target === paperDetailDialog) {
+      paperDetailDialog.close();
+    }
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && paperDetailDialog && paperDetailDialog.open) {
+      paperDetailDialog.close();
+    }
+  });
+
   var modalEl = document.getElementById("pdfPreviewModal");
   var title = document.getElementById("pdfPreviewTitle");
   var frame = document.getElementById("pdfPreviewFrame");
@@ -203,34 +308,37 @@
     });
   }
 
-  document.querySelectorAll("[data-star-rating], .star-rating").forEach(function (root) {
-    root.querySelectorAll(".star-btn").forEach(function (button) {
-      button.addEventListener("click", function () {
-        var paperId = root.getAttribute("data-paper-id");
-        var value = Number(button.getAttribute("data-value"));
-        var current = Number(root.getAttribute("data-rating") || 0);
-        if (value === current) value = 0;
-        fetch("/api/papers/" + paperId + "/rating", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ rating: value }),
-        })
-          .then(function (response) {
-            return response.json();
-          })
-          .then(function (data) {
-            if (!data.ok) return;
-            var rating = data.rating || 0;
-            root.setAttribute("data-rating", String(rating));
-            root.querySelectorAll(".star-btn").forEach(function (star) {
-              var on = Number(star.getAttribute("data-value")) <= rating;
-              star.classList.toggle("on", on);
-              star.setAttribute("aria-pressed", on ? "true" : "false");
-            });
-          })
-          .catch(function () {});
-      });
-    });
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest(".star-rating .star-btn");
+    if (!button) return;
+    var root = button.closest(".star-rating");
+    if (!root) return;
+    var paperId = root.getAttribute("data-paper-id");
+    if (!paperId) return;
+    var value = Number(button.getAttribute("data-value"));
+    var current = Number(root.getAttribute("data-rating") || 0);
+    if (value === current) value = 0;
+    fetch("/api/papers/" + paperId + "/rating", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ rating: value }),
+    })
+      .then(function (response) {
+        return response.json();
+      })
+      .then(function (data) {
+        if (!data.ok) return;
+        var rating = data.rating || 0;
+        document.querySelectorAll('.star-rating[data-paper-id="' + paperId + '"]').forEach(function (group) {
+          group.setAttribute("data-rating", String(rating));
+          group.querySelectorAll(".star-btn").forEach(function (star) {
+            var on = Number(star.getAttribute("data-value")) <= rating;
+            star.classList.toggle("on", on);
+            star.setAttribute("aria-pressed", on ? "true" : "false");
+          });
+        });
+      })
+      .catch(function () {});
   });
 
   var navAside = document.querySelector(".nav-aside");

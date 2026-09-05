@@ -16,7 +16,7 @@ from app.database.models import User
 from app.utils.time import utc_now
 
 PUBLIC_PATHS = {"/login", "/auth/google", "/auth/google/callback", "/logout"}
-ADMIN_PREFIXES = ("/sources", "/settings", "/api/sources", "/api/activity", "/account/users")
+ADMIN_PREFIXES = ("/sources", "/settings", "/crawler", "/api/sources", "/api/activity", "/api/crawl", "/account/users")
 ROLE_USER = "user"
 ROLE_ADMIN = "admin"
 PASSWORD_MIN_LENGTH = 8
@@ -99,7 +99,7 @@ def is_public_path(path: str) -> bool:
 
 
 def is_admin_path(path: str) -> bool:
-    return path == "/sources" or path.startswith(ADMIN_PREFIXES)
+    return path in ("/sources", "/crawler") or path.startswith(ADMIN_PREFIXES)
 
 
 def local_google_id(email: str) -> str:

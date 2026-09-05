@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Cyber Scholar  Myanmar Space Agency">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1f33"/>
+      <stop offset="100%" stop-color="#10243d"/>
+    </linearGradient>
+    <linearGradient id="orbit" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1f6f8b"/>
+      <stop offset="100%" stop-color="#2f9e8a"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#7eb89a" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#7eb89a" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="120" rx="28" fill="url(#bg)"/>
+  <circle cx="60" cy="60" r="46" fill="url(#glow)"/>
+  <ellipse cx="60" cy="60" rx="38" ry="15" fill="none" stroke="url(#orbit)" stroke-width="3.2" transform="rotate(-18 60 60)"/>
+  <ellipse cx="60" cy="60" rx="28" ry="11" fill="none" stroke="#1f6f8b" stroke-opacity="0.35" stroke-width="1.5" transform="rotate(24 60 60)"/>
+  <circle cx="88" cy="42" r="5.5" fill="#7eb89a"/>
+  <rect x="85.8" y="40.8" width="4.4" height="2.4" rx="0.6" fill="#e8f0e9" transform="rotate(32 88 42)"/>
+  <path d="M60 28 64.8 42.5 80.2 42.5 68.2 51.8 73 66.2 60 57 47 66.2 51.8 51.8 39.8 42.5 55.2 42.5Z" fill="#e8f0e9"/>
+  <path d="M60 34.5 63.4 44.8 74.2 44.8 65.4 51.5 68.8 61.8 60 56.2 51.2 61.8 54.6 51.5 45.8 44.8 56.6 44.8Z" fill="#c9a227"/>
+  <path d="M60 48.5c-6.3 0-11.5 4.2-11.5 9.4v4.1c0 5.2 5.2 9.4 11.5 9.4s11.5-4.2 11.5-9.4v-4.1c0-5.2-5.2-9.4-11.5-9.4Z" fill="none" stroke="#2f9e8a" stroke-width="2.2"/>
+  <path d="M54.5 58.5h11M60 53v11" stroke="#7eb89a" stroke-width="1.8" stroke-linecap="round"/>
+</svg>

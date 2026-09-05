@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.models.crawl import BrowsePage, CrawlFilters
 from app.models.paper import AuthorRecord, PaperRecord
 from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
@@ -17,7 +18,16 @@ logger = get_logger("app.providers.crossref")
 class CrossrefProvider(ResearchProvider):
     name = "crossref"
     display_name = "Crossref"
+    supports_browse = True
     BASE = "https://api.crossref.org/works"
+
+    def _filter_parts(self, filters: SearchFilters | CrawlFilters) -> list[str]:
+        filter_parts: list[str] = []
+        if filters.year_from:
+            filter_parts.append(f"from-pub-date:{filters.year_from}")
+        if filters.year_to:
+            filter_parts.append(f"until-pub-date:{filters.year_to}")
+        return filter_parts
 
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
         params: dict[str, Any] = {
@@ -43,6 +53,33 @@ class CrossrefProvider(ResearchProvider):
         items = (((data or {}).get("message") or {}).get("items")) or []
         papers = [self._parse(item) for item in items]
         return [p for p in papers if p and p.title]
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        params: dict[str, Any] = {
+            "rows": min(filters.page_size, 100),
+            "mailto": self.config.env.polite_email,
+            "cursor": cursor or "*",
+        }
+        query = filters.query.strip()
+        if query:
+            params["query"] = query
+        filter_parts = self._filter_parts(filters)
+        if not query and not filter_parts:
+            filter_parts.append("type:journal-article")
+        if filter_parts:
+            params["filter"] = ",".join(filter_parts)
+        data = await self.request_json(self.BASE, params=params)
+        message = (data or {}).get("message") or {}
+        items = message.get("items") or []
+        records = [p for p in (self._parse(item) for item in items) if p and p.title]
+        next_cursor = message.get("next-cursor")
+        return BrowsePage(
+            records=records,
+            next_cursor=next_cursor,
+            has_more=bool(next_cursor),
+            page_number=int(message.get("page") or 1),
+            total_results=message.get("total-results"),
+        )
 
     async def get_paper(self, identifier: str) -> PaperRecord | None:
         doi = normalize_doi(identifier)

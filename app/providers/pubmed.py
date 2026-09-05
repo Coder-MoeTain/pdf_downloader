@@ -5,9 +5,11 @@ from __future__ import annotations
 from typing import Any
 from xml.etree import ElementTree as ET
 
+from app.models.crawl import BrowsePage, CrawlFilters
 from app.models.paper import AuthorRecord, PaperRecord
 from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
+from app.providers.crawl_browse import crawl_query, finish_page, page_offset
 from app.utils.doi import doi_url, normalize_doi
 from app.utils.logger import get_logger
 
@@ -17,6 +19,7 @@ logger = get_logger("app.providers.pubmed")
 class PubMedProvider(ResearchProvider):
     name = "pubmed"
     display_name = "PubMed"
+    supports_browse = True
     SEARCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     FETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
@@ -27,7 +30,7 @@ class PubMedProvider(ResearchProvider):
         params = {
             "db": "pubmed",
             "retmode": "xml",
-            "tool": "ResearchPaperCollector",
+            "tool": "CyberScholar",
             "email": self.config.env.polite_email,
             **extra,
         }
@@ -58,6 +61,38 @@ class PubMedProvider(ResearchProvider):
             params=self._params({"id": ",".join(ids), "rettype": "abstract"}),
         )
         return _parse_pubmed_xml(fetch_xml, self.name)
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_size = min(filters.page_size, 100)
+        page_num, offset = page_offset(cursor, page_size)
+        term = crawl_query(filters, fallback="0001/01/01:3000[PDAT]")
+        if filters.year_from or filters.year_to:
+            start = filters.year_from or 1800
+            end = filters.year_to or 2100
+            if filters.query.strip():
+                term = f'({term}) AND ("{start}"[Date - Publication] : "{end}"[Date - Publication])'
+            else:
+                term = f'"{start}"[Date - Publication] : "{end}"[Date - Publication]'
+        search_xml = await self.request_text(
+            self.SEARCH,
+            params=self._params(
+                {
+                    "term": term,
+                    "retmax": page_size,
+                    "retstart": offset,
+                    "usehistory": "n",
+                }
+            ),
+        )
+        ids = _extract_ids(search_xml)
+        if not ids:
+            return finish_page([], page_num=page_num, page_size=page_size, has_more=False)
+        fetch_xml = await self.request_text(
+            self.FETCH,
+            params=self._params({"id": ",".join(ids), "rettype": "abstract"}),
+        )
+        records = _parse_pubmed_xml(fetch_xml, self.name)
+        return finish_page(records, page_num=page_num, page_size=page_size)
 
     async def get_paper(self, identifier: str) -> PaperRecord | None:
         fetch_xml = await self.request_text(self.FETCH, params=self._params({"id": identifier, "rettype": "abstract"}))
@@ -172,7 +207,7 @@ class PmcProvider(ResearchProvider):
         params = {
             "db": "pmc",
             "retmode": "json",
-            "tool": "ResearchPaperCollector",
+            "tool": "CyberScholar",
             "email": self.config.env.polite_email,
             **extra,
         }

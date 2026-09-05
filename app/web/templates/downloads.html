@@ -8,7 +8,6 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="page-kicker">Files</div>
     <h1 class="h2 mb-0">Downloads</h1>
   </div>
   <a class="btn btn-outline-secondary" href="/library">Open library</a>
@@ -131,14 +130,14 @@
         <td class="text-nowrap paper-meta dl-date">{{ download_record_date(row)|localdt or "—" }}</td>
         <td class="dl-actions">
           {% if row.status == "DOWNLOADED" and row.local_path %}
-          <button class="btn btn-sm btn-outline-primary preview-btn" type="button"
+          <button class="btn btn-sm btn-outline-primary preview-btn paper-action-btn" type="button"
                   data-preview-url="/papers/{{ row.paper_id }}/preview"
                   data-preview-title="{{ (paper.title if paper else 'PDF')|e }}">Preview</button>
-          <a class="btn btn-sm btn-primary" href="/papers/{{ row.paper_id }}/pdf">Download</a>
+          <a class="btn btn-sm btn-primary paper-action-btn" href="/papers/{{ row.paper_id }}/pdf">Download</a>
           {% elif row.status == "FAILED" %}
-          <a class="btn btn-sm btn-outline-secondary" href="/papers/{{ row.paper_id }}/pdf">Retry</a>
+          <a class="btn btn-sm btn-outline-secondary paper-action-btn" href="/papers/{{ row.paper_id }}/pdf">Retry</a>
           {% elif row.status in ["OA_AVAILABLE", "FOUND"] %}
-          <a class="btn btn-sm btn-outline-primary" href="/papers/{{ row.paper_id }}/pdf">Download</a>
+          <a class="btn btn-sm btn-outline-primary paper-action-btn" href="/papers/{{ row.paper_id }}/pdf">Download</a>
           {% endif %}
         </td>
       </tr>

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.models.crawl import BrowsePage, CrawlFilters
 from app.models.paper import AuthorRecord, PaperRecord
 from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
@@ -16,16 +17,21 @@ logger = get_logger("app.providers.europe_pmc")
 class EuropePMCProvider(ResearchProvider):
     name = "europe_pmc"
     display_name = "Europe PMC"
+    supports_browse = True
     BASE = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 
-    async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
-        q = query
+    def _build_query(self, query: str, filters: SearchFilters | CrawlFilters) -> str:
+        q = query.strip() or "HAS_DOI:y"
         if filters.year_from or filters.year_to:
             start = filters.year_from or 1800
             end = filters.year_to or 2100
-            q = f"{query} AND (PUB_YEAR:[{start} TO {end}])"
+            q = f"{q} AND (PUB_YEAR:[{start} TO {end}])"
         if filters.open_access_only:
             q += " AND OPEN_ACCESS:y"
+        return q
+
+    async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
+        q = self._build_query(query, filters)
         params: dict[str, Any] = {
             "query": q,
             "format": "json",
@@ -36,6 +42,29 @@ class EuropePMCProvider(ResearchProvider):
         items = (((data or {}).get("resultList") or {}).get("result")) or []
         papers = [self._parse(item) for item in items]
         return [p for p in papers if p and p.title]
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_size = min(filters.page_size, 100)
+        params: dict[str, Any] = {
+            "query": self._build_query(filters.query, filters),
+            "format": "json",
+            "pageSize": page_size,
+            "resultType": "core",
+            "cursorMark": cursor or "*",
+        }
+        data = await self.request_json(self.BASE, params=params)
+        result_list = (data or {}).get("resultList") or {}
+        items = result_list.get("result") or []
+        records = [p for p in (self._parse(item) for item in items) if p and p.title]
+        next_cursor = result_list.get("nextCursorMark")
+        has_more = bool(next_cursor and next_cursor != params["cursorMark"])
+        return BrowsePage(
+            records=records,
+            next_cursor=next_cursor if has_more else None,
+            has_more=has_more,
+            page_number=int(result_list.get("page") or 1),
+            total_results=result_list.get("hitCount"),
+        )
 
     async def get_paper(self, identifier: str) -> PaperRecord | None:
         data = await self.request_json(

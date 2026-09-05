@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% if allow_register %}Create admin · {{ app_name }}{% else %}Log in · {{ app_name }}{% endif %}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/logo.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -18,21 +19,16 @@
     <img class="login-hero" src="/static/login-hero.png" alt="A quiet university library reading room">
     <div class="login-brand-inner">
       <div class="login-logo">
-        <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32" focusable="false">
-            <rect width="32" height="32" rx="8" fill="#0b1f33"/>
-            <path d="M8 8h12a4 4 0 0 1 4 4v13H12a4 4 0 0 0-4 4V8z" fill="#e8f0e9"/>
-            <path d="M8 8h11v17H12a4 4 0 0 0-4 4V8z" fill="#7eb89a"/>
-          </svg>
-        </span>
+        {% from "_macros.html" import brand_mark %}
+        {{ brand_mark(36) }}
         <span class="brand-copy">
-          <span class="brand-text">ResearchPaper</span>
-          <span class="brand-sub">Collector</span>
+          <span class="brand-text">{{ app_name }}</span>
+          <span class="brand-sub">{{ app_subtitle }}</span>
         </span>
       </div>
-      <p class="login-brand-kicker">Research workspace</p>
-      <h1 class="login-brand-title">A quiet desk for open literature.</h1>
-      <p class="login-brand-copy">Search official academic APIs, keep paywalled records for later, and download only legally available open-access PDFs.</p>
+      <p class="login-brand-kicker">{{ app_subtitle }}</p>
+      <h1 class="login-brand-title">Research intelligence for space and cyber security.</h1>
+      <p class="login-brand-copy">Search official academic APIs, build a shared literature library, and download only legally available open-access PDFs.</p>
       <ul class="login-points">
         <li>Trusted sources only</li>
         <li>Admin and user roles</li>

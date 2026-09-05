@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/logo.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -13,21 +14,15 @@
   {% block extra_head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
-{% from "_macros.html" import nav_icon %}
+{% from "_macros.html" import nav_icon, brand_mark %}
 <a class="skip-link" href="#main">Skip to content</a>
 <nav class="navbar navbar-expand-xl navbar-dark app-nav sticky-top" aria-label="Main">
   <div class="container-xl app-nav-inner">
-    <a class="navbar-brand" href="/" title="{{ app_name }}">
-      <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 32 32" focusable="false">
-          <rect width="32" height="32" rx="8" fill="#10243d"/>
-          <path d="M8 8h12a4 4 0 0 1 4 4v13H12a4 4 0 0 0-4 4V8z" fill="#e8f0e9"/>
-          <path d="M8 8h11v17H12a4 4 0 0 0-4 4V8z" fill="#7eb89a"/>
-        </svg>
-      </span>
+    <a class="navbar-brand" href="/" title="{{ app_name }} · {{ app_subtitle }}">
+      {{ brand_mark() }}
       <span class="brand-copy">
-        <span class="brand-text">ResearchPaper</span>
-        <span class="brand-sub">Collector</span>
+        <span class="brand-text">{{ app_name }}</span>
+        <span class="brand-sub">{{ app_subtitle }}</span>
       </span>
     </a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav" aria-controls="nav" aria-expanded="false" aria-label="Open menu">
@@ -41,8 +36,8 @@
           ("/library", "Library", "library"),
           ("/downloads", "Downloads", "downloads"),
           ("/sources", "Sources", "sources"),
-          ("/statistics", "Statistics", "statistics")
-        ] if is_admin or key != "sources" %}
+          ("/crawler", "Crawler", "crawler"),
+        ] if is_admin or key not in ("sources", "crawler") %}
         <li class="nav-item">
           <a class="nav-link {% if page == key %}active{% endif %}" href="{{ href }}" title="{{ label }}" {% if page == key %}aria-current="page"{% endif %}>
             {{ nav_icon(key) }}
@@ -106,6 +101,18 @@
     <a href="/search">New search</a>
   </div>
 </footer>
+<dialog id="paperDetailDialog" class="paper-detail-dialog" aria-labelledby="paperDetailTitle">
+  <div class="paper-detail-shell">
+    <header class="paper-detail-header">
+      <div class="paper-detail-heading">
+        <div class="paper-detail-kicker">Paper details</div>
+        <h2 class="paper-detail-title" id="paperDetailTitle">Paper</h2>
+      </div>
+      <button type="button" class="btn-close paper-detail-close" data-close-detail aria-label="Close details"></button>
+    </header>
+    <div class="paper-detail-body" id="paperDetailBody"></div>
+  </div>
+</dialog>
 <div class="modal fade" id="abstractPreviewModal" tabindex="-1" aria-labelledby="abstractPreviewTitle" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
     <div class="modal-content abstract-modal-content">

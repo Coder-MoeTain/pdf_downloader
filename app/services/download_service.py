@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import httpx
@@ -18,7 +19,7 @@ from app.utils.http import AsyncHttpClient
 from app.utils.logger import get_logger
 from app.utils.pdf_url import is_direct_pdf_url
 from app.utils.security import looks_like_pdf, robots_allowed
-from app.services.progress import download_tracker
+from app.services.progress import ProgressTracker, download_tracker
 
 logger = get_logger("app.download")
 
@@ -423,6 +424,95 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
             return path
 
 
+async def download_papers_parallel(
+    downloader: DownloadService,
+    jobs: list[tuple[int, PaperRecord]],
+    *,
+    topic_slug: str,
+    max_file_size: int | None = None,
+    user_id: int | None = None,
+    concurrency: int | None = None,
+    job_progress: ProgressTracker | None = None,
+    use_download_tracker: bool = True,
+    checkpoint: Callable[[], Awaitable[None]] | None = None,
+) -> list[tuple[int, PaperRecord]]:
+    """Download many PDFs concurrently with a shared progress tracker."""
+    from app.database.connection import session_scope
+    from app.database.repository import save_paper
+
+    if not jobs:
+        return []
+
+    cfg = downloader.config
+    slots = max(1, int(concurrency or cfg.env.max_concurrent_downloads or 1))
+    sem = asyncio.Semaphore(slots)
+    total = len(jobs)
+    completed = 0
+    assign_lock = asyncio.Lock()
+    progress_lock = asyncio.Lock()
+
+    if use_download_tracker:
+        download_tracker.start_batch(total, "Downloading open-access PDFs")
+
+    async def _run_one(paper_id: int, paper: PaperRecord) -> tuple[int, PaperRecord]:
+        nonlocal completed
+        async with sem:
+            if checkpoint is not None:
+                await checkpoint()
+            async with assign_lock:
+                completed += 1
+                index = completed
+            if use_download_tracker:
+                download_tracker.begin_item(paper_id, paper.title, index)
+            if job_progress is not None:
+                job_progress.begin_item(paper_id, paper.title, index)
+            if job_progress is not None:
+                job_progress.set_phase(
+                    "downloading",
+                    f"PDFs {index}/{total} ({slots} parallel)",
+                    current=index,
+                    total=total,
+                    percent=round(82 + (index / max(total, 1)) * 13, 1),
+                    log=False,
+                )
+            with session_scope() as session:
+                updated = await downloader.download_paper(
+                    session,
+                    paper_id,
+                    paper,
+                    topic_slug,
+                    max_file_size=max_file_size,
+                    on_progress=lambda received, total_bytes: download_tracker.update_bytes(received, total_bytes)
+                    if use_download_tracker
+                    else None,
+                    user_id=user_id,
+                )
+                save_paper(session, updated)
+            if use_download_tracker:
+                download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
+            if job_progress is not None:
+                job_progress.finish_item(updated.status.value, error=updated.extra.get("error"))
+            async with progress_lock:
+                done = index
+                if job_progress is not None:
+                    job_progress.set_phase(
+                        "downloading",
+                        f"PDFs {done}/{total} ({slots} parallel)",
+                        current=done,
+                        total=total,
+                        percent=round(82 + (done / max(total, 1)) * 13, 1),
+                        log=False,
+                    )
+            return paper_id, updated
+
+    try:
+        results = await asyncio.gather(*[_run_one(pid, paper) for pid, paper in jobs])
+    finally:
+        if use_download_tracker:
+            download_tracker.finish_batch()
+    return list(results)
+
+
 async def download_open_access_papers(
     *,
     search_id: int | None = None,
@@ -457,35 +547,23 @@ async def download_open_access_papers(
                 )
             papers = session.scalars(stmt.limit(cap)).unique().all()
             jobs = [(paper.id, paper_to_record(paper)) for paper in papers]
-        download_tracker.start_batch(len(jobs), "Downloading open-access PDFs")
-        try:
-            for index, (paper_id, record) in enumerate(jobs, start=1):
-                if not record.pdf_url:
-                    stats["skipped"] += 1
-                    download_tracker.begin_item(paper_id, record.title, index)
-                    download_tracker.finish_item("SKIPPED", error="No legal PDF URL")
-                    continue
-                stats["attempted"] += 1
-                download_tracker.begin_item(paper_id, record.title, index)
-                with session_scope() as session:
-                    updated = await downloader.download_paper(
-                        session,
-                        paper_id,
-                        record,
-                        topic_slug,
-                        on_progress=lambda received, total: download_tracker.update_bytes(received, total),
-                        user_id=user_id,
-                    )
-                    save_paper(session, updated)
-                download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
-                if updated.status == PaperStatus.DOWNLOADED:
-                    stats["downloaded"] += 1
-                elif updated.status == PaperStatus.FAILED:
-                    stats["failed"] += 1
-                else:
-                    stats["skipped"] += 1
-        finally:
-            download_tracker.finish_batch()
+            ready = [(paper_id, record) for paper_id, record in jobs if record.pdf_url]
+            stats["skipped"] += len(jobs) - len(ready)
+        results = await download_papers_parallel(
+            downloader,
+            ready,
+            topic_slug=topic_slug,
+            user_id=user_id,
+            use_download_tracker=True,
+        )
+        for _paper_id, updated in results:
+            stats["attempted"] += 1
+            if updated.status == PaperStatus.DOWNLOADED:
+                stats["downloaded"] += 1
+            elif updated.status == PaperStatus.FAILED:
+                stats["failed"] += 1
+            else:
+                stats["skipped"] += 1
     if stats["downloaded"] > 0:
         from app.services.lms_watch import schedule_lms_sync
 

@@ -52,6 +52,21 @@ def test_enqueue_and_claim_per_user(tmp_db):
         assert pos == 1
 
 
+def test_claim_allows_multiple_jobs_per_user(tmp_db):
+    with session_scope() as session:
+        alice = _create_user(session, "alice2@test.local")
+        enqueue_search_job(session, user_id=alice.id, query="A1", filters={"query": "A1"})
+        enqueue_search_job(session, user_id=alice.id, query="A2", filters={"query": "A2"})
+        first = claim_next_search_job(session, max_per_user=2)
+        second = claim_next_search_job(session, max_per_user=2)
+        third = claim_next_search_job(session, max_per_user=2)
+        assert first is not None
+        assert second is not None
+        assert first.user_id == alice.id
+        assert second.user_id == alice.id
+        assert third is None
+
+
 def test_queue_grouped_by_username(tmp_db):
     with session_scope() as session:
         user = _create_user(session, "carol@test.local")
@@ -267,6 +282,74 @@ def test_stop_running_job_json(tmp_db):
         row = get_search_job(session, job_id)
         assert row is not None
         assert row.status == "cancelled"
+
+
+def test_enqueue_registers_progress(tmp_db):
+    from app.services.progress import job_registry
+    from app.services.search_queue import enqueue_search
+
+    job_registry.clear_all()
+    with session_scope() as session:
+        user = _create_user(session, "queue@test.local")
+        user_id = user.id
+    job_id = enqueue_search(user_id=user_id, query="queued topic", filters={"query": "queued topic"})
+    snap = job_registry.snapshot(job_id)
+    assert snap is not None
+    assert snap["active"] is True
+    assert snap["kind"] == "search"
+    assert snap["logs"]
+    assert snap["query"] == "queued topic"
+
+
+def test_search_progress_snapshot_db_fallback(tmp_db):
+    from app.services.search_queue import db_job_progress_snapshot, search_progress_snapshot
+
+    with session_scope() as session:
+        user = _create_user(session, "fallback@test.local")
+        job = enqueue_search_job(session, user_id=user.id, query="db fallback", filters={"query": "db fallback"})
+        job_id = job.id
+        pos = queue_position(session, job_id)
+    snap = db_job_progress_snapshot(job, position=pos)
+    assert snap["job_id"] == job_id
+    assert snap["active"] is True
+    assert any("Search queued" in entry["message"] for entry in snap["logs"])
+    assert search_progress_snapshot(job_id) is not None
+
+
+def test_run_job_preserves_queued_logs(tmp_db):
+    from app.services.progress import job_registry
+
+    progress = job_registry.register_queued(99, "keep logs")
+    progress.mark_search_started("keep logs")
+    snap = progress.snapshot()
+    assert len(snap["logs"]) >= 2
+    assert any("Search queued" in entry["message"] for entry in snap["logs"])
+    assert any("starting" in entry["message"].lower() for entry in snap["logs"])
+
+
+def test_search_progress_api_with_pending_job(tmp_db):
+    from fastapi.testclient import TestClient
+
+    from app.auth import create_local_user
+    from app.web import app
+
+    with session_scope() as session:
+        user = create_local_user(session, email="api@test.local", password="password1", name="Api")
+        job = enqueue_search_job(session, user_id=user.id, query="api pending", filters={"query": "api pending"})
+        job_id = job.id
+    client = TestClient(app)
+    login = client.post(
+        "/login",
+        data={"email": "api@test.local", "password": "password1", "next": "/search"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 303
+    resp = client.get(f"/api/search-progress?job_id={job_id}")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["job_id"] == job_id
+    assert payload["kind"] == "search"
+    assert payload["logs"]
 
 
 def test_top20_default_sources():

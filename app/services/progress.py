@@ -69,6 +69,80 @@ class ProgressTracker:
             self._append_log(message, level)
             self._state["message"] = message
 
+    def start_crawl(self, source: str) -> None:
+        with self._lock:
+            self._state = self._empty()
+            self._state["active"] = True
+            self._state["kind"] = "crawl"
+            self._state["phase"] = "starting"
+            self._state["query"] = source
+            self._state["percent"] = 2
+            self._state["message"] = f"Starting crawl of {source}"
+            self._append_log(f"Queued source crawl: {source}", "info")
+
+    def queue_crawl(self, source: str) -> None:
+        with self._lock:
+            self._state = self._empty()
+            self._state["active"] = True
+            self._state["kind"] = "crawl"
+            self._state["phase"] = "starting"
+            self._state["query"] = source
+            self._state["percent"] = 2
+            self._state["message"] = "Queued · waiting to start…"
+            self._append_log(f"Crawl queued: {source}", "info")
+
+    def mark_crawl_started(self, source: str) -> None:
+        with self._lock:
+            if self._state.get("kind") == "crawl" and self._state.get("logs"):
+                self._state["query"] = source
+                self._state["message"] = f"Starting crawl of {source}"
+                self._append_log(f"Crawl job starting: {source}", "info")
+                return
+            self.start_crawl(source)
+
+    def finish_crawl(self, *, error: str | None = None, stats: dict[str, Any] | None = None, cancelled: bool = False) -> None:
+        with self._lock:
+            if stats:
+                self._state["stats"].update(stats)
+            self._state["active"] = False
+            if cancelled or self._state.get("cancelled"):
+                self._state["cancelled"] = True
+                self._state["phase"] = "cancelled"
+                self._state["message"] = "Source crawl stopped."
+                self._append_log("Source crawl stopped.", "warning")
+            elif error:
+                self._state["phase"] = "error"
+                self._state["error"] = error
+                self._state["message"] = error
+                self._append_log(error, "danger")
+            else:
+                self._state["phase"] = "done"
+                self._state["percent"] = 100
+                new_count = self._state["stats"].get("new_papers", 0)
+                skipped = self._state["stats"].get("skipped_existing", 0)
+                self._state["message"] = f"Crawl complete · {new_count} new · {skipped} skipped"
+                self._append_log(self._state["message"], "success")
+
+    def queue_search(self, query: str) -> None:
+        with self._lock:
+            self._state = self._empty()
+            self._state["active"] = True
+            self._state["kind"] = "search"
+            self._state["phase"] = "starting"
+            self._state["query"] = query
+            self._state["percent"] = 2
+            self._state["message"] = f"Queued · waiting to start…"
+            self._append_log(f"Search queued: {query}", "info")
+
+    def mark_search_started(self, query: str) -> None:
+        with self._lock:
+            if self._state.get("kind") == "search" and self._state.get("logs"):
+                self._state["query"] = query
+                self._state["message"] = f"Starting search for “{query}”"
+                self._append_log(f"Search job starting: {query}", "info")
+                return
+            self.start_search(query)
+
     def start_search(self, query: str) -> None:
         with self._lock:
             self._state = self._empty()
@@ -124,6 +198,10 @@ class ProgressTracker:
     def is_cancelled(self) -> bool:
         with self._lock:
             return bool(self._state.get("cancelled"))
+
+    def reset(self) -> None:
+        with self._lock:
+            self._state = self._empty()
 
     def finish_search(self, *, error: str | None = None, stats: dict[str, Any] | None = None, cancelled: bool = False) -> None:
         with self._lock:
@@ -251,6 +329,32 @@ class JobProgressRegistry:
             self._jobs[job_id] = prog
             return prog
 
+    def get_or_create(self, job_id: int) -> ProgressTracker:
+        with self._lock:
+            prog = self._jobs.get(job_id)
+            if prog is None:
+                prog = ProgressTracker()
+                self._jobs[job_id] = prog
+            return prog
+
+    def register_queued(self, job_id: int, query: str) -> ProgressTracker:
+        with self._lock:
+            prog = self._jobs.get(job_id)
+            if prog is None:
+                prog = ProgressTracker()
+                prog.queue_search(query)
+                self._jobs[job_id] = prog
+            return prog
+
+    def register_queued_crawl(self, job_id: int, source: str) -> ProgressTracker:
+        with self._lock:
+            prog = self._jobs.get(job_id)
+            if prog is None:
+                prog = ProgressTracker()
+                prog.queue_crawl(source)
+                self._jobs[job_id] = prog
+            return prog
+
     def get(self, job_id: int) -> ProgressTracker | None:
         with self._lock:
             return self._jobs.get(job_id)
@@ -258,6 +362,10 @@ class JobProgressRegistry:
     def remove(self, job_id: int) -> None:
         with self._lock:
             self._jobs.pop(job_id, None)
+
+    def clear_all(self) -> None:
+        with self._lock:
+            self._jobs.clear()
 
     def snapshot(self, job_id: int) -> dict[str, Any] | None:
         prog = self.get(job_id)
@@ -279,6 +387,13 @@ class JobProgressRegistry:
 
 
 job_registry = JobProgressRegistry()
+crawl_job_registry = JobProgressRegistry()
+
+
+def crawl_idle_snapshot() -> dict[str, Any]:
+    snap = ProgressTracker().snapshot()
+    snap["kind"] = "crawl"
+    return snap
 
 
 def live_progress() -> dict[str, Any]:

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.models.crawl import BrowsePage, CrawlFilters
 from app.models.paper import AuthorRecord, PaperRecord
 from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
+from app.providers.crawl_browse import crawl_query, finish_page, page_offset
 from app.providers.crossref import CrossrefProvider
 from app.utils.doi import doi_url, normalize_doi
 
@@ -180,6 +182,7 @@ def _is_open(value: Any) -> bool:
 class OpenaireProvider(ResearchProvider):
     name = "openaire"
     display_name = "OpenAIRE"
+    supports_browse = True
     BASE = "https://api.openaire.eu/graph/v3/research-products"
 
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
@@ -193,6 +196,26 @@ class OpenaireProvider(ResearchProvider):
         data = await self.request_json(self.BASE, params=params)
         items = (data or {}).get("results") or []
         return _finished([self._parse(item) for item in items], filters)
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_size = min(filters.page_size, 50)
+        page_num, _ = page_offset(cursor, page_size)
+        params: dict[str, Any] = {
+            "search": crawl_query(filters, fallback="publication"),
+            "type": "publication",
+            "pageSize": page_size,
+            "page": page_num,
+            "sortBy": "relevance DESC",
+        }
+        data = await self.request_json(self.BASE, params=params)
+        items = (data or {}).get("results") or []
+        total = (data or {}).get("total")
+        return finish_page(
+            [self._parse(item) for item in items],
+            page_num=page_num,
+            page_size=page_size,
+            total=int(total) if total is not None else None,
+        )
 
     def _parse(self, item: dict[str, Any] | None) -> PaperRecord | None:
         if not item:
@@ -254,6 +277,7 @@ class OpenaireProvider(ResearchProvider):
 class HalProvider(ResearchProvider):
     name = "hal"
     display_name = "HAL"
+    supports_browse = True
     BASE = "https://api.archives-ouvertes.fr/search/"
 
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
@@ -271,6 +295,31 @@ class HalProvider(ResearchProvider):
         data = await self.request_json(self.BASE, params=params)
         docs = ((data or {}).get("response") or {}).get("docs") or []
         return _finished([self._parse(item) for item in docs], filters)
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_size = min(filters.page_size, 50)
+        page_num, offset = page_offset(cursor, page_size)
+        q = crawl_query(filters, fallback="research")
+        if filters.year_from or filters.year_to:
+            start = filters.year_from or 1900
+            end = filters.year_to or 2100
+            q = f"({q}) AND producedDateY_i:[{start} TO {end}]"
+        params = {
+            "q": q,
+            "wt": "json",
+            "rows": page_size,
+            "start": offset,
+            "fl": "title_s,abstract_s,doiId_s,uri_s,fileMain_s,authFullName_s,producedDateY_i,journalTitle_s,keyword_s,licence_s,submittedDate_s,docType_s",
+        }
+        data = await self.request_json(self.BASE, params=params)
+        docs = ((data or {}).get("response") or {}).get("docs") or []
+        total = ((data or {}).get("response") or {}).get("numFound")
+        return finish_page(
+            [self._parse(item) for item in docs],
+            page_num=page_num,
+            page_size=page_size,
+            total=int(total) if total is not None else None,
+        )
 
     def _parse(self, item: dict[str, Any]) -> PaperRecord | None:
         title = _text(item.get("title_s"))
@@ -300,24 +349,43 @@ class HalProvider(ResearchProvider):
 class ZenodoProvider(ResearchProvider):
     name = "zenodo"
     display_name = "Zenodo"
+    supports_browse = True
     BASE = "https://zenodo.org/api/records"
 
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
-        # Anonymous Zenodo search rejects size > 25 ("A validation error occurred.").
+        page = await self.browse(
+            CrawlFilters(source=self.name, query=query, page_size=min(filters.max_results, 25)),
+        )
+        return _finished(page.records, filters)
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_num = int(cursor or "1")
+        page_size = min(filters.page_size, 25)
         params: dict[str, Any] = {
-            "q": query,
-            "size": min(filters.max_results, 25),
+            "q": filters.query.strip() or "*",
+            "size": page_size,
+            "page": page_num,
             "type": "publication",
         }
         data = await self.request_json(self.BASE, params=params)
         hits: list[Any] = []
+        total = None
         if isinstance(data, dict):
             nested = data.get("hits")
             if isinstance(nested, dict):
                 hits = list(nested.get("hits") or [])
+                total = nested.get("total")
             elif isinstance(nested, list):
                 hits = nested
-        return _finished([self._parse(item) for item in hits], filters)
+        records = _finished([self._parse(item) for item in hits], filters)
+        has_more = len(hits) >= page_size
+        return BrowsePage(
+            records=records,
+            next_cursor=str(page_num + 1) if has_more else None,
+            has_more=has_more,
+            page_number=page_num,
+            total_results=total,
+        )
 
     def _parse(self, item: dict[str, Any] | None) -> PaperRecord | None:
         if not item:
@@ -407,6 +475,7 @@ class DblpProvider(ResearchProvider):
 class PlosProvider(ResearchProvider):
     name = "plos"
     display_name = "PLOS"
+    supports_browse = True
     BASE = "https://api.plos.org/search"
     _SLUGS = {
         "plos one": "plosone",
@@ -432,6 +501,26 @@ class PlosProvider(ResearchProvider):
         data = await self.request_json(self.BASE, params=params)
         docs = ((data or {}).get("response") or {}).get("docs") or []
         return _finished([self._parse(item) for item in docs], filters)
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_size = min(filters.page_size, 50)
+        page_num, offset = page_offset(cursor, page_size)
+        params: dict[str, Any] = {
+            "q": crawl_query(filters, fallback="*:*"),
+            "wt": "json",
+            "rows": page_size,
+            "start": offset,
+            "fl": "id,title,author,abstract,publication_date,journal,doi,article_type",
+        }
+        data = await self.request_json(self.BASE, params=params)
+        docs = ((data or {}).get("response") or {}).get("docs") or []
+        total = ((data or {}).get("response") or {}).get("numFound")
+        return finish_page(
+            [self._parse(item) for item in docs],
+            page_num=page_num,
+            page_size=page_size,
+            total=int(total) if total is not None else None,
+        )
 
     def _parse(self, item: dict[str, Any]) -> PaperRecord | None:
         title = _text(item.get("title"))
@@ -464,6 +553,7 @@ class PlosProvider(ResearchProvider):
 class EricProvider(ResearchProvider):
     name = "eric"
     display_name = "ERIC"
+    supports_browse = True
     BASE = "https://api.ies.ed.gov/eric/"
 
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
@@ -481,6 +571,27 @@ class EricProvider(ResearchProvider):
         if isinstance(data, dict) and isinstance(data.get("response"), dict):
             docs = data["response"].get("docs") or docs
         return _finished([self._parse(item) for item in docs], filters)
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_size = min(filters.page_size, 200)
+        page_num, offset = page_offset(cursor, page_size)
+        params: dict[str, Any] = {
+            "search": crawl_query(filters, fallback="education"),
+            "format": "json",
+            "rows": page_size,
+            "start": offset,
+        }
+        if filters.year_from:
+            params["publicationdatestart"] = f"{filters.year_from}-01-01"
+        if filters.year_to:
+            params["publicationdateend"] = f"{filters.year_to}-12-31"
+        data = await self.request_json(self.BASE, params=params)
+        docs = (data or {}).get("docs") or ((data or {}).get("response") or {}).get("docs") or []
+        return finish_page(
+            [self._parse(item) for item in docs],
+            page_num=page_num,
+            page_size=page_size,
+        )
 
     def _parse(self, item: dict[str, Any]) -> PaperRecord | None:
         title = _text(item.get("title"))
@@ -510,6 +621,7 @@ class EricProvider(ResearchProvider):
 class OstiProvider(ResearchProvider):
     name = "osti"
     display_name = "DOE OSTI"
+    supports_browse = True
     BASE = "https://www.osti.gov/api/v1/records"
 
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
@@ -525,6 +637,30 @@ class OstiProvider(ResearchProvider):
         )
         items = data if isinstance(data, list) else (data or {}).get("records") or (data or {}).get("results") or []
         return _finished([self._parse(item) for item in items], filters)
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_size = min(filters.page_size, 50)
+        page_num, offset = page_offset(cursor, page_size)
+        params: dict[str, Any] = {
+            "q": crawl_query(filters, fallback="energy"),
+            "rows": page_size,
+            "start": offset,
+        }
+        if filters.year_from:
+            params["publication_date_start"] = f"01/01/{filters.year_from}"
+        if filters.year_to:
+            params["publication_date_end"] = f"12/31/{filters.year_to}"
+        data = await self.request_json(
+            self.BASE,
+            params=params,
+            headers={"Accept": "application/json"},
+        )
+        items = data if isinstance(data, list) else (data or {}).get("records") or (data or {}).get("results") or []
+        return finish_page(
+            [self._parse(item) for item in items],
+            page_num=page_num,
+            page_size=page_size,
+        )
 
     def _parse(self, item: dict[str, Any] | None) -> PaperRecord | None:
         if not item:
@@ -677,6 +813,7 @@ class _RxivProvider(ResearchProvider):
 
     container: str = ""
     host: str = ""
+    supports_browse = True
 
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
         filter_parts = [f"container-title:{self.container}", "type:posted-content"]
@@ -706,6 +843,46 @@ class _RxivProvider(ResearchProvider):
                 paper.url = f"{self.host}/content/{paper.doi}"
             papers.append(paper)
         return _finished(papers, filters)
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        filter_parts = [f"container-title:{self.container}", "type:posted-content"]
+        if filters.year_from:
+            filter_parts.append(f"from-pub-date:{filters.year_from}")
+        if filters.year_to:
+            filter_parts.append(f"until-pub-date:{filters.year_to}")
+        params: dict[str, Any] = {
+            "rows": min(filters.page_size, 100),
+            "mailto": self.config.env.polite_email,
+            "cursor": cursor or "*",
+            "filter": ",".join(filter_parts),
+        }
+        query = filters.query.strip()
+        if query:
+            params["query"] = query
+        data = await self.request_json("https://api.crossref.org/works", params=params)
+        message = (data or {}).get("message") or {}
+        items = message.get("items") or []
+        parser = CrossrefProvider(self.client, self.config)
+        records: list[PaperRecord | None] = []
+        for item in items:
+            paper = parser._parse(item)
+            if not paper:
+                continue
+            paper.source_provider = self.name
+            paper.open_access = True
+            paper.journal = paper.journal or self.container
+            paper.publisher = self.container
+            if paper.doi:
+                paper.url = f"{self.host}/content/{paper.doi}"
+            records.append(paper)
+        next_cursor = message.get("next-cursor")
+        return BrowsePage(
+            records=[p for p in records if p and p.title],
+            next_cursor=next_cursor,
+            has_more=bool(next_cursor),
+            page_number=int(message.get("page") or 1),
+            total_results=message.get("total-results"),
+        )
 
 
 class BiorxivProvider(_RxivProvider):

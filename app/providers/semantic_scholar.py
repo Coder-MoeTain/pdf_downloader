@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.models.crawl import BrowsePage, CrawlFilters
 from app.models.paper import AuthorRecord, PaperRecord
 from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
+from app.providers.crawl_browse import crawl_query, finish_page, page_offset
 from app.utils.doi import doi_url, normalize_doi
 from app.utils.http import HttpError
 from app.utils.logger import get_logger
@@ -40,6 +42,7 @@ FIELDS = ",".join(
 class SemanticScholarProvider(ResearchProvider):
     name = "semantic_scholar"
     display_name = "Semantic Scholar"
+    supports_browse = True
     BASE = "https://api.semanticscholar.org/graph/v1/paper/search"
 
     def has_api_key(self) -> bool:
@@ -74,6 +77,38 @@ class SemanticScholarProvider(ResearchProvider):
         items = (data or {}).get("data") or []
         papers = [self._parse(item) for item in items]
         return [p for p in papers if p and p.title]
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_size = min(filters.page_size, 100)
+        page_num, offset = page_offset(cursor, page_size)
+        params: dict[str, Any] = {
+            "query": crawl_query(filters, fallback="machine learning"),
+            "limit": page_size,
+            "offset": offset,
+            "fields": FIELDS,
+        }
+        if filters.year_from or filters.year_to:
+            start = filters.year_from or 1900
+            end = filters.year_to or 2100
+            params["year"] = f"{start}-{end}"
+        try:
+            data = await self.request_json(self.BASE, params=params, headers=self._headers())
+        except HttpError as exc:
+            if exc.status_code == 429:
+                raise HttpError(
+                    "Semantic Scholar rate-limited this IP (HTTP 429). "
+                    "Add SEMANTIC_SCHOLAR_API_KEY in Settings for a higher quota.",
+                    429,
+                ) from exc
+            raise
+        items = (data or {}).get("data") or []
+        total = (data or {}).get("total")
+        return finish_page(
+            [self._parse(item) for item in items],
+            page_num=page_num,
+            page_size=page_size,
+            total=total,
+        )
 
     async def get_paper(self, identifier: str) -> PaperRecord | None:
         doi = normalize_doi(identifier)

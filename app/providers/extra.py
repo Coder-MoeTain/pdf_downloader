@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.models.crawl import BrowsePage, CrawlFilters
 from app.models.paper import AuthorRecord, PaperRecord
 from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
+from app.providers.crawl_browse import crawl_query, finish_page, page_offset
 from app.utils.doi import doi_url, normalize_doi
 from app.utils.http import HttpError
 from app.utils.logger import get_logger
@@ -25,25 +27,39 @@ def _year(value: Any) -> int | None:
 class DoajProvider(ResearchProvider):
     name = "doaj"
     display_name = "DOAJ"
+    supports_browse = True
     BASE = "https://doaj.org/api/search/articles"
 
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
-        q = f"bibjson.title:{query} OR bibjson.abstract:{query}"
-        if filters.year_from:
-            q += f" AND bibjson.year:[{filters.year_from} TO {filters.year_to or 2100}]"
-        url = f"{self.BASE}/{query}"
-        data = await self.request_json(
-            url,
-            params={"pageSize": min(filters.max_results, 100), "page": 1},
+        page = await self.browse(
+            CrawlFilters(source=self.name, query=query, page_size=min(filters.max_results, 100)),
         )
-        items = (data or {}).get("results") or []
-        papers = [self._parse(item) for item in items]
-        out = [p for p in papers if p and p.title]
+        out = page.records
         if filters.year_from:
             out = [p for p in out if not p.publication_year or p.publication_year >= filters.year_from]
         if filters.year_to:
             out = [p for p in out if not p.publication_year or p.publication_year <= filters.year_to]
         return out
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_size = min(filters.page_size, 100)
+        page_num, _ = page_offset(cursor, page_size)
+        query = crawl_query(filters, fallback="journal")
+        q = f"bibjson.title:{query} OR bibjson.abstract:{query}"
+        if filters.year_from:
+            q += f" AND bibjson.year:[{filters.year_from} TO {filters.year_to or 2100}]"
+        data = await self.request_json(
+            self.BASE,
+            params={"q": q, "pageSize": page_size, "page": page_num},
+        )
+        items = (data or {}).get("results") or []
+        total = (data or {}).get("total")
+        return finish_page(
+            [self._parse(item) for item in items],
+            page_num=page_num,
+            page_size=page_size,
+            total=total,
+        )
 
     def _parse(self, item: dict[str, Any] | None) -> PaperRecord | None:
         if not item:
@@ -86,6 +102,7 @@ class DoajProvider(ResearchProvider):
 class IeeeProvider(ResearchProvider):
     name = "ieee"
     display_name = "IEEE Xplore"
+    supports_browse = True
     BASE = "https://ieeexploreapi.ieee.org/api/v1/search/articles"
 
     def has_api_key(self) -> bool:
@@ -124,6 +141,46 @@ class IeeeProvider(ResearchProvider):
         items = (data or {}).get("articles") or []
         return [p for p in (self._parse(i) for i in items) if p and p.title]
 
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_size = min(filters.page_size, 25)
+        page_num, offset = page_offset(cursor, page_size)
+        key = (self.config.env.ieee_api_key or "").strip()
+        params: dict[str, Any] = {
+            "querytext": crawl_query(filters, fallback="*"),
+            "apikey": key,
+            "max_records": page_size,
+            "start_record": offset + 1,
+            "format": "json",
+        }
+        if filters.year_from:
+            params["start_year"] = filters.year_from
+        if filters.year_to:
+            params["end_year"] = filters.year_to
+        if filters.open_access_only:
+            params["open_access"] = "true"
+        try:
+            data = await self.request_json(
+                self.BASE,
+                params=params,
+                headers={"Accept": "application/json"},
+            )
+        except HttpError as exc:
+            if exc.status_code == 403:
+                raise HttpError(
+                    "IEEE Xplore rejected the API key (Developer Inactive). "
+                    "Check the key at https://developer.ieee.org.",
+                    403,
+                ) from exc
+            raise
+        items = (data or {}).get("articles") or []
+        total = (data or {}).get("total_records")
+        return finish_page(
+            [self._parse(i) for i in items],
+            page_num=page_num,
+            page_size=page_size,
+            total=int(total) if total is not None else None,
+        )
+
     def _parse(self, item: dict[str, Any]) -> PaperRecord | None:
         authors = [
             AuthorRecord(name=a.get("full_name") or a.get("author"))
@@ -152,6 +209,7 @@ class IeeeProvider(ResearchProvider):
 class SpringerProvider(ResearchProvider):
     name = "springer"
     display_name = "Springer Nature"
+    supports_browse = True
     BASE = "https://api.springernature.com/meta/v2/json"
 
     def has_api_key(self) -> bool:
@@ -173,6 +231,33 @@ class SpringerProvider(ResearchProvider):
         data = await self.request_json(self.BASE, params=params)
         items = (data or {}).get("records") or []
         return [p for p in (self._parse(i) for i in items) if p and p.title]
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_size = min(filters.page_size, 50)
+        page_num, offset = page_offset(cursor, page_size)
+        q = crawl_query(filters, fallback="research")
+        if filters.year_from or filters.year_to:
+            start = filters.year_from or 1800
+            end = filters.year_to or 2100
+            q = f"{q} year:{start}-{end}"
+        if filters.open_access_only:
+            q = f"openaccess:true {q}"
+        params = {
+            "q": q,
+            "api_key": self.config.env.springer_api_key,
+            "p": page_size,
+            "s": offset,
+        }
+        data = await self.request_json(self.BASE, params=params)
+        items = (data or {}).get("records") or []
+        total = (data or {}).get("result") or {}
+        total_count = total.get("total") if isinstance(total, dict) else None
+        return finish_page(
+            [self._parse(i) for i in items],
+            page_num=page_num,
+            page_size=page_size,
+            total=int(total_count) if total_count is not None else None,
+        )
 
     def _parse(self, item: dict[str, Any]) -> PaperRecord | None:
         authors = [AuthorRecord(name=a.get("creator")) for a in (item.get("creators") or []) if a.get("creator")]
@@ -208,6 +293,7 @@ class SpringerProvider(ResearchProvider):
 class ElsevierProvider(ResearchProvider):
     name = "elsevier"
     display_name = "Elsevier"
+    supports_browse = True
     BASE = "https://api.elsevier.com/content/search/scopus"
 
     def has_api_key(self) -> bool:
@@ -231,6 +317,36 @@ class ElsevierProvider(ResearchProvider):
         data = await self.request_json(self.BASE, params=params, headers=headers)
         items = (((data or {}).get("search-results") or {}).get("entry")) or []
         return [p for p in (self._parse(i) for i in items) if p and p.title]
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_size = min(filters.page_size, 25)
+        page_num, offset = page_offset(cursor, page_size)
+        query = crawl_query(filters, fallback="research")
+        q = f"TITLE-ABS-KEY({query})"
+        if filters.year_from or filters.year_to:
+            start = filters.year_from or 1800
+            end = filters.year_to or 2100
+            q += f" AND PUBYEAR > {start - 1} AND PUBYEAR < {end + 1}"
+        params = {
+            "query": q,
+            "count": page_size,
+            "start": offset,
+            "httpAccept": "application/json",
+        }
+        headers = {
+            "X-ELS-APIKey": self.config.env.elsevier_api_key,
+            "Accept": "application/json",
+        }
+        data = await self.request_json(self.BASE, params=params, headers=headers)
+        results = (data or {}).get("search-results") or {}
+        items = results.get("entry") or []
+        total = results.get("opensearch:totalResults")
+        return finish_page(
+            [self._parse(i) for i in items],
+            page_num=page_num,
+            page_size=page_size,
+            total=int(total) if total is not None else None,
+        )
 
     def _parse(self, item: dict[str, Any]) -> PaperRecord | None:
         if item.get("error"):
@@ -316,6 +432,7 @@ class NasaNtrsProvider(ResearchProvider):
 
     name = "nasa_ntrs"
     display_name = "NASA NTRS"
+    supports_browse = True
     BASE = "https://ntrs.nasa.gov/api/citations/search"
     ORIGIN = "https://ntrs.nasa.gov"
 
@@ -339,6 +456,35 @@ class NasaNtrsProvider(ResearchProvider):
         if filters.year_to:
             papers = [p for p in papers if not p.publication_year or p.publication_year <= filters.year_to]
         return papers
+
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        page_size = min(filters.page_size, 100)
+        page_num, _ = page_offset(cursor, page_size)
+        params: dict[str, Any] = {
+            "q": crawl_query(filters, fallback="NASA"),
+            "page.size": page_size,
+            "page.number": page_num,
+            "distribution": "PUBLIC",
+        }
+        if filters.year_from:
+            params["published.gte"] = f"{filters.year_from}-01-01"
+        if filters.year_to:
+            params["published.lte"] = f"{filters.year_to}-12-31"
+        if filters.open_access_only:
+            params["disseminated"] = "DOCUMENT_AND_METADATA"
+        data = await self.request_json(self.BASE, params=params)
+        items = (data or {}).get("results") or []
+        page_meta = (data or {}).get("page") or {}
+        total = page_meta.get("totalElements")
+        has_more = bool(page_meta.get("hasNext"))
+        return finish_page(
+            [self._parse(i) for i in items],
+            page_num=page_num,
+            page_size=page_size,
+            total=int(total) if total is not None else None,
+            has_more=has_more,
+            next_cursor=str(page_num + 1) if has_more else None,
+        )
 
     async def get_paper(self, identifier: str) -> PaperRecord | None:
         text = (identifier or "").strip()

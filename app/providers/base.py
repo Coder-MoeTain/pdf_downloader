@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 from app.config import AppConfig, ProviderConfig, load_config
 from app.models.paper import PaperRecord
 from app.models.search import SearchFilters
 from app.utils.http import AsyncHttpClient
 
+if TYPE_CHECKING:
+    from app.models.crawl import BrowsePage, CrawlFilters
+
 
 class ResearchProvider(ABC):
     name: str = "base"
     display_name: str = "Base"
+    supports_browse: bool = False
 
     def __init__(
         self,
@@ -60,6 +65,9 @@ class ResearchProvider(ABC):
     @abstractmethod
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
         raise NotImplementedError
+
+    async def browse(self, filters: "CrawlFilters", *, cursor: str | None = None) -> "BrowsePage":
+        raise NotImplementedError(f"{self.display_name} does not support source crawling yet.")
 
     async def get_paper(self, identifier: str) -> PaperRecord | None:
         return None

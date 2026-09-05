@@ -77,6 +77,9 @@ def test_non_admin_cannot_open_sources_or_settings(tmp_db, monkeypatch):
     sources = client.get("/sources")
     assert sources.status_code == 302
     assert sources.headers["location"].endswith("/")
+    crawler = client.get("/crawler")
+    assert crawler.status_code == 302
+    assert crawler.headers["location"].endswith("/")
     api = client.get("/api/sources/1")
     assert api.status_code == 403
     home = client.get("/", follow_redirects=True)

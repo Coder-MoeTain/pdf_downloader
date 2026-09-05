@@ -142,6 +142,23 @@ class SearchJob(Base):
     search_query: Mapped[SearchQuery | None] = relationship()
 
 
+class CrawlJob(Base):
+    __tablename__ = "crawl_jobs"
+    __table_args__ = (Index("ix_crawl_jobs_user_status", "user_id", "status"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    filters_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped["User | None"] = relationship()
+
+
 class SearchResult(Base):
     __tablename__ = "search_results"
     __table_args__ = (UniqueConstraint("search_query_id", "paper_id", name="uq_search_paper"),)

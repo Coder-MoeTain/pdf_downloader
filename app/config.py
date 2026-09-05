@@ -111,9 +111,10 @@ class TopicConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    name: str = "ResearchPaper Collector"
-    version: str = "1.0.0"
-    user_agent: str = "ResearchPaperCollector/1.0 (academic research; mailto:{email})"
+    name: str = "Cyber Scholar"
+    subtitle: str = "Myanmar Space Agency"
+    version: str = "1.2.0"
+    user_agent: str = "CyberScholar/1.2 (academic research; mailto:{email})"
     library_dir: Path = Path("research_library")
     exports_dir: Path = Path("exports")
     logs_dir: Path = Path("logs")
@@ -131,6 +132,7 @@ class AppConfig(BaseModel):
     provider_timeout_seconds: float = 12
     provider_phase_seconds: float = 16
     oa_concurrency: int = 8
+    max_concurrent_search_jobs_per_user: int = 2
     ranking: RankingConfig = Field(default_factory=RankingConfig)
     dedup: DedupConfig = Field(default_factory=DedupConfig)
     query_expansion: QueryExpansionConfig = Field(default_factory=QueryExpansionConfig)
@@ -209,8 +211,9 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
         timezone_name = "UTC"
 
     return AppConfig(
-        name=app.get("name", "ResearchPaper Collector"),
-        version=app.get("version", "1.0.0"),
+        name=app.get("name", "Cyber Scholar"),
+        subtitle=app.get("subtitle", "Myanmar Space Agency"),
+        version=app.get("version", "1.2.0"),
         user_agent=app.get("user_agent", AppConfig.model_fields["user_agent"].default),
         library_dir=Path(app.get("library_dir", "research_library")),
         exports_dir=Path(app.get("exports_dir", "exports")),
@@ -228,6 +231,7 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
         provider_timeout_seconds=float(search.get("provider_timeout_seconds", 12)),
         provider_phase_seconds=float(search.get("provider_phase_seconds", 16)),
         oa_concurrency=int(search.get("oa_concurrency", 8)),
+        max_concurrent_search_jobs_per_user=int(search.get("max_concurrent_search_jobs_per_user", 2)),
         ranking=ranking,
         dedup=DedupConfig(**(data.get("dedup") or {})),
         query_expansion=QueryExpansionConfig(**(data.get("query_expansion") or {})),

@@ -152,7 +152,12 @@ def provider_status(config: AppConfig | None = None) -> list[dict[str, object]]:
                 "requires_key": provider.provider_config.requires_key,
                 "has_key": provider.has_api_key(),
                 "available": provider.is_available(),
+                "supports_browse": bool(getattr(cls, "supports_browse", False)),
                 "requests_per_second": provider.requests_per_second,
             }
         )
     return rows
+
+
+def source_display_names(config: AppConfig | None = None) -> dict[str, str]:
+    return {str(row["name"]): str(row["display_name"]) for row in provider_status(config)}

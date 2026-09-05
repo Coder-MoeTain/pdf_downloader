@@ -102,6 +102,61 @@ def test_crossref_parse():
     assert paper.pdf_url.endswith(".pdf")
 
 
+@pytest.mark.asyncio
+async def test_crossref_browse_omits_sort_with_cursor():
+    from app.models.crawl import CrawlFilters
+
+    class _Client:
+        async def get_json(self, url, **kwargs):
+            params = kwargs.get("params") or {}
+            assert "sort" not in params
+            assert "order" not in params
+            assert params["cursor"] == "*"
+            assert params["filter"] == "type:journal-article"
+            return {
+                "message": {
+                    "items": [
+                        {
+                            "DOI": "10.1145/example",
+                            "title": ["Browse Paper"],
+                            "type": "journal-article",
+                        }
+                    ],
+                    "next-cursor": "next-page",
+                    "total-results": 2,
+                }
+            }
+
+    provider = CrossrefProvider(_Client())  # type: ignore[arg-type]
+    page = await provider.browse(CrawlFilters(source="crossref", page_size=25))
+    assert len(page.records) == 1
+    assert page.records[0].title == "Browse Paper"
+    assert page.next_cursor == "next-page"
+    assert page.has_more is True
+
+
+@pytest.mark.asyncio
+async def test_openalex_browse_uses_valid_type_filter():
+    from app.models.crawl import CrawlFilters
+
+    class _Client:
+        async def get_json(self, url, **kwargs):
+            params = kwargs.get("params") or {}
+            assert params["filter"] == "type:article|preprint|posted-content"
+            assert params["cursor"] == "*"
+            return {
+                "meta": {"page": 1, "count": 2, "next_cursor": "next-page"},
+                "results": [{"display_name": "OpenAlex Browse Paper", "id": "https://openalex.org/W1"}],
+            }
+
+    provider = OpenAlexProvider(_Client())  # type: ignore[arg-type]
+    page = await provider.browse(CrawlFilters(source="openalex", page_size=25))
+    assert len(page.records) == 1
+    assert page.records[0].title == "OpenAlex Browse Paper"
+    assert page.next_cursor == "next-page"
+    assert page.has_more is True
+
+
 def test_openalex_abstract_and_parse():
     inv = {"Machine": [0], "learning": [1], "security": [2]}
     assert inverted_index_to_text(inv) == "Machine learning security"

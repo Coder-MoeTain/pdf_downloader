@@ -1,11 +1,10 @@
 {% extends "base.html" %}
-{% from "_macros.html" import empty_state, sources_pager, source_toggle %}
+{% from "_macros.html" import empty_state, sources_pager, source_toggle, source_mark %}
 {% block title %}Sources · {{ app_name }}{% endblock %}
 {% block body_class %}page-sources{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="page-kicker">Providers</div>
     <h1 class="h2 mb-0">Academic sources</h1>
   </div>
   <div class="d-flex flex-wrap gap-2">
@@ -101,7 +100,7 @@
         <tr class="source-row {% if not s.enabled %}is-disabled{% endif %}">
           <td>
             <div class="source-name">
-              <span class="provider-dot {% if s.available %}on{% else %}off{% endif %}" aria-hidden="true"></span>
+              {{ source_mark(s.slug, s.homepage_url, s.display_name, false, 24) }}
               <div>
                 <strong>{{ s.display_name }}</strong>
                 <div class="paper-meta">

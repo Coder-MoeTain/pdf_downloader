@@ -8,7 +8,7 @@ from collections import Counter
 from sqlalchemy import and_, delete, exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.database.models import Author, Download, Paper, PaperAuthor, PaperFulltext, Provider, SearchJob, SearchQuery, SearchResult, User
+from app.database.models import Author, CrawlJob, Download, Paper, PaperAuthor, PaperFulltext, Provider, SearchJob, SearchQuery, SearchResult, User
 from app.models.paper import AuthorRecord, PaperRecord, PaperStatus
 from app.utils.filename import normalize_title
 from app.utils.time import utc_now
@@ -699,9 +699,11 @@ def enqueue_search_job(session: Session, *, user_id: int | None, query: str, fil
     return row
 
 
-def claim_next_search_job(session: Session) -> SearchJob | None:
-    """Pick the oldest pending job from a user who has no running job (fair per-user parallelism)."""
-    running_user_ids = set(
+def claim_next_search_job(session: Session, *, max_per_user: int = 1) -> SearchJob | None:
+    """Pick the oldest pending job while respecting a per-user running limit."""
+    from collections import Counter
+
+    running_counts: Counter[int | None] = Counter(
         session.scalars(select(SearchJob.user_id).where(SearchJob.status == "running")).all()
     )
     pending = session.scalars(
@@ -709,8 +711,9 @@ def claim_next_search_job(session: Session) -> SearchJob | None:
         .where(SearchJob.status == "pending")
         .order_by(SearchJob.created_at)
     ).all()
+    limit = max(1, int(max_per_user))
     for job in pending:
-        if job.user_id in running_user_ids:
+        if running_counts[job.user_id] >= limit:
             continue
         job.status = "running"
         job.started_at = utc_now()
@@ -793,6 +796,98 @@ def search_jobs_grouped_by_user(session: Session, *, limit: int = 100) -> dict[s
         .limit(limit)
     ).all()
     grouped: dict[str, list[SearchJob]] = {}
+    for job in rows:
+        label = job.user.email if job.user else "Anonymous"
+        grouped.setdefault(label, []).append(job)
+    return grouped
+
+
+def enqueue_crawl_job(session: Session, *, user_id: int | None, source: str, filters: dict) -> CrawlJob:
+    row = CrawlJob(
+        user_id=user_id,
+        source=source.strip(),
+        filters_json=json.dumps(filters),
+        status="pending",
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def claim_next_crawl_job(session: Session, *, max_per_user: int = 1) -> CrawlJob | None:
+    from collections import Counter
+
+    running_counts: Counter[int | None] = Counter(
+        session.scalars(select(CrawlJob.user_id).where(CrawlJob.status == "running")).all()
+    )
+    pending = session.scalars(
+        select(CrawlJob).where(CrawlJob.status == "pending").order_by(CrawlJob.created_at)
+    ).all()
+    limit = max(1, int(max_per_user))
+    for job in pending:
+        if running_counts[job.user_id] >= limit:
+            continue
+        job.status = "running"
+        job.started_at = utc_now()
+        session.flush()
+        return job
+    return None
+
+
+def complete_crawl_job(
+    session: Session,
+    job_id: int,
+    *,
+    status: str = "completed",
+    error_message: str | None = None,
+) -> None:
+    row = session.get(CrawlJob, job_id)
+    if row is None:
+        return
+    row.status = status
+    row.error_message = error_message
+    row.completed_at = utc_now()
+
+
+def get_crawl_job(session: Session, job_id: int) -> CrawlJob | None:
+    return session.get(CrawlJob, job_id)
+
+
+def crawl_queue_position(session: Session, job_id: int) -> int | None:
+    job = session.get(CrawlJob, job_id)
+    if job is None or job.status != "pending":
+        return None
+    pending = session.scalars(
+        select(CrawlJob)
+        .where(CrawlJob.status == "pending", CrawlJob.user_id == job.user_id)
+        .order_by(CrawlJob.created_at)
+    ).all()
+    for idx, row in enumerate(pending, start=1):
+        if row.id == job_id:
+            return idx
+    return None
+
+
+def active_crawl_job_for_user(session: Session, user_id: int | None) -> CrawlJob | None:
+    if user_id is None:
+        return None
+    return session.scalar(
+        select(CrawlJob)
+        .where(CrawlJob.user_id == user_id, CrawlJob.status == "running")
+        .order_by(CrawlJob.started_at.desc())
+        .limit(1)
+    )
+
+
+def crawl_jobs_grouped_by_user(session: Session, *, limit: int = 100) -> dict[str, list[CrawlJob]]:
+    rows = session.scalars(
+        select(CrawlJob)
+        .where(CrawlJob.status.in_(("pending", "running")))
+        .options(selectinload(CrawlJob.user))
+        .order_by(CrawlJob.created_at)
+        .limit(limit)
+    ).all()
+    grouped: dict[str, list[CrawlJob]] = {}
     for job in rows:
         label = job.user.email if job.user else "Anonymous"
         grouped.setdefault(label, []).append(job)

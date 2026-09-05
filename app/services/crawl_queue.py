@@ -1,4 +1,4 @@
-"""Persistent search queue with per-user parallel execution."""
+"""Persistent crawl queue with per-user parallel execution."""
 
 from __future__ import annotations
 
@@ -9,19 +9,19 @@ from typing import Any
 
 from app.database.connection import session_scope
 from app.database.repository import (
-    claim_next_search_job,
-    complete_search_job,
-    get_search_job,
-    queue_position,
-    search_jobs_grouped_by_user,
+    claim_next_crawl_job,
+    complete_crawl_job,
+    crawl_jobs_grouped_by_user,
+    crawl_queue_position,
+    get_crawl_job,
 )
-from app.models.search import SearchFilters, SortMode
-from app.services.progress import job_registry
-from app.services.search_service import SearchCancelled, SearchService
+from app.models.crawl import CrawlFilters
+from app.services.crawl_service import CrawlCancelled, CrawlService
+from app.services.progress import crawl_job_registry
 from app.utils.logger import get_logger
 from app.utils.time import format_local, utc_now
 
-logger = get_logger("app.search_queue")
+logger = get_logger("app.crawl_queue")
 
 _worker_task: asyncio.Task | None = None
 _running_job_ids: set[int] = set()
@@ -31,54 +31,53 @@ _lock = asyncio.Lock()
 _loop: asyncio.AbstractEventLoop | None = None
 
 
-def filters_from_dict(data: dict[str, Any]) -> SearchFilters:
-    sort_raw = data.get("sort", "relevance")
-    try:
-        sort_mode = SortMode(sort_raw) if isinstance(sort_raw, str) else SortMode.RELEVANCE
-    except ValueError:
-        sort_mode = SortMode.RELEVANCE
-    return SearchFilters(
+def filters_from_dict(data: dict[str, Any]) -> CrawlFilters:
+    return CrawlFilters(
+        source=str(data.get("source") or ""),
         query=str(data.get("query") or ""),
         year_from=data.get("year_from"),
         year_to=data.get("year_to"),
-        authors=data.get("authors"),
-        journal=data.get("journal"),
-        publisher=data.get("publisher"),
-        source=data.get("source"),
         open_access_only=bool(data.get("open_access_only")),
-        max_results=int(data.get("max_results") or 50),
-        min_citations=int(data.get("min_citations") or 0),
-        sort=sort_mode,
-        download=bool(data.get("download", True)),
+        skip_existing=bool(data.get("skip_existing", True)),
+        download=bool(data.get("download", False)),
+        pdfs_only=bool(data.get("pdfs_only")),
+        page_size=int(data.get("page_size") or 100),
+        max_pages=int(data.get("max_pages") or 0),
+        max_papers=int(data.get("max_papers") or 50000),
         download_limit=data.get("download_limit"),
         max_file_size=data.get("max_file_size"),
         topic_name=data.get("topic_name"),
     )
 
 
-def job_to_dict(job, *, position: int | None = None) -> dict[str, Any]:
+def job_to_dict(job, *, position: int | None = None, source_labels: dict[str, str] | None = None) -> dict[str, Any]:
     username = job.user.email if job.user else "Anonymous"
     name = job.user.name if job.user and job.user.name else username
+    labels = source_labels or {}
+    source_slug = job.source or ""
     return {
         "id": job.id,
         "user_id": job.user_id,
         "username": username,
         "name": name,
-        "query": job.query,
+        "source": source_slug,
+        "source_label": labels.get(source_slug, source_slug.replace("_", " ").title()),
         "status": job.status,
         "position": position,
         "error": job.error_message,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
-        "search_query_id": job.search_query_id,
         "can_stop": False,
     }
 
 
 def queue_snapshot(*, user_id: int | None = None, is_admin: bool = False) -> dict[str, Any]:
+    from app.providers import source_display_names
+
+    source_labels = source_display_names()
     with session_scope() as session:
-        grouped = search_jobs_grouped_by_user(session)
+        grouped = crawl_jobs_grouped_by_user(session)
         users: list[dict[str, Any]] = []
         for username in sorted(grouped.keys()):
             jobs = grouped[username]
@@ -87,10 +86,10 @@ def queue_snapshot(*, user_id: int | None = None, is_admin: bool = False) -> dic
                     continue
             entries = []
             for job in jobs:
-                pos = queue_position(session, job.id) if job.status == "pending" else None
+                pos = crawl_queue_position(session, job.id) if job.status == "pending" else None
                 if not is_admin and user_id is not None and job.user_id != user_id:
                     continue
-                item = job_to_dict(job, position=pos)
+                item = job_to_dict(job, position=pos, source_labels=source_labels)
                 owner = user_id is not None and job.user_id == user_id
                 item["can_stop"] = job.status in ("pending", "running") and (is_admin or owner)
                 entries.append(item)
@@ -101,14 +100,14 @@ def queue_snapshot(*, user_id: int | None = None, is_admin: bool = False) -> dic
     return {"users": users, "running": running, "pending": pending}
 
 
-def db_job_progress_snapshot(job, *, position: int | None = None) -> dict[str, Any]:
-    """Synthetic progress when in-memory logs are not available yet (or after restart)."""
+def db_crawl_progress_snapshot(job, *, position: int | None = None) -> dict[str, Any]:
+    """Synthetic progress when in-memory crawl logs are not available yet."""
     stamp = format_local(utc_now(), "%H:%M:%S")
-    query = job.query or ""
+    source = job.source or ""
     base: dict[str, Any] = {
         "job_id": job.id,
-        "kind": "search",
-        "query": query,
+        "kind": "crawl",
+        "query": source,
         "current": 0,
         "total": 0,
         "percent": None,
@@ -122,33 +121,33 @@ def db_job_progress_snapshot(job, *, position: int | None = None) -> dict[str, A
             phase="starting",
             percent=2,
             message=waiting,
-            logs=[{"time": stamp, "level": "info", "message": f"Search queued: {query}"}],
+            logs=[{"time": stamp, "level": "info", "message": f"Crawl queued: {source}"}],
         )
     elif job.status == "running":
         base.update(
             active=True,
             phase="starting",
             percent=5,
-            message="Search is running…",
-            logs=[{"time": stamp, "level": "info", "message": f"Search job #{job.id} is running…"}],
+            message="Crawl is running…",
+            logs=[{"time": stamp, "level": "info", "message": f"Crawl job #{job.id} is running…"}],
         )
     elif job.status == "completed":
         base.update(
             active=False,
             phase="done",
             percent=100,
-            message="Search completed.",
-            logs=[{"time": stamp, "level": "success", "message": f"Search completed: {query}"}],
+            message="Crawl completed.",
+            logs=[{"time": stamp, "level": "success", "message": f"Crawl completed: {source}"}],
         )
     elif job.status == "cancelled":
         base.update(
             active=False,
             phase="cancelled",
-            message="Search stopped.",
-            logs=[{"time": stamp, "level": "warning", "message": "Search stopped by user."}],
+            message="Crawl stopped.",
+            logs=[{"time": stamp, "level": "warning", "message": "Crawl stopped by user."}],
         )
     elif job.status == "failed":
-        err = job.error_message or "Search failed."
+        err = job.error_message or "Crawl failed."
         base.update(
             active=False,
             phase="error",
@@ -156,21 +155,19 @@ def db_job_progress_snapshot(job, *, position: int | None = None) -> dict[str, A
             message=err,
             logs=[{"time": stamp, "level": "danger", "message": err}],
         )
-    else:
-        return base
     return base
 
 
-def search_progress_snapshot(job_id: int) -> dict[str, Any] | None:
-    snap = job_registry.snapshot(job_id)
+def crawl_progress_snapshot(job_id: int) -> dict[str, Any] | None:
+    snap = crawl_job_registry.snapshot(job_id)
     if snap:
         return snap
     with session_scope() as session:
-        job = get_search_job(session, job_id)
+        job = get_crawl_job(session, job_id)
         if job is None:
             return None
-        pos = queue_position(session, job_id) if job.status == "pending" else None
-        return db_job_progress_snapshot(job, position=pos)
+        pos = crawl_queue_position(session, job_id) if job.status == "pending" else None
+        return db_crawl_progress_snapshot(job, position=pos)
 
 
 async def _run_job(job_id: int) -> None:
@@ -182,66 +179,56 @@ async def _run_job(job_id: int) -> None:
     try:
         if job_id in _cancel_requested:
             with session_scope() as session:
-                complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+                complete_crawl_job(session, job_id, status="cancelled", error_message="Stopped by user.")
             return
         with session_scope() as session:
-            job = get_search_job(session, job_id)
+            job = get_crawl_job(session, job_id)
             if job is None or job.status != "running":
                 return
-            query = job.query
             filters_data = json.loads(job.filters_json)
             user_id = job.user_id
+            source = job.source
 
         filters = filters_from_dict(filters_data)
-        progress = job_registry.get_or_create(job_id)
+        progress = crawl_job_registry.get_or_create(job_id)
         if job_id in _cancel_requested:
-            progress.request_cancel()
-            progress.finish_search(cancelled=True)
+            progress.request_cancel("Stopping crawl…")
+            progress.finish_crawl(cancelled=True)
             with session_scope() as session:
-                complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+                complete_crawl_job(session, job_id, status="cancelled", error_message="Stopped by user.")
             return
-        progress.mark_search_started(query)
-        if job_id in _cancel_requested or progress.is_cancelled():
-            raise SearchCancelled("Search stopped.")
-        progress.log(f"Search job #{job_id} started for {query}", "info")
+        progress.mark_crawl_started(source)
+        progress.log(f"Crawl job #{job_id} started for {source}", "info")
 
-        service = SearchService(progress=progress)
-        stats = await service.run(filters, user_id=user_id, skip_progress_start=True)
+        service = CrawlService(progress=progress)
+        await service.run(filters, user_id=user_id, skip_progress_start=True)
 
         with session_scope() as session:
-            row = get_search_job(session, job_id)
+            row = get_crawl_job(session, job_id)
             if row is None or row.status == "cancelled":
                 return
-            complete_search_job(
-                session,
-                job_id,
-                status="completed",
-                search_query_id=stats.search_query_id,
-            )
-
-        logger.info("Search job %s completed: %s unique papers", job_id, stats.unique_papers)
-    except SearchCancelled:
-        logger.info("Search job %s stopped", job_id)
-        prog = job_registry.get(job_id)
+            complete_crawl_job(session, job_id, status="completed")
+        logger.info("Crawl job %s completed for %s", job_id, source)
+    except CrawlCancelled:
+        prog = crawl_job_registry.get(job_id)
         if prog:
-            prog.finish_search(cancelled=True)
+            prog.finish_crawl(cancelled=True)
         with session_scope() as session:
-            complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+            complete_crawl_job(session, job_id, status="cancelled", error_message="Stopped by user.")
     except asyncio.CancelledError:
-        logger.info("Search job %s cancelled", job_id)
-        prog = job_registry.get(job_id)
+        prog = crawl_job_registry.get(job_id)
         if prog:
-            prog.request_cancel()
-            prog.finish_search(cancelled=True)
+            prog.request_cancel("Stopping crawl…")
+            prog.finish_crawl(cancelled=True)
         with session_scope() as session:
-            complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+            complete_crawl_job(session, job_id, status="cancelled", error_message="Stopped by user.")
     except Exception as exc:
-        logger.exception("Search job %s failed", job_id)
-        prog = job_registry.get(job_id)
+        logger.exception("Crawl job %s failed", job_id)
+        prog = crawl_job_registry.get(job_id)
         if prog:
-            prog.finish_search(error=str(exc))
+            prog.finish_crawl(error=str(exc))
         with session_scope() as session:
-            complete_search_job(session, job_id, status="failed", error_message=str(exc))
+            complete_crawl_job(session, job_id, status="failed", error_message=str(exc))
     finally:
         _cancel_requested.discard(job_id)
         _running_tasks.pop(job_id, None)
@@ -258,7 +245,7 @@ async def _dispatch_pending() -> None:
         for _ in range(32):
             job_id: int | None = None
             with session_scope() as session:
-                job = claim_next_search_job(session, max_per_user=max_per_user)
+                job = claim_next_crawl_job(session, max_per_user=max_per_user)
                 if job is not None:
                     job_id = job.id
             if job_id is None:
@@ -268,25 +255,23 @@ async def _dispatch_pending() -> None:
         await asyncio.sleep(0.4)
 
 
-async def start_search_queue_worker() -> None:
+async def start_crawl_queue_worker() -> None:
     global _worker_task, _loop
     _loop = asyncio.get_running_loop()
     if _worker_task is not None and not _worker_task.done():
         return
-    _worker_task = asyncio.create_task(_dispatch_pending(), name="search-queue-worker")
-    logger.info("Search queue worker started")
+    _worker_task = asyncio.create_task(_dispatch_pending(), name="crawl-queue-worker")
+    logger.info("Crawl queue worker started")
 
 
-def enqueue_search(*, user_id: int | None, query: str, filters: dict) -> int:
-    from app.database.repository import enqueue_search_job
+def enqueue_crawl(*, user_id: int | None, filters: CrawlFilters) -> int:
+    from app.database.repository import enqueue_crawl_job
 
-    payload = dataclasses.asdict(filters) if hasattr(filters, "__dataclass_fields__") else dict(filters)
-    if hasattr(filters, "sort") and hasattr(filters.sort, "value"):
-        payload["sort"] = filters.sort.value
+    payload = dataclasses.asdict(filters)
     with session_scope() as session:
-        job = enqueue_search_job(session, user_id=user_id, query=query, filters=payload)
+        job = enqueue_crawl_job(session, user_id=user_id, source=filters.source, filters=payload)
         job_id = job.id
-    job_registry.register_queued(job_id, query)
+    crawl_job_registry.register_queued_crawl(job_id, filters.source)
     return job_id
 
 
@@ -296,26 +281,25 @@ def _interrupt_running_job(job_id: int) -> None:
         task.cancel()
 
 
-def cancel_search(job_id: int, *, user_id: int | None, is_admin: bool = False) -> str:
-    """Stop a pending or running search. Returns pending|running."""
+def cancel_crawl(job_id: int, *, user_id: int | None, is_admin: bool = False) -> str:
     with session_scope() as session:
-        job = get_search_job(session, job_id)
+        job = get_crawl_job(session, job_id)
         if job is None:
-            raise ValueError("Search job not found.")
+            raise ValueError("Crawl job not found.")
         owner = user_id is not None and job.user_id == user_id
         if not is_admin and not owner:
-            raise PermissionError("You can only stop your own search.")
+            raise PermissionError("You can only stop your own crawl.")
         if job.status not in ("pending", "running"):
-            raise ValueError("That search is not in the queue.")
+            raise ValueError("That crawl is not in the queue.")
         was = job.status
-        complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+        complete_crawl_job(session, job_id, status="cancelled", error_message="Stopped by user.")
         if was == "pending":
             return was
 
     _cancel_requested.add(job_id)
-    prog = job_registry.get(job_id)
+    prog = crawl_job_registry.get(job_id)
     if prog:
-        prog.request_cancel()
+        prog.request_cancel("Stopping crawl…")
     try:
         running_loop = asyncio.get_running_loop()
     except RuntimeError:

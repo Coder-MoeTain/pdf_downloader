@@ -1,15 +1,19 @@
 <p align="center">
-  <img src="docs/images/logo.png" alt="ResearchPaper Collector" width="120" height="120">
+  <img src="docs/images/logo.svg" alt="Cyber Scholar" width="120" height="120">
 </p>
 
-<h1 align="center">ResearchPaper Collector</h1>
+<h1 align="center">Cyber Scholar</h1>
 
 <p align="center">
-  <strong>Search trusted academic APIs, collect paper metadata, and download only legally available open-access PDFs.</strong>
+  <strong>Myanmar Space Agency</strong>
 </p>
 
 <p align="center">
-  Built for literature reviews in AI, cybersecurity, machine learning, satellite security, and intrusion detection — without paywall bypass.
+  Search trusted academic APIs, collect paper metadata, and download only legally available open-access PDFs.
+</p>
+
+<p align="center">
+  Built for literature reviews in space systems, cybersecurity, AI, satellite security, and intrusion detection — without paywall bypass.
 </p>
 
 <p align="center">
@@ -22,28 +26,30 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/banner.png" alt="ResearchPaper Collector — open-access academic search and PDF library" width="100%">
+  <img src="docs/images/banner.png" alt="Cyber Scholar — Myanmar Space Agency research dashboard" width="100%">
 </p>
 
 <p align="center">
-  <img src="docs/images/dashboard.png" alt="Dashboard with library KPIs, papers-by-year chart, and recent searches" width="100%">
+  <img src="docs/images/dashboard.png" alt="Dashboard with library KPIs, publications chart, quick actions, and recent searches" width="100%">
 </p>
 
 <p align="center">
-  <sub>Dashboard · live collection stats, year coverage, and recent topic searches</sub>
+  <sub>Dashboard · overview metrics, publications by year, access mix, and quick actions</sub>
 </p>
 
----   ----
+---
 
 ## What it does
 
-ResearchPaper Collector talks to **official academic APIs**, merges and ranks results, finds **open-access full text** (including Unpaywall), then stores validated PDFs in a local library.
+**Cyber Scholar** talks to **official academic APIs**, merges and ranks results, finds **open-access full text** (including Unpaywall), then stores validated PDFs in a local library.
 
 It does **not** scrape Google Scholar, ResearchGate, or Academia.edu. It does **not** bypass paywalls, CAPTCHAs, `robots.txt`, or subscription gates. Paywalled works keep their DOI and publisher URL for lawful follow-up. See [COMPLIANCE.md](COMPLIANCE.md).
 
 ## Features
 
 - **Multi-source search** — 30+ official APIs (OpenAlex, Crossref, arXiv, PLOS, OpenAIRE, HAL, Zenodo, and more). IEEE / Springer / Elsevier / NASA ADS when keys are present
+- **Persistent search queue** — per-user jobs with live progress logs
+- **Source crawler** — harvest metadata from configured academic sources (admin)
 - **Query expansion** with configurable synonyms
 - **DOI normalization** and fuzzy duplicate detection
 - **Relevance ranking** (keyword by default; optional `sentence-transformers`)
@@ -65,13 +71,13 @@ It does **not** scrape Google Scholar, ResearchGate, or Academia.edu. It does **
     </td>
     <td width="50%">
       <img src="docs/images/library.png" alt="Paper library">
-      <p align="center"><sub>Library with ratings, status chips, and legal PDF actions</sub></p>
+      <p align="center"><sub>Library with source logos, detail modal, and legal PDF actions</sub></p>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/images/statistics.png" alt="Collection analytics">
-      <p align="center"><sub>Analytics: coverage, citations, journals, and authors</sub></p>
+      <img src="docs/images/dashboard.png" alt="Dashboard overview">
+      <p align="center"><sub>Dashboard · KPIs, charts, and quick actions</sub></p>
     </td>
     <td width="50%">
       <img src="docs/images/sources.png" alt="Academic sources">
@@ -307,9 +313,9 @@ uvicorn app.web:app --reload --host 127.0.0.1 --port 8000
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
-Pages: **Dashboard**, **Search**, **Library**, **Downloads**, **Sources**, **Statistics**, **Settings**.
+Pages: **Dashboard**, **Search**, **Library**, **Downloads**, **Sources**, **Crawler** (admin), **Settings**.
 
-Open [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login) to create the first **admin** account (email and password). After that, every visitor must log in. **User** accounts can search and use the library; **admin** accounts also open Sources, Settings, and User settings people/roles. Signed-in accounts see **User settings** and **Log out** in the header. Google sign-in is optional when `GOOGLE_CLIENT_ID` is set.
+Open [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login) to create the first **admin** account (email and password). After that, every visitor must log in. **User** accounts can search and use the library; **admin** accounts also open Sources, Crawler, Settings, and User settings people/roles. Signed-in accounts see **User settings** and **Log out** in the header. Google sign-in is optional when `GOOGLE_CLIENT_ID` is set.
 
 On a server you can seed the default admin instead:
 
@@ -391,11 +397,11 @@ Unit tests cover DOI/title normalization, deduplication, ranking, merge, filenam
 - Optional sentence-transformer ranking without a separate extra file
 - Saved-search notifications
 - Dedup against an existing Zotero / BibTeX library
-- Packaging as `pip install researchpaper-collector`
+- Packaging as `pip install cyber-scholar`
 
 ## License
 
-[MIT](LICENSE) © ResearchPaper Collector contributors
+[MIT](LICENSE) © Cyber Scholar / Myanmar Space Agency contributors
 
 ---
 
@@ -404,5 +410,5 @@ Unit tests cover DOI/title normalization, deduplication, ranking, merge, filenam
 </p>
 
 <p align="center">
-  <strong>Make with ❤️ by <a href="https://github.com/Coder-MoeTain">Coder-MoeTain</a></strong>
+  <strong>Made with ❤️ by <a href="https://github.com/Coder-MoeTain">Coder-MoeTain</a> · Myanmar Space Agency</strong>
 </p>

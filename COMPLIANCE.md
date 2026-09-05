@@ -1,6 +1,6 @@
 # Legal and Open-Access Compliance
 
-ResearchPaper Collector searches official academic APIs and downloads **only legally
+Cyber Scholar searches official academic APIs and downloads **only legally
 available full-text PDFs**. It is an open-access discovery tool, not a paywall
 bypass.
 

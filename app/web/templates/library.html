@@ -1,26 +1,26 @@
 {% extends "base.html" %}
-{% from "_macros.html" import status_badge, empty_state, star_rating, library_pager %}
+{% from "_macros.html" import status_badge, empty_state, library_pager, source_mark %}
 {% block title %}{% if latest %}Results{% else %}Library{% endif %} · {{ app_name }}{% endblock %}
-{% block body_class %}page-library{% endblock %}
-{% block extra_head %}
+{% block body_class %}page-library{% if search_running %} page-library-live{% endif %}{% endblock %}
+{% block extra_head %}{% endblock %}
+{% block extra_js %}
 {% if search_running %}
-<meta http-equiv="refresh" content="5">
+<script src="/static/library.js?v={{ version }}"></script>
 {% endif %}
 {% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="page-kicker">{% if latest %}Latest search{% else %}Collection{% endif %}</div>
     <h1 class="h2 mb-0">{% if latest %}Search results{% else %}Library{% endif %}</h1>
     {% if latest and latest_search %}
-    <p class="lede mb-0 mt-1">{{ latest_search.original_query }} · {{ status_meta(latest_search.status).label }}{% if search_running %} · refreshing every 5s{% endif %}{% if total %} · {{ total }} paper{{ "s" if total != 1 else "" }}{% endif %}</p>
+    <p class="lede mb-0 mt-1">{{ latest_search.original_query }} · {{ status_meta(latest_search.status).label }}{% if search_running %} · updates every 12s while this search runs{% endif %}{% if total %} · {{ total }} paper{{ "s" if total != 1 else "" }}{% endif %}</p>
     {% endif %}
   </div>
   <div class="d-flex flex-wrap gap-2">
     {% if latest %}
     <a class="btn btn-outline-secondary" href="/library">Full library</a>
     {% endif %}
-    {% if oa_pending and (not status or status in ["OA_AVAILABLE", "FOUND", "FAILED"]) %}
+    {% if oa_pending %}
     <form method="post" action="/download-oa" class="m-0" data-busy="Starting…">
       {% if latest %}<input type="hidden" name="latest" value="1">{% endif %}
       <button class="btn btn-primary" type="submit">Download {{ oa_pending }} open-access PDF{{ "s" if oa_pending != 1 else "" }}</button>
@@ -30,7 +30,7 @@
 </div>
 
 {% if has_library_stats %}
-<section class="lib-status-panel" aria-label="Library statistics">
+<section class="lib-status-panel" aria-label="Library overview">
   <div class="row g-3 lib-status-kpis">
     {% for card in kpis %}
     <div class="col-6 col-lg">
@@ -44,29 +44,6 @@
     </div>
     {% endfor %}
   </div>
-  {% if statuses %}
-  <div class="card lib-status-mix-card">
-    <div class="card-header d-flex flex-wrap justify-content-between gap-2 align-items-baseline">
-      <div>
-        <div>Status</div>
-        <div class="card-sub">Click a status to filter the library.</div>
-      </div>
-      <a class="paper-meta mb-0" href="/statistics">Full analytics</a>
-    </div>
-    <div class="card-body">
-      <div class="status-mix" role="img" aria-label="Library status mix">
-        {% for row in statuses %}
-        <a class="status-mix-seg tone-{{ row.tone }}" href="{{ library_href(filters, status=row.code, page=1) }}" style="width: {{ row.pct }}%" title="{{ row.label }} · {{ row.count }} ({{ row.pct }}%)"></a>
-        {% endfor %}
-      </div>
-      <div class="chip-row lib-status-chips" role="list">
-        {% for row in statuses %}
-        <a class="chip {% if status == row.code %}active{% endif %}" href="{{ library_href(filters, status=row.code, page=1) }}">{{ row.label }} · {{ row.count }}</a>
-        {% endfor %}
-      </div>
-    </div>
-  </div>
-  {% endif %}
 </section>
 {% endif %}
 
@@ -74,9 +51,6 @@
   <div class="chip-row lib-quick-chips">
     <a class="chip {% if not has_filters %}active{% endif %}" href="{{ library_href({'latest': latest, 'sort': sort, 'per_page': per_page}) }}">All</a>
     <a class="chip {% if pdf %}active{% endif %}" href="{{ library_href(filters, pdf=true, page=1) }}">Downloadable PDF</a>
-    <a class="chip {% if min_rating == 4 %}active{% endif %}" href="{{ library_href(filters, min_rating=4, page=1) }}">4+ stars</a>
-    <a class="chip {% if status == 'DOWNLOADED' %}active{% endif %}" href="{{ library_href(filters, status='DOWNLOADED', page=1) }}">Downloaded</a>
-    <a class="chip {% if status == 'OA_AVAILABLE' %}active{% endif %}" href="{{ library_href(filters, status='OA_AVAILABLE', page=1) }}">Open access</a>
   </div>
 
   <form class="lib-filter-form" method="get" action="/library">
@@ -93,45 +67,6 @@
           <option value="">All years</option>
           {% for y in facets.years %}
           <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="lib-field">
-        <label class="lib-filter-label" for="source">Source</label>
-        <select class="form-select" id="source" name="source" onchange="this.form.submit()">
-          <option value="">All sources</option>
-          {% for src in facets.sources %}
-          <option value="{{ src.slug }}" {% if source == src.slug %}selected{% endif %}>{{ source_label(src.slug) }} ({{ src.count }})</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="lib-field">
-        <label class="lib-filter-label" for="journal">Journal</label>
-        <select class="form-select" id="journal" name="journal" onchange="this.form.submit()">
-          <option value="">All journals</option>
-          {% for row in facets.journals %}
-          <option value="{{ row.name }}" {% if journal == row.name %}selected{% endif %}>{{ row.name }} ({{ row.count }})</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="lib-field">
-        <label class="lib-filter-label" for="status">Status</label>
-        <select class="form-select" id="status" name="status" onchange="this.form.submit()">
-          <option value="">All statuses</option>
-          {% for s in ["FOUND","OA_AVAILABLE","DOWNLOADED","PAYWALLED"] %}
-          <option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ status_meta(s).label }}</option>
-          {% endfor %}
-          {% if status in ["NO_PDF", "FAILED", "SKIPPED"] %}
-          <option value="{{ status }}" selected>{{ status_meta(status).label }}</option>
-          {% endif %}
-        </select>
-      </div>
-      <div class="lib-field">
-        <label class="lib-filter-label" for="min_rating">Rating</label>
-        <select class="form-select" id="min_rating" name="min_rating" onchange="this.form.submit()">
-          <option value="0">Any rating</option>
-          {% for n in range(1, 6) %}
-          <option value="{{ n }}" {% if min_rating == n %}selected{% endif %}>{{ n }}+ stars</option>
           {% endfor %}
         </select>
       </div>
@@ -164,10 +99,6 @@
     {% if q %}<a class="lib-active-pill" href="{{ library_href(filters, q='', page=1) }}">Search: {{ q }} <span aria-hidden="true">×</span></a>{% endif %}
     {% if category %}<a class="lib-active-pill" href="{{ library_href(filters, category='', page=1) }}">{{ category }} <span aria-hidden="true">×</span></a>{% endif %}
     {% if year %}<a class="lib-active-pill" href="{{ library_href(filters, year=0, page=1) }}">{{ year }} <span aria-hidden="true">×</span></a>{% endif %}
-    {% if source %}<a class="lib-active-pill" href="{{ library_href(filters, source='', page=1) }}">{{ source_label(source) }} <span aria-hidden="true">×</span></a>{% endif %}
-    {% if journal %}<a class="lib-active-pill" href="{{ library_href(filters, journal='', page=1) }}">{{ journal }} <span aria-hidden="true">×</span></a>{% endif %}
-    {% if status %}<a class="lib-active-pill" href="{{ library_href(filters, status='', page=1) }}">{{ status_meta(status).label }} <span aria-hidden="true">×</span></a>{% endif %}
-    {% if min_rating %}<a class="lib-active-pill" href="{{ library_href(filters, min_rating=0, page=1) }}">{{ min_rating }}+ stars <span aria-hidden="true">×</span></a>{% endif %}
     {% if pdf %}<a class="lib-active-pill" href="{{ library_href(filters, pdf=false, page=1) }}">Downloadable PDF <span aria-hidden="true">×</span></a>{% endif %}
   </div>
   {% endif %}
@@ -197,8 +128,6 @@
     <strong>{{ category }}</strong>
     <span class="lib-topic-selected-clear">Clear</span>
   </a>
-  {% else %}
-  <p class="lib-topics-copy">Filter the library by field. Counts are papers tagged with that topic.</p>
   {% endif %}
   <div class="lib-topic-list" role="list">
     {% for cat in facets.categories %}
@@ -231,13 +160,9 @@
   <form class="lib-page-size" method="get" action="/library">
     {% if latest %}<input type="hidden" name="latest" value="1">{% endif %}
     {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
-    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
     {% if pdf %}<input type="hidden" name="pdf" value="1">{% endif %}
-    {% if min_rating %}<input type="hidden" name="min_rating" value="{{ min_rating }}">{% endif %}
     {% if category %}<input type="hidden" name="category" value="{{ category }}">{% endif %}
     {% if year %}<input type="hidden" name="year" value="{{ year }}">{% endif %}
-    {% if source %}<input type="hidden" name="source" value="{{ source }}">{% endif %}
-    {% if journal %}<input type="hidden" name="journal" value="{{ journal }}">{% endif %}
     {% if sort and sort != 'relevance' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
     <label class="lib-filter-label mb-0" for="per_page">Per page</label>
     <select class="form-select form-select-sm" id="per_page" name="per_page" onchange="this.form.submit()" aria-label="Results per page">
@@ -253,14 +178,11 @@
 {% endif %}
 
 <div class="table-responsive card lib-table-card">
-  <table class="table table-hover align-middle mb-0 lib-table">
+  <table class="table align-middle mb-0 lib-table">
     <thead>
       <tr>
-        <th class="lib-col-year">Year</th>
         <th>Paper</th>
-        <th class="lib-col-score">Score</th>
-        <th class="lib-col-rating">Rating</th>
-        <th class="lib-col-status">Status</th>
+        <th class="lib-col-source">Source</th>
         <th class="lib-col-user">Downloaded by</th>
         <th class="lib-col-date">Date</th>
         <th class="lib-col-actions"></th>
@@ -269,32 +191,50 @@
     <tbody>
     {% for p in papers %}
       {% set state = pdf_button_state(p) %}
+      {% set detail = {
+        "authors": paper_authors_line(p, none) or "—",
+        "year": p.publication_year,
+        "rating": p.user_rating or 0,
+        "paper_id": p.id,
+        "status_label": status_meta(p.status).label,
+        "status_tone": status_meta(p.status).tone,
+        "categories": paper_categories(p),
+      } %}
       <tr>
-        <td class="lib-year">{{ p.publication_year or "—" }}</td>
         <td>
           <div class="paper-title" title="{{ p.title }}">{{ p.title }}</div>
         </td>
-        <td class="score-pill">{{ "%.0f"|format(p.relevance_score or 0) }}</td>
-        <td>{{ star_rating(p) }}</td>
-        <td>{{ status_badge(p.status) }}</td>
+        <td class="lib-col-source">
+          {% if p.source %}
+          {% set src = source_catalog.get(p.source, {}) %}
+          {{ source_mark(p.source, src.homepage_url or '', src.display_name or '', true, 22) }}
+          {% else %}
+          —
+          {% endif %}
+        </td>
         {% set downloader = paper_downloader_name(p) %}
         <td class="lib-downloader">{% if downloader %}{{ downloader }}{% else %}—{% endif %}</td>
         <td class="text-nowrap paper-meta lib-date">{{ paper_record_date(p)|localdt or "—" }}</td>
         <td class="lib-actions">
+          <button class="btn btn-sm btn-outline-secondary detail-btn paper-action-btn" type="button"
+                  data-detail-title="{{ p.title|e }}"
+                  data-detail="{{ detail|tojson }}"
+                  aria-haspopup="dialog"
+                  aria-controls="paperDetailDialog">Detail</button>
           {% if p.abstract %}
-          <button class="btn btn-sm btn-outline-secondary abstract-btn" type="button"
+          <button class="btn btn-sm btn-outline-secondary abstract-btn paper-action-btn" type="button"
                   data-abstract-title="{{ p.title }}"
                   data-abstract-meta="{{ paper_abstract_meta(p) }}"
                   aria-haspopup="dialog">Abstract</button>
           <template class="paper-abstract-text">{{ p.abstract }}</template>
           {% endif %}
           {% if can_preview(p) %}
-          <button class="btn btn-sm btn-outline-primary preview-btn" type="button"
+          <button class="btn btn-sm btn-outline-primary preview-btn paper-action-btn" type="button"
                   data-preview-url="/papers/{{ p.id }}/preview"
                   data-preview-title="{{ p.title|e }}">Preview</button>
           {% endif %}
           {% if state == "download" %}
-          <a class="btn btn-sm btn-primary" href="/papers/{{ p.id }}/pdf">Download PDF</a>
+          <a class="btn btn-sm btn-primary paper-action-btn" href="/papers/{{ p.id }}/pdf">Download</a>
           {% elif state == "paywalled" %}
           <span class="text-muted small">Publisher access required</span>
           {% else %}
@@ -303,13 +243,13 @@
           {% if is_admin %}
           <form method="post" action="/papers/{{ p.id }}/delete" class="d-inline" data-confirm="Delete this paper from the library?">
             <input type="hidden" name="next" value="{{ library_href(filters, page=pager.page) }}">
-            <button class="btn btn-sm btn-outline-danger" type="submit">Delete</button>
+            <button class="btn btn-sm btn-outline-danger paper-action-btn" type="submit">Delete</button>
           </form>
           {% endif %}
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="8" class="p-0">
+      <tr><td colspan="5" class="p-0">
         {% if search_running %}
           {{ empty_state("Search in progress", "Results will appear here automatically. Keep this page open.") }}
         {% elif latest %}

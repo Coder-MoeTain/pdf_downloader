@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import source_toggle %}
+{% from "_macros.html" import source_toggle, source_mark, settings_nav_icon %}
 {% block title %}Settings · {{ app_name }}{% endblock %}
 {% block extra_js %}
 {% if section == "activity" %}
@@ -9,9 +9,7 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <div class="page-kicker">Administration</div>
     <h1 class="h2 mb-1">Settings</h1>
-    <p class="lede mb-0">Workspace defaults, credentials, and academic sources are stored in MySQL. The paper library remains in the local SQLite database.</p>
   </div>
   <div class="store-pill {% if store.backend == 'mysql' %}is-mysql{% else %}is-fallback{% endif %}" title="{{ store.error }}">
     <span class="store-dot" aria-hidden="true"></span>
@@ -24,55 +22,30 @@
 
 <div class="settings-shell">
   <nav class="settings-nav card" aria-label="Settings sections">
-    <a class="settings-nav-link {% if section == 'workspace' %}active{% endif %}" href="/settings?section=workspace">
-      <span class="settings-nav-title">Workspace</span>
-      <span class="settings-nav-copy">Contact, timezone, library, paywalled papers</span>
-    </a>
-    <a class="settings-nav-link {% if section == 'search' %}active{% endif %}" href="/settings?section=search">
-      <span class="settings-nav-title">Search &amp; downloads</span>
-      <span class="settings-nav-copy">Limits, concurrency, timeouts</span>
-    </a>
-    <a class="settings-nav-link {% if section == 'credentials' %}active{% endif %}" href="/settings?section=credentials">
-      <span class="settings-nav-title">API credentials</span>
-      <span class="settings-nav-copy">Provider keys stored in MySQL</span>
-    </a>
-    <a class="settings-nav-link {% if section == 'sources' %}active{% endif %}" href="/settings?section=sources">
-      <span class="settings-nav-title">Academic sources</span>
-      <span class="settings-nav-copy">{{ source_stats.available }} of {{ source_stats.total }} available</span>
-    </a>
-    <a class="settings-nav-link {% if section == 'activity' %}active{% endif %}" href="/settings?section=activity">
-      <span class="settings-nav-title">Activity</span>
-      <span class="settings-nav-copy">Online users and usage logs</span>
-    </a>
-    <a class="settings-nav-link {% if section == 'updates' %}active{% endif %}" href="/settings?section=updates">
-      <span class="settings-nav-title">Updates</span>
-      <span class="settings-nav-copy">Git pull, PM2 restart, and logs</span>
-    </a>
+    <a class="settings-nav-link {% if section == 'workspace' %}active{% endif %}" href="/settings?section=workspace">{{ settings_nav_icon("workspace") }}<span>Workspace</span></a>
+    <a class="settings-nav-link {% if section == 'search' %}active{% endif %}" href="/settings?section=search">{{ settings_nav_icon("search") }}<span>Search &amp; downloads</span></a>
+    <a class="settings-nav-link {% if section == 'credentials' %}active{% endif %}" href="/settings?section=credentials">{{ settings_nav_icon("credentials") }}<span>API credentials</span></a>
+    <a class="settings-nav-link {% if section == 'sources' %}active{% endif %}" href="/settings?section=sources">{{ settings_nav_icon("sources") }}<span>Academic sources</span></a>
+    <a class="settings-nav-link {% if section == 'activity' %}active{% endif %}" href="/settings?section=activity">{{ settings_nav_icon("activity") }}<span>Activity</span></a>
+    <a class="settings-nav-link {% if section == 'updates' %}active{% endif %}" href="/settings?section=updates">{{ settings_nav_icon("updates") }}<span>Updates</span></a>
   </nav>
 
   <div class="settings-main">
     {% if section == 'workspace' %}
     <form method="post" action="/settings/workspace" class="card" data-busy="Saving…">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span>Workspace</span>
-        <span class="text-muted small">Applies on next search</span>
-      </div>
       <div class="card-body">
         <div class="row g-3">
           <div class="col-md-6">
             <label class="form-label" for="contact_email">Contact email</label>
             <input class="form-control" id="contact_email" name="contact_email" type="email" value="{{ config.env.contact_email }}" required>
-            <div class="form-hint">Used for polite pools (Crossref, OpenAlex) and Unpaywall if no separate address is set.</div>
           </div>
           <div class="col-md-6">
             <label class="form-label" for="unpaywall_email">Unpaywall email</label>
-            <input class="form-control" id="unpaywall_email" name="unpaywall_email" type="email" value="{{ config.env.unpaywall_email }}" placeholder="Optional real address">
-            <div class="form-hint">Unpaywall stays skipped for example.com addresses.</div>
+            <input class="form-control" id="unpaywall_email" name="unpaywall_email" type="email" value="{{ config.env.unpaywall_email }}" placeholder="Optional">
           </div>
           <div class="col-md-8">
             <label class="form-label" for="library_dir">Library directory</label>
-            <input class="form-control" id="library_dir" name="library_dir" value="{{ config.library_dir }}">
-            <div class="form-hint">Relative paths resolve from <code>{{ root }}</code>.</div>
+            <input class="form-control" id="library_dir" name="library_dir" value="{{ config.library_dir }}" placeholder="{{ root }}">
           </div>
           <div class="col-md-4">
             <label class="form-label" for="timezone">Timezone</label>
@@ -85,49 +58,61 @@
               </optgroup>
               {% endfor %}
             </select>
-            <div class="form-hint">Now {{ now_local }} · records stay in UTC, displayed here.</div>
           </div>
           <div class="col-12">
-            <label class="form-label">Read-only paths</label>
             <div class="readonly-stack">
               <div><span>Exports</span><code>{{ config.exports_dir }}</code></div>
               <div><span>Max PDF size</span><code>{{ config.max_file_size_bytes|filesize }}</code></div>
+              <div><span>Local time</span><code>{{ now_local }}</code></div>
             </div>
           </div>
           <div class="col-12 d-flex flex-wrap gap-4 pt-1">
             <div class="form-check">
               <input class="form-check-input" type="checkbox" name="check_robots_txt" id="robots" value="1" {% if config.check_robots_txt %}checked{% endif %}>
-              <label class="form-check-label" for="robots">Honour robots.txt before PDF download</label>
+              <label class="form-check-label" for="robots">Honour robots.txt</label>
             </div>
             <div class="form-check">
               <input class="form-check-input" type="checkbox" name="prefer_https" id="https" value="1" {% if config.prefer_https %}checked{% endif %}>
-              <label class="form-check-label" for="https">Prefer HTTPS URLs</label>
+              <label class="form-check-label" for="https">Prefer HTTPS</label>
             </div>
             <div class="form-check">
               <input class="form-check-input" type="checkbox" name="show_paywalled" id="show_paywalled" value="1" {% if config.show_paywalled %}checked{% endif %}>
               <label class="form-check-label" for="show_paywalled">Show paywalled papers</label>
             </div>
           </div>
-          <p class="form-hint mb-0">When hidden, paywalled records stay in the database but are omitted from the library, downloads, dashboard charts, and analytics. Open them anytime with the Paywalled filter.</p>
         </div>
       </div>
       <div class="card-footer settings-footer">
-        <button class="btn btn-primary" type="submit">Save workspace</button>
+        <button class="btn btn-primary" type="submit">Save</button>
+      </div>
+    </form>
+
+    <form method="post" action="/settings/reset" class="card danger-zone mt-4" data-busy="Resetting…">
+      <div class="card-body">
+        <div class="reset-row">
+          <div>
+            <h2 class="danger-title">Reset library</h2>
+            <p class="paper-meta mb-0">Deletes all papers, searches, crawl jobs, and PDFs. Settings and sources are kept.</p>
+          </div>
+          <div class="reset-actions">
+            <input class="form-control" id="reset_confirm" name="confirm" autocomplete="off" placeholder="Type RESET" aria-label="Type RESET to confirm" required>
+            <button class="btn btn-outline-danger" type="submit">Reset</button>
+          </div>
+        </div>
       </div>
     </form>
     {% endif %}
 
     {% if section == 'search' %}
     <form method="post" action="/settings/search" class="card" data-busy="Saving…">
-      <div class="card-header">Search &amp; downloads</div>
       <div class="card-body">
         <div class="row g-3">
           <div class="col-md-4">
-            <label class="form-label" for="default_max_results">Default max results</label>
+            <label class="form-label" for="default_max_results">Max results</label>
             <input class="form-control" id="default_max_results" name="default_max_results" type="number" min="1" max="500" value="{{ config.default_max_results }}">
           </div>
           <div class="col-md-4">
-            <label class="form-label" for="download_limit">PDF download limit</label>
+            <label class="form-label" for="download_limit">Download limit</label>
             <input class="form-control" id="download_limit" name="download_limit" type="number" min="1" max="1000" value="{{ config.download_limit }}">
           </div>
           <div class="col-md-4">
@@ -135,34 +120,33 @@
             <input class="form-control" id="max_redirects" name="max_redirects" type="number" min="0" max="10" value="{{ config.env.max_redirects }}">
           </div>
           <div class="col-md-6">
-            <label class="form-label" for="max_concurrent_requests">Concurrent API requests</label>
+            <label class="form-label" for="max_concurrent_requests">API concurrency</label>
             <input class="form-control" id="max_concurrent_requests" name="max_concurrent_requests" type="number" min="1" max="20" value="{{ config.env.max_concurrent_requests }}">
           </div>
           <div class="col-md-6">
-            <label class="form-label" for="max_concurrent_downloads">Concurrent PDF downloads</label>
+            <label class="form-label" for="max_concurrent_downloads">Download concurrency</label>
             <input class="form-control" id="max_concurrent_downloads" name="max_concurrent_downloads" type="number" min="1" max="10" value="{{ config.env.max_concurrent_downloads }}">
           </div>
           <div class="col-md-6">
-            <label class="form-label" for="request_timeout_seconds">API timeout (seconds)</label>
+            <label class="form-label" for="request_timeout_seconds">API timeout</label>
             <input class="form-control" id="request_timeout_seconds" name="request_timeout_seconds" type="number" min="5" max="120" step="1" value="{{ config.env.request_timeout_seconds|int }}">
           </div>
           <div class="col-md-6">
-            <label class="form-label" for="download_timeout_seconds">Download timeout (seconds)</label>
+            <label class="form-label" for="download_timeout_seconds">Download timeout</label>
             <input class="form-control" id="download_timeout_seconds" name="download_timeout_seconds" type="number" min="15" max="600" step="1" value="{{ config.env.download_timeout_seconds|int }}">
           </div>
         </div>
       </div>
       <div class="card-footer settings-footer">
-        <button class="btn btn-primary" type="submit">Save search settings</button>
+        <button class="btn btn-primary" type="submit">Save</button>
       </div>
     </form>
     {% endif %}
 
     {% if section == 'credentials' %}
     <form method="post" action="/settings/credentials" class="card" data-busy="Saving…">
-      <div class="card-header">API credentials</div>
       <div class="card-body">
-        <p class="text-muted small mb-3">Keys are stored on the matching academic source row in MySQL. Leave a field blank to keep the current value.</p>
+        <p class="paper-meta mb-3">Leave blank to keep the current key.</p>
         <div class="row g-3">
           {% for cred in credentials %}
           <div class="col-lg-6">
@@ -188,7 +172,7 @@
         </div>
       </div>
       <div class="card-footer settings-footer">
-        <button class="btn btn-primary" type="submit">Save credentials</button>
+        <button class="btn btn-primary" type="submit">Save</button>
       </div>
     </form>
     {% endif %}
@@ -223,7 +207,7 @@
             <tr class="source-row {% if not s.enabled %}is-disabled{% endif %}" data-filter="{{ s.display_name }} {{ s.slug }}">
               <td>
                 <div class="source-name">
-                  <span class="provider-dot {% if s.available %}on{% else %}off{% endif %}" aria-hidden="true"></span>
+                  {{ source_mark(s.slug, s.homepage_url, s.display_name, false, 24) }}
                   <div>
                     <strong>{{ s.display_name }}</strong>
                     <div class="paper-meta">{{ s.slug }} · {{ s.kind }}{% if not s.searchable %} · catalog only{% endif %}</div>
@@ -274,7 +258,7 @@
     {% if section == 'activity' %}
     <div class="card">
       <div class="card-header d-flex justify-content-between align-items-baseline gap-2">
-        <span>Online now</span>
+        <span>Online</span>
         <span class="text-muted small" id="onlineCount">{{ activity.online_count }} in the last {{ activity.window_minutes }} minutes</span>
       </div>
       <div class="table-responsive">
@@ -307,7 +291,7 @@
     </div>
 
     <div class="card mt-4">
-      <div class="card-header">Usage log</div>
+      <div class="card-header">Recent activity</div>
       <div class="table-responsive">
         <table class="table mb-0">
           <thead>
@@ -339,7 +323,6 @@
 
     {% if section == 'updates' %}
     <div class="card">
-      <div class="card-header">Application updates</div>
       <div class="card-body">
         {% if git.ok %}
         <div class="readonly-stack mb-3">
@@ -368,7 +351,7 @@
     </div>
 
     <div class="card mt-4">
-      <div class="card-header">PM2 process</div>
+      <div class="card-header">PM2</div>
       <div class="card-body">
         {% if pm2.ok %}
         <div class="readonly-stack mb-3">

@@ -350,6 +350,10 @@ def test_library_hides_no_pdf_and_failed(tmp_db):
     assert ">Failed<" not in library.text
     assert 'value="NO_PDF"' not in library.text
     assert 'value="FAILED"' not in library.text
+    assert 'name="source"' not in library.text
+    assert 'name="journal"' not in library.text
+    assert 'name="status"' not in library.text
+    assert 'name="min_rating"' not in library.text
     explicit = client.get("/library?status=FAILED")
     assert explicit.status_code == 200
     assert "Broken download paper" in explicit.text
@@ -403,18 +407,12 @@ def test_library_status_panel_shows_counts(tmp_db):
     page = client.get("/library")
     assert page.status_code == 200
     assert 'class="lib-status-panel"' in page.text
-    assert 'aria-label="Library statistics"' in page.text
+    assert 'aria-label="Library overview"' in page.text
     assert "stat-card" in page.text
     assert "Downloadable PDFs" in page.text
-    assert "lib-status-mix-card" in page.text
-    assert "Open access · 1" in page.text
-    assert "Downloaded · 1" in page.text
-    assert "Found · 1" in page.text
-    assert "Paywalled · 1" in page.text
-    assert 'href="/library?status=DOWNLOADED"' in page.text
+    assert "lib-status-mix-card" not in page.text
     filtered = client.get("/library?status=DOWNLOADED")
     assert filtered.status_code == 200
-    assert "stat-card h-100 is-active" in filtered.text
     assert "Saved PDF paper" in filtered.text
     assert "Open visible paper" not in filtered.text
 
@@ -466,7 +464,7 @@ def test_hide_paywalled_filters_library_unless_explicit(tmp_db):
     assert "Peak year" not in home.text
     assert "insight-chip" not in home.text
     assert "store-pill" not in home.text
-    assert "Analytics" in home.text
+    assert client.get("/statistics").status_code == 404
     settings = client.get("/settings?section=workspace")
     assert settings.status_code == 200
     assert "Show paywalled papers" in settings.text
