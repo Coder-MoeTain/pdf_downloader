@@ -218,7 +218,7 @@
         <td class="lib-actions">
           <button class="btn btn-sm btn-outline-secondary detail-btn paper-action-btn" type="button"
                   data-detail-title="{{ p.title|e }}"
-                  data-detail="{{ detail|tojson }}"
+                  data-detail='{{ detail|tojson }}'
                   aria-haspopup="dialog"
                   aria-controls="paperDetailDialog">Detail</button>
           {% if p.abstract %}

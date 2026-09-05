@@ -155,7 +155,7 @@
         {% if search_queue.users %}
         {% for group in search_queue.users %}
         <div class="queue-user-group border-bottom">
-          <div class="px-3 py-2 bg-light fw-semibold small">{{ group.username }}</div>
+          <div class="px-3 py-2 queue-group-header fw-semibold small">{{ group.username }}</div>
           <ul class="list-group list-group-flush">
             {% for item in group.jobs %}
             <li class="list-group-item d-flex justify-content-between gap-3 align-items-center py-2">

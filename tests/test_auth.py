@@ -56,6 +56,9 @@ def test_unauthenticated_user_is_sent_to_login(tmp_db, monkeypatch):
     login = client.get("/login")
     assert login.status_code == 200
     assert "Continue with Gmail" in login.text
+    assert "/static/theme.css" in login.text
+    assert 'data-theme-toggle' in login.text
+    assert 'data-bs-theme' in login.text
 
 
 def test_non_admin_cannot_open_sources_or_settings(tmp_db, monkeypatch):

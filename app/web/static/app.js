@@ -1,4 +1,32 @@
 (function () {
+  var THEME_KEY = "cs-theme";
+
+  function resolveTheme() {
+    var stored = localStorage.getItem(THEME_KEY);
+    if (stored === "dark" || stored === "light") return stored;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-bs-theme", theme);
+    localStorage.setItem(THEME_KEY, theme);
+    document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
+      var isDark = theme === "dark";
+      button.setAttribute("aria-pressed", isDark ? "true" : "false");
+      button.setAttribute("aria-label", isDark ? "Switch to light mode" : "Switch to dark mode");
+      button.title = isDark ? "Switch to light mode" : "Switch to dark mode";
+    });
+  }
+
+  applyTheme(resolveTheme());
+
+  document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var next = document.documentElement.getAttribute("data-bs-theme") === "dark" ? "light" : "dark";
+      applyTheme(next);
+    });
+  });
+
   document.querySelectorAll("form[data-busy]").forEach(function (form) {
     form.addEventListener("submit", function (event) {
       window.setTimeout(function () {

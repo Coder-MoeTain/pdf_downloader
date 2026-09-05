@@ -1,0 +1,460 @@
+/* Theme tokens and dark mode for Cyber Scholar */
+
+:root {
+  color-scheme: light;
+  --bg-base: #d4e4e9;
+  --bg-gradient-a: radial-gradient(1100px 520px at 0% -12%, rgba(126, 184, 154, 0.5), transparent 58%);
+  --bg-gradient-b: radial-gradient(920px 460px at 100% -8%, rgba(31, 111, 139, 0.3), transparent 52%);
+  --bg-gradient-c: radial-gradient(780px 500px at 82% 118%, rgba(201, 162, 39, 0.16), transparent 55%);
+  --bg-gradient-main: linear-gradient(165deg, #dceaf0 0%, #e7f1ec 46%, #efeae3 100%);
+  --bg-overlay-a: radial-gradient(460px 300px at 18% 36%, rgba(255, 255, 255, 0.4), transparent 70%);
+  --bg-overlay-b: radial-gradient(380px 260px at 74% 62%, rgba(126, 184, 154, 0.16), transparent 70%);
+  --surface-input: rgba(255, 255, 255, 0.5);
+  --surface-chip: rgba(255, 255, 255, 0.4);
+  --surface-btn-outline: rgba(255, 255, 255, 0.32);
+  --surface-btn-outline-hover: rgba(255, 255, 255, 0.62);
+  --surface-tag: rgba(255, 255, 255, 0.42);
+  --surface-result-stat: rgba(255, 255, 255, 0.36);
+  --surface-queue-header: rgba(255, 255, 255, 0.55);
+  --border-subtle: rgba(16, 36, 61, 0.08);
+  --surface-track: rgba(16, 36, 61, 0.08);
+  --backdrop-dialog: rgba(16, 36, 61, 0.42);
+  --nav-active-bg: #e8f0e9;
+  --nav-active-hover-bg: #f4faf5;
+  --nav-active-text: #10243d;
+  --footer-bg: rgba(255, 255, 255, 0.32);
+  --stat-card-hover-shadow: 0 14px 34px rgba(16, 36, 61, 0.12);
+  --focus-ring: rgba(31, 111, 139, 0.15);
+  --status-success-bg: rgba(229, 246, 234, 0.88);
+  --status-success-fg: #215c34;
+  --status-info-bg: rgba(228, 244, 242, 0.88);
+  --status-info-fg: #1b5f56;
+  --status-primary-bg: rgba(227, 238, 245, 0.88);
+  --status-primary-fg: #17475a;
+  --status-warning-bg: rgba(248, 237, 214, 0.9);
+  --status-warning-fg: #7a5410;
+  --status-danger-bg: rgba(248, 228, 226, 0.9);
+  --status-danger-fg: #8a1f18;
+  --status-secondary-bg: rgba(236, 233, 226, 0.88);
+  --status-secondary-fg: #4d5a68;
+  --log-bg: #10243d;
+  --log-fg: #d7e3ee;
+  --log-time: #7eb89a;
+  --log-success: #b7e4c7;
+  --log-danger: #f1b0a8;
+  --log-warning: #f0d9a6;
+  --log-muted: rgba(215, 227, 238, 0.55);
+  --login-page-bg: #071422;
+  --login-panel-bg:
+    radial-gradient(640px 360px at 92% 8%, rgba(126, 184, 154, 0.55), transparent 58%),
+    radial-gradient(520px 380px at 6% 96%, rgba(31, 111, 139, 0.32), transparent 62%),
+    radial-gradient(420px 280px at 78% 82%, rgba(201, 162, 39, 0.2), transparent 58%),
+    linear-gradient(165deg, #c5d8e2 0%, #d5e6e1 48%, #e4d9c8 100%);
+  --login-panel-overlay: radial-gradient(300px 220px at 48% 42%, rgba(255, 255, 255, 0.42), transparent 72%);
+  --login-panel-inner-bg: rgba(255, 255, 255, 0.34);
+  --login-panel-inner-border: rgba(255, 255, 255, 0.72);
+  --login-panel-inner-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 24px 60px rgba(16, 36, 61, 0.12);
+  --login-heading: #10243d;
+  --login-lead: #3a4d63;
+  --login-eyebrow: #1f6f8b;
+  --login-btn-gmail-bg: rgba(255, 255, 255, 0.55);
+  --login-btn-gmail-fg: #1f2937;
+  --login-input-bg: rgba(255, 255, 255, 0.62);
+  --login-input-border: rgba(255, 255, 255, 0.78);
+  --settings-nav-hover: rgba(255, 255, 255, 0.42);
+  --settings-nav-active-bg: rgba(255, 255, 255, 0.62);
+  --table-head-bg: rgba(255, 255, 255, 0.72);
+  --role-admin-bg: #dcefe4;
+  --role-admin-fg: #1d5c38;
+  --role-user-bg: #ece6da;
+  --role-user-fg: #3a4d63;
+}
+
+body {
+  background-color: var(--bg-base);
+  background-image: var(--bg-gradient-a), var(--bg-gradient-b), var(--bg-gradient-c), var(--bg-gradient-main);
+}
+
+body::before {
+  background: var(--bg-overlay-a), var(--bg-overlay-b);
+}
+
+.app-nav.navbar-dark .navbar-nav .nav-link.active,
+.app-nav.navbar-dark .nav-settings.active {
+  color: var(--nav-active-text);
+  background: var(--nav-active-bg);
+}
+
+.app-nav.navbar-dark .navbar-nav .nav-link.active:hover,
+.app-nav.navbar-dark .navbar-nav .nav-link.active:focus-visible,
+.app-nav.navbar-dark .nav-settings.active:hover,
+.app-nav.navbar-dark .nav-settings.active:focus-visible {
+  color: var(--nav-active-text);
+  background: var(--nav-active-hover-bg);
+}
+
+a.stat-card:hover {
+  box-shadow: var(--stat-card-hover-shadow);
+}
+
+.progress,
+.job-steps li::before {
+  background: var(--surface-track);
+}
+
+.table td,
+.list-group-item {
+  border-color: var(--border-subtle);
+}
+
+.form-control,
+.form-select {
+  background: var(--surface-input);
+}
+
+.form-control:focus,
+.form-select:focus {
+  box-shadow: 0 0 0 0.2rem var(--focus-ring);
+}
+
+.chip {
+  background: var(--surface-chip);
+}
+
+.btn-outline-primary,
+.btn-outline-secondary,
+.btn-outline-danger {
+  background: var(--surface-btn-outline);
+}
+
+.btn-outline-primary:hover,
+.btn-outline-secondary:hover {
+  background: var(--surface-btn-outline-hover);
+}
+
+.app-footer {
+  background: var(--footer-bg);
+}
+
+.status-success { background: var(--status-success-bg); color: var(--status-success-fg); }
+.status-info { background: var(--status-info-bg); color: var(--status-info-fg); }
+.status-primary { background: var(--status-primary-bg); color: var(--status-primary-fg); }
+.status-warning { background: var(--status-warning-bg); color: var(--status-warning-fg); }
+.status-danger { background: var(--status-danger-bg); color: var(--status-danger-fg); }
+.status-secondary { background: var(--status-secondary-bg); color: var(--status-secondary-fg); }
+
+.paper-detail-tag,
+.result-stat {
+  background: var(--surface-tag);
+}
+
+.result-stat {
+  background: var(--surface-result-stat);
+}
+
+.paper-detail-dialog::backdrop {
+  background: var(--backdrop-dialog);
+}
+
+.log-panel {
+  background: var(--log-bg);
+  color: var(--log-fg);
+}
+
+.log-line time { color: var(--log-time); }
+.log-success { color: var(--log-success); }
+.log-danger { color: var(--log-danger); }
+.log-warning { color: var(--log-warning); }
+.log-muted { color: var(--log-muted); }
+
+.page-account .role-badge.role-admin,
+.settings-main .role-badge.role-admin {
+  background: var(--role-admin-bg);
+  color: var(--role-admin-fg);
+}
+
+.page-account .role-badge.role-user,
+.settings-main .role-badge.role-user {
+  background: var(--role-user-bg);
+  color: var(--role-user-fg);
+}
+
+.settings-nav-link:hover {
+  background: var(--settings-nav-hover);
+}
+
+.settings-nav-link.active {
+  background: var(--settings-nav-active-bg);
+}
+
+.login-page {
+  background: var(--login-page-bg);
+}
+
+.login-panel {
+  background: var(--login-panel-bg);
+}
+
+.login-panel::before {
+  background: var(--login-panel-overlay);
+}
+
+.login-panel-inner {
+  background: var(--login-panel-inner-bg);
+  border-color: var(--login-panel-inner-border);
+  box-shadow: var(--login-panel-inner-shadow);
+}
+
+.login-eyebrow { color: var(--login-eyebrow); }
+.login-heading { color: var(--login-heading); }
+.login-lead { color: var(--login-lead); }
+
+.btn-gmail {
+  background: var(--login-btn-gmail-bg);
+  color: var(--login-btn-gmail-fg);
+}
+
+.login-field input {
+  background: var(--login-input-bg);
+  border-color: var(--login-input-border);
+}
+
+.queue-group-header {
+  background: var(--surface-queue-header);
+  color: var(--ink);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.page-library .lib-table thead th,
+.page-downloads .lib-table thead th,
+.page-sources .lib-table-card thead th {
+  background: var(--table-head-bg);
+}
+
+/* Theme toggle */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.15rem;
+  height: 2.15rem;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.88);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.theme-toggle:hover,
+.theme-toggle:focus-visible {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #fff;
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid #7eb89a;
+  outline-offset: 2px;
+}
+
+.theme-toggle-icon {
+  width: 1.05rem;
+  height: 1.05rem;
+  fill: currentColor;
+}
+
+.theme-toggle .theme-icon-moon { display: none; }
+
+[data-bs-theme="dark"] .theme-toggle .theme-icon-sun { display: none; }
+[data-bs-theme="dark"] .theme-toggle .theme-icon-moon { display: block; }
+
+.login-theme-toggle {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 20;
+  border-color: rgba(16, 36, 61, 0.14);
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--ink);
+}
+
+.login-theme-toggle:hover,
+.login-theme-toggle:focus-visible {
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(16, 36, 61, 0.22);
+  color: var(--ink);
+}
+
+[data-bs-theme="dark"] .login-theme-toggle {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.88);
+}
+
+[data-bs-theme="dark"] .login-theme-toggle:hover,
+[data-bs-theme="dark"] .login-theme-toggle:focus-visible {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #fff;
+}
+
+/* ── Dark mode ── */
+[data-bs-theme="dark"] {
+  color-scheme: dark;
+  --ink: #e8eef4;
+  --ink-soft: #9fb0c0;
+  --paper: #152231;
+  --paper-2: rgba(24, 36, 50, 0.72);
+  --line: rgba(255, 255, 255, 0.1);
+  --accent: #5ec4e0;
+  --accent-2: #5ee0b5;
+  --ok: #6bc98a;
+  --warn: #e0b060;
+  --danger: #f07068;
+  --glass: rgba(18, 28, 40, 0.78);
+  --glass-strong: rgba(24, 36, 50, 0.92);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.38);
+  --bg-base: #0b141e;
+  --bg-gradient-a: radial-gradient(1100px 520px at 0% -12%, rgba(47, 158, 138, 0.22), transparent 58%);
+  --bg-gradient-b: radial-gradient(920px 460px at 100% -8%, rgba(31, 111, 139, 0.18), transparent 52%);
+  --bg-gradient-c: radial-gradient(780px 500px at 82% 118%, rgba(201, 162, 39, 0.08), transparent 55%);
+  --bg-gradient-main: linear-gradient(165deg, #0e1824 0%, #101c28 46%, #121820 100%);
+  --bg-overlay-a: radial-gradient(460px 300px at 18% 36%, rgba(94, 224, 181, 0.06), transparent 70%);
+  --bg-overlay-b: radial-gradient(380px 260px at 74% 62%, rgba(31, 111, 139, 0.1), transparent 70%);
+  --surface-input: rgba(12, 20, 30, 0.85);
+  --surface-chip: rgba(18, 28, 40, 0.88);
+  --surface-btn-outline: rgba(18, 28, 40, 0.72);
+  --surface-btn-outline-hover: rgba(28, 42, 58, 0.92);
+  --surface-tag: rgba(18, 28, 40, 0.88);
+  --surface-result-stat: rgba(18, 28, 40, 0.88);
+  --surface-queue-header: rgba(18, 28, 40, 0.92);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --surface-track: rgba(255, 255, 255, 0.08);
+  --backdrop-dialog: rgba(0, 0, 0, 0.62);
+  --nav-active-bg: rgba(94, 224, 181, 0.18);
+  --nav-active-hover-bg: rgba(94, 224, 181, 0.26);
+  --nav-active-text: #e8eef4;
+  --footer-bg: rgba(12, 20, 30, 0.82);
+  --stat-card-hover-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+  --focus-ring: rgba(94, 196, 224, 0.22);
+  --status-success-bg: rgba(47, 125, 74, 0.28);
+  --status-success-fg: #b7e4c7;
+  --status-info-bg: rgba(47, 158, 138, 0.24);
+  --status-info-fg: #b8ebe0;
+  --status-primary-bg: rgba(31, 111, 139, 0.28);
+  --status-primary-fg: #b8dff0;
+  --status-warning-bg: rgba(183, 121, 31, 0.28);
+  --status-warning-fg: #f0d9a6;
+  --status-danger-bg: rgba(180, 35, 24, 0.28);
+  --status-danger-fg: #f1b0a8;
+  --status-secondary-bg: rgba(255, 255, 255, 0.08);
+  --status-secondary-fg: #b8c4d0;
+  --log-bg: #060d14;
+  --log-fg: #d7e3ee;
+  --log-time: #7eb89a;
+  --login-page-bg: #060d14;
+  --login-panel-bg:
+    radial-gradient(640px 360px at 92% 8%, rgba(47, 158, 138, 0.18), transparent 58%),
+    radial-gradient(520px 380px at 6% 96%, rgba(31, 111, 139, 0.14), transparent 62%),
+    radial-gradient(420px 280px at 78% 82%, rgba(201, 162, 39, 0.06), transparent 58%),
+    linear-gradient(165deg, #0e1824 0%, #101c28 48%, #121820 100%);
+  --login-panel-overlay: radial-gradient(300px 220px at 48% 42%, rgba(94, 224, 181, 0.05), transparent 72%);
+  --login-panel-inner-bg: rgba(18, 28, 40, 0.88);
+  --login-panel-inner-border: rgba(255, 255, 255, 0.12);
+  --login-panel-inner-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 24px 60px rgba(0, 0, 0, 0.35);
+  --login-heading: #e8eef4;
+  --login-lead: #9fb0c0;
+  --login-eyebrow: #5ee0b5;
+  --login-btn-gmail-bg: rgba(18, 28, 40, 0.88);
+  --login-btn-gmail-fg: #e8eef4;
+  --login-input-bg: rgba(12, 20, 30, 0.92);
+  --login-input-border: rgba(255, 255, 255, 0.14);
+  --settings-nav-hover: rgba(255, 255, 255, 0.06);
+  --settings-nav-active-bg: rgba(94, 224, 181, 0.14);
+  --table-head-bg: rgba(12, 20, 30, 0.92);
+  --role-admin-bg: rgba(47, 125, 74, 0.28);
+  --role-admin-fg: #b7e4c7;
+  --role-user-bg: rgba(255, 255, 255, 0.08);
+  --role-user-fg: #b8c4d0;
+}
+
+[data-bs-theme="dark"] .chip:hover,
+[data-bs-theme="dark"] .chip.active {
+  background: var(--accent);
+  color: #0b141e;
+  border-color: var(--accent);
+}
+
+[data-bs-theme="dark"] .btn-primary {
+  box-shadow: 0 8px 22px rgba(31, 111, 139, 0.35);
+}
+
+[data-bs-theme="dark"] .btn-primary:hover {
+  background: #4db8d4;
+  border-color: #4db8d4;
+}
+
+[data-bs-theme="dark"] .btn-outline-primary {
+  color: var(--accent);
+  border-color: rgba(94, 196, 224, 0.35);
+}
+
+[data-bs-theme="dark"] .btn-outline-secondary {
+  color: var(--ink-soft);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+[data-bs-theme="dark"] .modal-backdrop.show {
+  opacity: 0.72;
+}
+
+[data-bs-theme="dark"] .page-dashboard .dash-kpi.tone-border-secondary {
+  border-top-color: #5a6878;
+}
+
+[data-bs-theme="dark"] .page-library .lib-table thead th,
+[data-bs-theme="dark"] .page-downloads .lib-table thead th,
+[data-bs-theme="dark"] .page-sources .lib-table-card thead th {
+  background: var(--table-head-bg);
+}
+
+[data-bs-theme="dark"] .lib-topic.is-active,
+[data-bs-theme="dark"] .lib-topic:hover {
+  background: rgba(94, 224, 181, 0.12);
+}
+
+[data-bs-theme="dark"] .star-btn {
+  color: rgba(255, 255, 255, 0.22);
+}
+
+[data-bs-theme="dark"] .star-btn.on {
+  color: #e0b060;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  [data-bs-theme="dark"] {
+    --paper-2: #152231;
+    --line: #2a3848;
+    --glass: rgba(18, 28, 40, 0.98);
+    --glass-strong: #182432;
+    --glass-border: #2a3848;
+    --glass-highlight: none;
+    --glass-blur: 0px;
+    --surface-input: #121c28;
+    --surface-chip: #121c28;
+    --footer-bg: #0e1824;
+    --login-panel-inner-bg: #182432;
+  }
+
+  [data-bs-theme="dark"] body::before {
+    display: none;
+  }
+
+  [data-bs-theme="dark"] .app-nav {
+    background: #0b141e;
+  }
+}

@@ -506,6 +506,18 @@ def test_library_abstract_preview_button(tmp_db):
     assert "Ada Lovelace" in page.text
     assert "Paper with abstract" in page.text
     assert "Paper without abstract" in page.text
+    import json
+    import re
+
+    match = re.search(
+        r'data-detail-title="Paper with abstract"\s+data-detail=\'([^\']*)\'',
+        page.text,
+    )
+    assert match, "detail button should embed JSON for paper with abstract"
+    detail = json.loads(match.group(1))
+    assert detail["authors"] == "Ada Lovelace"
+    assert detail["year"] == 2024
+    assert detail["status_label"] == "Open access"
 
 
 def test_library_shows_who_downloaded(tmp_db):

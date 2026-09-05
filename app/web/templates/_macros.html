@@ -235,3 +235,14 @@
   </button>
 </form>
 {%- endmacro %}
+
+{% macro theme_toggle(class_name="theme-toggle") -%}
+<button type="button" class="{{ class_name }}" data-theme-toggle aria-label="Switch to dark mode" title="Toggle theme">
+  <svg class="theme-toggle-icon theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 3a1 1 0 0 1-1-1v-1.05a1 1 0 1 1 2 0V19a1 1 0 0 1-1 1Zm0-17a1 1 0 0 1-1-1V1a1 1 0 1 1 2 0v1a1 1 0 0 1-1 1Zm9 9a1 1 0 0 1-1 1h-1.05a1 1 0 1 1 0-2H20a1 1 0 0 1 1 1ZM6.05 12a1 1 0 0 1-1 1H4a1 1 0 0 1 0-2h1.05a1 1 0 0 1 1 1Zm10.61 5.61a1 1 0 0 1-1.41 0l-.74-.74a1 1 0 0 1 1.41-1.41l.74.74a1 1 0 0 1 0 1.41ZM8.9 8.9a1 1 0 0 1-1.41 0l-.74-.74A1 1 0 0 1 7.16 6.75l.74.74A1 1 0 0 1 8.9 8.9Zm8.84 0a1 1 0 0 1 0-1.41l.74-.74a1 1 0 0 1 1.41 1.41l-.74.74a1 1 0 0 1-1.41 0ZM8.9 15.1a1 1 0 0 1 0 1.41l-.74.74a1 1 0 0 1-1.41-1.41l.74-.74a1 1 0 0 1 1.41 0Z"/>
+  </svg>
+  <svg class="theme-toggle-icon theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5Z"/>
+  </svg>
+</button>
+{%- endmacro %}
