@@ -408,6 +408,16 @@ a.stat-card:hover {
   border-color: rgba(255, 255, 255, 0.14);
 }
 
+[data-bs-theme="dark"] .alert-info {
+  --bs-alert-bg: transparent;
+  --bs-alert-border-color: var(--glass-border);
+  background: transparent;
+  background-color: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
 [data-bs-theme="dark"] .modal-backdrop.show {
   opacity: 0.72;
 }
