@@ -437,6 +437,7 @@ a.stat-card:hover {
   color: var(--ink);
 }
 
+[data-bs-theme="dark"] .search-options,
 [data-bs-theme="dark"] .crawl-schedule-source,
 [data-bs-theme="dark"] .crawl-source-panel,
 [data-bs-theme="dark"] .crawl-source-item {
