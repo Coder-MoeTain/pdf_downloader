@@ -89,8 +89,14 @@ from app.services.download_service import (
     existing_pdf_path,
     pdf_button_state,
     safe_library_pdf,
+    stop_downloads,
 )
-from app.services.download_queue import enqueue_oa_download, oa_download_active, start_download_worker
+from app.services.download_queue import (
+    enqueue_oa_download,
+    enqueue_resume_downloads,
+    oa_download_active,
+    start_download_worker,
+)
 from app.services.crawl_queue import (
     cancel_crawl,
     crawl_progress_snapshot,
@@ -1167,6 +1173,61 @@ async def download_oa(request: Request, latest: str | None = Form(None)):
     else:
         _search_message["text"] = "Could not start the download queue. Try again in a moment."
         _search_message["level"] = "warning"
+    return RedirectResponse("/downloads", status_code=303)
+
+
+@app.post("/downloads/stop")
+async def downloads_stop(request: Request, paper_id: int | None = Form(None)):
+    accept = (request.headers.get("accept") or "").lower()
+    wants_json = "application/json" in accept and "text/html" not in accept
+    if paper_id:
+        from app.database.repository import mark_downloading_stopped
+
+        with session_scope() as session:
+            cleared = mark_downloading_stopped(session, paper_id=paper_id, error="Stopped by user")
+        result = {"ok": True, "was_active": False, "cleared": cleared, "paper_id": paper_id}
+        message = "Download stopped." if cleared else "That paper was not downloading."
+        level = "info" if cleared else "warning"
+    else:
+        result = stop_downloads(clear_stuck=True)
+        if result.get("was_active"):
+            message = "Stopping downloads…"
+            level = "info"
+        elif result.get("cleared"):
+            message = f"Stopped {result['cleared']} stuck download(s). Use Resume to try again."
+            level = "info"
+        else:
+            message = "No downloads were running."
+            level = "warning"
+    if wants_json:
+        return JSONResponse({**result, "message": message}, headers={"Cache-Control": "no-store"})
+    _search_message["text"] = message
+    _search_message["level"] = level
+    return RedirectResponse("/downloads", status_code=303)
+
+
+@app.post("/downloads/resume")
+async def downloads_resume(request: Request):
+    accept = (request.headers.get("accept") or "").lower()
+    wants_json = "application/json" in accept and "text/html" not in accept
+    user_id = _request_user_id(request)
+    if oa_download_active():
+        message = "A PDF download is already running. Stop it first, or wait for it to finish."
+        level = "warning"
+        ok = False
+    elif enqueue_resume_downloads(user_id=user_id, limit=100):
+        message = "Resuming stuck downloads. Watch the live log on this page."
+        level = "info"
+        ok = True
+        record_usage(request, "download", "Resume stuck downloads")
+    else:
+        message = "Could not start resume. Try again in a moment."
+        level = "warning"
+        ok = False
+    if wants_json:
+        return JSONResponse({"ok": ok, "message": message}, headers={"Cache-Control": "no-store"})
+    _search_message["text"] = message
+    _search_message["level"] = level
     return RedirectResponse("/downloads", status_code=303)
 
 

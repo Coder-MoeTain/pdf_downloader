@@ -256,6 +256,37 @@ def upsert_download(
     return row
 
 
+def mark_downloading_stopped(
+    session: Session,
+    *,
+    paper_id: int | None = None,
+    error: str = "Stopped by user",
+) -> int:
+    """Mark DOWNLOADING rows (and matching papers) as FAILED. Returns count updated."""
+    stmt = select(Download).where(Download.status == PaperStatus.DOWNLOADING.value)
+    if paper_id is not None:
+        stmt = stmt.where(Download.paper_id == paper_id)
+    rows = list(session.scalars(stmt).all())
+    if not rows:
+        return 0
+    paper_ids = {row.paper_id for row in rows}
+    for row in rows:
+        row.status = PaperStatus.FAILED.value
+        row.error_message = error
+        row.retry_count = (row.retry_count or 0) + 1
+    papers = list(session.scalars(select(Paper).where(Paper.id.in_(paper_ids))).all())
+    for paper in papers:
+        if paper.status in {
+            PaperStatus.DOWNLOADING.value,
+            PaperStatus.OA_AVAILABLE.value,
+            PaperStatus.FOUND.value,
+            PaperStatus.FAILED.value,
+        }:
+            paper.status = PaperStatus.FAILED.value
+    session.flush()
+    return len(rows)
+
+
 def find_downloaded_by_sha256(
     session: Session,
     digest: str,

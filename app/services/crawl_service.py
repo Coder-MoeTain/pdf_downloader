@@ -217,7 +217,7 @@ class CrawlService:
                             max_file_size=max_size,
                             user_id=user_id,
                             job_progress=self._progress,
-                            use_download_tracker=False,
+                            use_download_tracker=True,
                             checkpoint=self._checkpoint,
                         )
                         for _paper_id, updated in results:

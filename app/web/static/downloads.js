@@ -52,6 +52,11 @@
     logsEl.scrollTop = logsEl.scrollHeight;
   }
 
+  function setStopVisible(active) {
+    var btn = document.getElementById("downloadStopBtn");
+    if (btn) btn.hidden = !active;
+  }
+
   function updateProgress(data) {
     var panel = document.getElementById("download-progress");
     if (!panel) return;
@@ -73,7 +78,7 @@
       var done =
         Number(data.downloaded || 0) + Number(data.failed || 0) + Number(data.skipped || 0);
       // Only reload once the batch is truly complete (avoids mid-run Finished races).
-      if (!reloaded && (total === 0 || done >= total)) {
+      if (!reloaded && (total === 0 || done >= total || data.cancelled)) {
         reloaded = true;
         window.location.reload();
         return;
@@ -81,6 +86,8 @@
     }
     if (show) panel.classList.remove("d-none");
     else if (!active) panel.classList.add("d-none");
+
+    setStopVisible(active);
 
     if (label) label.textContent = data.message || "Downloading…";
     if (counts) counts.textContent = data.total ? (data.current || 0) + "/" + data.total : "";
@@ -135,6 +142,47 @@
       .then(updateProgress)
       .catch(function () {});
   }
+
+  function postDownloadAction(form) {
+    if (!form || !form.action) return;
+    var buttons = form.querySelectorAll("button");
+    buttons.forEach(function (btn) {
+      btn.disabled = true;
+    });
+    fetch(form.action, {
+      method: "POST",
+      headers: { Accept: "application/json", "X-Requested-With": "fetch" },
+      body: new FormData(form),
+    })
+      .then(function (response) {
+        return response.json();
+      })
+      .then(function () {
+        pollProgress();
+        window.setTimeout(function () {
+          window.location.reload();
+        }, 600);
+      })
+      .catch(function () {
+        window.location.reload();
+      });
+  }
+
+  function onDownloadAction(event) {
+    var form = event.target.closest("form");
+    if (!form) return;
+    if (
+      form.id === "downloadStopForm" ||
+      form.id === "downloadStopAllForm" ||
+      form.id === "downloadResumeForm" ||
+      (form.action && form.action.indexOf("/downloads/stop") !== -1)
+    ) {
+      event.preventDefault();
+      postDownloadAction(form);
+    }
+  }
+
+  document.addEventListener("submit", onDownloadAction);
 
   var logsEl = document.getElementById("downloadLogs");
   if (logsEl) logsEl.scrollTop = logsEl.scrollHeight;

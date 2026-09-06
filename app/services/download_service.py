@@ -22,6 +22,7 @@ from app.utils.security import looks_like_pdf, robots_allowed
 from app.services.oa_service import OpenAccessService
 from app.services.progress import (
     ProgressTracker,
+    download_stop_requested,
     download_tracker,
     release_download_batch,
     try_claim_download_batch,
@@ -282,6 +283,8 @@ class DownloadService:
 
         _progress_log(f"GET {_clip_url(paper.pdf_url)}")
         try:
+            if download_stop_requested():
+                raise DownloadError("Stopped by user")
             size, digest = await self._stream_pdf(paper.pdf_url, dest, max_size, on_progress=on_progress)
         except DownloadError as exc:
             if _retryable_download_error(exc):
@@ -387,6 +390,9 @@ class DownloadService:
 
                 with tmp.open("wb") as handle:
                     async for chunk in response.aiter_bytes(65_536):
+                        if download_stop_requested():
+                            tmp.unlink(missing_ok=True)
+                            raise DownloadError("Stopped by user")
                         if not chunk:
                             continue
                         if not first_chunk:
@@ -623,6 +629,35 @@ async def download_papers_parallel(
     async def _run_one(paper_id: int, paper: PaperRecord) -> tuple[int, PaperRecord]:
         nonlocal completed
         async with sem:
+            if download_stop_requested():
+                from app.database.connection import session_scope
+                from app.database.models import Paper as DbPaper
+                from app.database.repository import mark_downloading_stopped, upsert_download
+
+                paper.status = PaperStatus.FAILED
+                paper.extra["error"] = "Stopped by user"
+                with session_scope() as session:
+                    marked = mark_downloading_stopped(session, paper_id=paper_id, error="Stopped by user")
+                    if marked == 0:
+                        row = session.get(DbPaper, paper_id)
+                        if row is not None and row.status not in (
+                            PaperStatus.DOWNLOADED.value,
+                            PaperStatus.DUPLICATE.value,
+                        ):
+                            row.status = PaperStatus.FAILED.value
+                        upsert_download(
+                            session,
+                            paper_id,
+                            pdf_url=paper.pdf_url,
+                            status=PaperStatus.FAILED.value,
+                            error="Stopped by user",
+                            increment_retry=True,
+                        )
+                if track_downloads:
+                    download_tracker.finish_item("FAILED", error="Stopped by user", title=paper.title)
+                if job_progress is not None:
+                    job_progress.finish_item("FAILED", error="Stopped by user", title=paper.title)
+                return paper_id, paper
             if checkpoint is not None:
                 await checkpoint()
             async with assign_lock:
@@ -678,7 +713,14 @@ async def download_papers_parallel(
             return_exceptions=False,
         )
     finally:
+        cancelled = download_stop_requested()
         release_download_batch(batch_token)
+        if cancelled:
+            from app.database.connection import session_scope
+            from app.database.repository import mark_downloading_stopped
+
+            with session_scope() as session:
+                mark_downloading_stopped(session, error="Stopped by user")
     return list(results)
 
 
@@ -738,6 +780,82 @@ async def download_open_access_papers(
 
         schedule_lms_sync()
     return stats
+
+
+async def resume_downloading_papers(
+    *,
+    limit: int = 100,
+    topic_slug: str = "library",
+    user_id: int | None = None,
+    statuses: tuple[str, ...] = (PaperStatus.DOWNLOADING.value,),
+) -> dict[str, int]:
+    """Retry papers whose download row is stuck in DOWNLOADING (still has a PDF URL)."""
+    from app.database.connection import session_scope
+    from app.database.models import Download, PaperAuthor
+    from app.database.repository import paper_to_record
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    cfg = get_runtime_config()
+    cap = max(1, min(int(limit or 100), 500))
+    stats = {"attempted": 0, "downloaded": 0, "failed": 0, "skipped": 0}
+    async with AsyncHttpClient(cfg) as client:
+        downloader = DownloadService(client, cfg)
+        with session_scope() as session:
+            papers = (
+                session.scalars(
+                    select(Paper)
+                    .join(Download, Download.paper_id == Paper.id)
+                    .options(
+                        selectinload(Paper.authors).selectinload(PaperAuthor.author),
+                        selectinload(Paper.downloads),
+                    )
+                    .where(Download.status.in_(list(statuses)))
+                    .order_by(Download.id.desc())
+                    .limit(cap)
+                )
+                .unique()
+                .all()
+            )
+            jobs = [(paper.id, paper_to_record(paper)) for paper in papers]
+            ready = [(paper_id, record) for paper_id, record in jobs if record.pdf_url]
+            stats["skipped"] += len(jobs) - len(ready)
+        if not ready:
+            return stats
+        results = await download_papers_parallel(
+            downloader,
+            ready,
+            topic_slug=topic_slug,
+            user_id=user_id,
+            use_download_tracker=True,
+        )
+        for _paper_id, updated in results:
+            stats["attempted"] += 1
+            if updated.status == PaperStatus.DOWNLOADED:
+                stats["downloaded"] += 1
+            elif updated.status == PaperStatus.FAILED:
+                stats["failed"] += 1
+            else:
+                stats["skipped"] += 1
+    if stats["downloaded"] > 0:
+        from app.services.lms_watch import schedule_lms_sync
+
+        schedule_lms_sync()
+    return stats
+
+
+def stop_downloads(*, clear_stuck: bool = True) -> dict[str, int | bool]:
+    """Cancel an active batch and optionally clear orphaned DOWNLOADING rows."""
+    from app.database.connection import session_scope
+    from app.database.repository import mark_downloading_stopped
+    from app.services.progress import request_download_stop
+
+    was_active = request_download_stop()
+    cleared = 0
+    if clear_stuck and not was_active:
+        with session_scope() as session:
+            cleared = mark_downloading_stopped(session, error="Stopped by user")
+    return {"ok": True, "was_active": was_active, "cleared": cleared}
 
 
 def write_topic_metadata_csv(papers: list[PaperRecord], topic_slug: str, config: AppConfig | None = None) -> Path:

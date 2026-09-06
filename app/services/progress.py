@@ -358,6 +358,19 @@ def download_batch_is_owned() -> bool:
     with _download_batch_lock:
         return _download_batch_token is not None
 
+
+def request_download_stop(message: str = "Stopping downloads…") -> bool:
+    """Ask the active Downloads batch to stop. Returns True if a batch looked active."""
+    snap = download_tracker.snapshot()
+    active = bool(snap.get("active")) or download_batch_is_owned()
+    if active:
+        download_tracker.request_cancel(message)
+    return active
+
+
+def download_stop_requested() -> bool:
+    return download_tracker.is_cancelled()
+
 class JobProgressRegistry:
     """Per-job progress trackers so multiple users can search in parallel."""
 

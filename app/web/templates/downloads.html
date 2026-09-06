@@ -15,9 +15,14 @@
 
 <div id="download-progress" class="card dl-progress mb-3 {% if not (download_progress.active or download_progress.logs) %}d-none{% endif %}" data-active="{{ 'true' if download_progress.active else 'false' }}">
   <div class="card-body">
-    <div class="d-flex justify-content-between align-items-baseline gap-2">
+    <div class="d-flex justify-content-between align-items-baseline gap-2 flex-wrap">
       <strong id="progress-label">{{ download_progress.message or "Downloading…" }}</strong>
-      <span id="progress-counts" class="text-muted small">{% if download_progress.total %}{{ download_progress.current }}/{{ download_progress.total }}{% endif %}</span>
+      <div class="d-flex align-items-center gap-2">
+        <span id="progress-counts" class="text-muted small">{% if download_progress.total %}{{ download_progress.current }}/{{ download_progress.total }}{% endif %}</span>
+        <form method="post" action="/downloads/stop" class="d-inline" id="downloadStopForm">
+          <button class="btn btn-sm btn-outline-danger" type="submit" id="downloadStopBtn"{% if not download_progress.active %} hidden{% endif %}>Stop</button>
+        </form>
+      </div>
     </div>
     <div class="progress mt-2" role="progressbar" aria-valuenow="{{ download_progress.percent or 0 }}">
       <div id="progress-bar" class="progress-bar progress-bar-striped {% if download_progress.active %}progress-bar-animated{% endif %}" style="width: {{ download_progress.percent or 0 }}%">
@@ -39,6 +44,21 @@
     </div>
   </div>
 </div>
+
+{% set downloading_count = counts.get('DOWNLOADING', 0) %}
+{% if downloading_count or download_progress.active %}
+<div class="dl-batch-actions mb-3 d-flex flex-wrap gap-2 align-items-center">
+  <form method="post" action="/downloads/stop" class="d-inline" id="downloadStopAllForm">
+    <button class="btn btn-sm btn-outline-danger" type="submit">Stop downloads</button>
+  </form>
+  {% if downloading_count %}
+  <form method="post" action="/downloads/resume" class="d-inline" id="downloadResumeForm">
+    <button class="btn btn-sm btn-primary" type="submit">Resume downloading ({{ downloading_count }})</button>
+  </form>
+  <span class="paper-meta mb-0">Stuck or in-progress PDFs can be stopped or resumed here.</span>
+  {% endif %}
+</div>
+{% endif %}
 
 <section class="dl-filters" aria-label="Download filters">
   <form class="dl-search" method="get" action="/downloads">
@@ -136,6 +156,12 @@
           <a class="btn btn-sm btn-primary paper-action-btn" href="/papers/{{ row.paper_id }}/pdf">Download</a>
           {% elif row.status == "FAILED" %}
           <a class="btn btn-sm btn-outline-secondary paper-action-btn" href="/papers/{{ row.paper_id }}/pdf">Retry</a>
+          {% elif row.status == "DOWNLOADING" %}
+          <form method="post" action="/downloads/stop" class="d-inline">
+            <input type="hidden" name="paper_id" value="{{ row.paper_id }}">
+            <button class="btn btn-sm btn-outline-danger paper-action-btn" type="submit">Stop</button>
+          </form>
+          <a class="btn btn-sm btn-primary paper-action-btn" href="/papers/{{ row.paper_id }}/pdf">Resume</a>
           {% elif row.status in ["OA_AVAILABLE", "FOUND"] %}
           <a class="btn btn-sm btn-outline-primary paper-action-btn" href="/papers/{{ row.paper_id }}/pdf">Download</a>
           {% endif %}

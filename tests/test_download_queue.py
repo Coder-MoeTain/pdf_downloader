@@ -41,13 +41,13 @@ async def test_download_worker_processes_queue(monkeypatch):
     download_queue._running = False
     calls: list[DownloadJob] = []
 
-    def fake_run(search_id, user_id):
-        calls.append(DownloadJob(search_id=search_id, user_id=user_id))
+    def fake_run(job: DownloadJob):
+        calls.append(job)
         return {"downloaded": 1, "failed": 0, "skipped": 0}
 
     monkeypatch.setattr(download_queue, "_run_batch_sync", fake_run)
     await download_queue.start_download_worker()
     assert enqueue_oa_download(search_id=9, user_id=3) is True
     await download_queue._queue.join()
-    assert calls == [DownloadJob(search_id=9, user_id=3)]
+    assert calls == [DownloadJob(kind="oa", search_id=9, user_id=3)]
     await download_queue.stop_download_worker()

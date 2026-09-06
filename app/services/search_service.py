@@ -206,9 +206,8 @@ class SearchService:
                         max_file_size=max_size,
                         user_id=user_id,
                         job_progress=self._progress,
-                        # Keep search logs on job_progress only so Downloads-page
-                        # batches are not cut short by a concurrent finish_batch.
-                        use_download_tracker=False,
+                        # Dual-write to Downloads-page tracker (serialized via claim/release).
+                        use_download_tracker=True,
                         checkpoint=self._checkpoint,
                     )
                     for paper_id, updated in results:

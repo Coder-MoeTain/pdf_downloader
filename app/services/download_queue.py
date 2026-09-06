@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from typing import Literal
 
-from app.services.download_service import download_open_access_papers
+from app.services.download_service import download_open_access_papers, resume_downloading_papers
 from app.services.progress import download_tracker
 from app.utils.logger import get_logger
 
@@ -18,13 +19,15 @@ _running = False
 
 @dataclasses.dataclass(frozen=True)
 class DownloadJob:
-    search_id: int | None
-    user_id: int | None
+    kind: Literal["oa", "resume"] = "oa"
+    search_id: int | None = None
+    user_id: int | None = None
+    limit: int = 100
 
 
 def oa_download_active() -> bool:
     snap = download_tracker.snapshot()
-    return bool(snap.get("active"))
+    return bool(snap.get("active")) or _running
 
 
 def enqueue_oa_download(*, search_id: int | None, user_id: int | None) -> bool:
@@ -32,12 +35,22 @@ def enqueue_oa_download(*, search_id: int | None, user_id: int | None) -> bool:
     global _running
     if _running or oa_download_active():
         return False
-    _queue.put_nowait(DownloadJob(search_id=search_id, user_id=user_id))
+    _queue.put_nowait(DownloadJob(kind="oa", search_id=search_id, user_id=user_id))
     return True
 
 
-def _run_batch_sync(search_id: int | None, user_id: int | None) -> dict[str, int]:
-    return asyncio.run(download_open_access_papers(search_id=search_id, user_id=user_id))
+def enqueue_resume_downloads(*, user_id: int | None, limit: int = 100) -> bool:
+    """Queue a resume of stuck DOWNLOADING papers. Returns False when busy."""
+    if _running or oa_download_active():
+        return False
+    _queue.put_nowait(DownloadJob(kind="resume", user_id=user_id, limit=limit))
+    return True
+
+
+def _run_batch_sync(job: DownloadJob) -> dict[str, int]:
+    if job.kind == "resume":
+        return asyncio.run(resume_downloading_papers(user_id=job.user_id, limit=job.limit))
+    return asyncio.run(download_open_access_papers(search_id=job.search_id, user_id=job.user_id))
 
 
 async def _worker_loop() -> None:
@@ -49,15 +62,17 @@ async def _worker_loop() -> None:
             break
         _running = True
         try:
-            stats = await asyncio.to_thread(_run_batch_sync, job.search_id, job.user_id)
+            stats = await asyncio.to_thread(_run_batch_sync, job)
+            label = "Resume" if job.kind == "resume" else "OA"
             logger.info(
-                "OA download batch finished: %s saved, %s failed, %s skipped",
+                "%s download batch finished: %s saved, %s failed, %s skipped",
+                label,
                 stats.get("downloaded", 0),
                 stats.get("failed", 0),
                 stats.get("skipped", 0),
             )
         except Exception:
-            logger.exception("OA download batch failed")
+            logger.exception("Download batch failed")
         finally:
             _running = False
             _queue.task_done()
