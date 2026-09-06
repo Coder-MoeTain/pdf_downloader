@@ -138,6 +138,14 @@ def _ensure_columns(engine: Engine) -> None:
         search_names = {row[1] for row in search_rows}
         if search_names and "user_id" not in search_names:
             conn.execute(text("ALTER TABLE search_queries ADD COLUMN user_id INTEGER"))
+        for table in ("search_jobs", "crawl_jobs"):
+            job_rows = conn.execute(text(f"PRAGMA table_info({table})")).all()
+            job_names = {row[1] for row in job_rows}
+            if not job_names:
+                continue
+            for column in ("papers_found", "pdfs_downloaded", "pdfs_failed"):
+                if column not in job_names:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} INTEGER"))
         conn.commit()
 
 

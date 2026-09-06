@@ -44,12 +44,17 @@ from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuer
 from app.database.repository import (
     active_crawl_job_for_user,
     active_search_job_for_user,
+    count_crawl_jobs,
+    count_search_jobs,
+    crawl_job_keyword,
     delete_library_paper,
     download_user_options,
     downloadable_clause,
     get_crawl_job,
     get_search_job,
     library_facets,
+    list_crawl_jobs,
+    list_search_jobs,
     query_library,
     set_paper_rating,
     split_tags,
@@ -120,6 +125,8 @@ from app.web.ui import (
     download_actor_name,
     downloads_href,
     is_new_download,
+    job_actor_name,
+    job_status_meta,
     library_href,
     library_status_panel,
     ordered_source_status_counts,
@@ -132,6 +139,7 @@ from app.web.ui import (
     paper_downloader_name,
     paper_record_date,
     download_record_date,
+    reports_href,
     share,
     source_label,
     source_logo_url,
@@ -148,6 +156,7 @@ templates.env.globals["status_meta"] = status_meta
 templates.env.globals["can_preview"] = lambda paper: existing_pdf_path(paper) is not None
 templates.env.globals["library_href"] = library_href
 templates.env.globals["downloads_href"] = downloads_href
+templates.env.globals["reports_href"] = reports_href
 templates.env.globals["sources_href"] = sources_href
 templates.env.globals["source_label"] = source_label
 templates.env.globals["source_logo_url"] = source_logo_url
@@ -160,6 +169,9 @@ templates.env.globals["paper_record_date"] = paper_record_date
 templates.env.globals["download_actor_name"] = download_actor_name
 templates.env.globals["download_record_date"] = download_record_date
 templates.env.globals["is_new_download"] = is_new_download
+templates.env.globals["job_actor_name"] = job_actor_name
+templates.env.globals["job_status_meta"] = job_status_meta
+templates.env.globals["crawl_job_keyword"] = crawl_job_keyword
 templates.env.filters["filesize"] = lambda value: _format_bytes(value)
 templates.env.filters["localdt"] = lambda value, fmt="%Y-%m-%d %H:%M": format_local(value, fmt)
 templates.env.filters["tags"] = split_tags
@@ -1200,6 +1212,100 @@ def search_queue_api(request: Request):
     return JSONResponse(
         queue_snapshot(user_id=user_id, is_admin=is_admin),
         headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/reports", response_class=HTMLResponse)
+def reports_page(
+    request: Request,
+    tab: str = "search",
+    status: str = "",
+    q: str = "",
+    user: QueryInt = 0,
+    page: QueryPage = 1,
+    per_page: QueryInt = DEFAULT_PAGE_SIZE,
+):
+    tab = (tab or "search").strip().lower()
+    if tab not in {"search", "crawl"}:
+        tab = "search"
+    is_admin = user_is_admin(request)
+    if tab == "crawl" and not is_admin:
+        tab = "search"
+    status = status.strip().lower()
+    q = q.strip()
+    per_page = clamp_page_size(per_page)
+    filter_user_id = user if user and user > 0 else 0
+    request_uid = _request_user_id(request)
+    # Regular users only see their own search jobs; admins can filter any user.
+    scoped_user_id: int | None
+    if is_admin:
+        scoped_user_id = filter_user_id or None
+    else:
+        scoped_user_id = request_uid
+    statuses = (status,) if status else None
+    status_chips = [
+        {"code": "completed", "label": "Completed"},
+        {"code": "running", "label": "Running"},
+        {"code": "pending", "label": "Queued"},
+        {"code": "failed", "label": "Failed"},
+        {"code": "cancelled", "label": "Stopped"},
+    ]
+    with session_scope() as session:
+        if tab == "crawl":
+            total = count_crawl_jobs(session, user_id=scoped_user_id, statuses=statuses, q=q or None)
+            pager = pagination_spec(max(page, 1), total, per_page)
+            rows = list_crawl_jobs(
+                session,
+                user_id=scoped_user_id,
+                statuses=statuses,
+                q=q or None,
+                limit=per_page,
+                offset=(pager["page"] - 1) * per_page,
+                with_user=True,
+            )
+        else:
+            total = count_search_jobs(session, user_id=scoped_user_id, statuses=statuses, q=q or None)
+            pager = pagination_spec(max(page, 1), total, per_page)
+            rows = list_search_jobs(
+                session,
+                user_id=scoped_user_id,
+                statuses=statuses,
+                q=q or None,
+                limit=per_page,
+                offset=(pager["page"] - 1) * per_page,
+                with_user=True,
+            )
+        user_options: list[dict] = []
+        if is_admin:
+            members = session.scalars(select(User).order_by(User.name, User.email)).all()
+            user_options = [
+                {"id": member.id, "name": (member.name or member.email or f"User {member.id}").strip()}
+                for member in members
+            ]
+    filters_state = {
+        "tab": tab,
+        "status": status,
+        "q": q,
+        "user": filter_user_id,
+        "per_page": per_page,
+    }
+    return templates.TemplateResponse(
+        request,
+        "reports.html",
+        _ctx(
+            request,
+            tab=tab,
+            rows=rows,
+            pager=pager,
+            q=q,
+            status=status,
+            user=filter_user_id,
+            user_options=user_options,
+            status_chips=status_chips,
+            filters=filters_state,
+            per_page=per_page,
+            page_sizes=PAGE_SIZES,
+        ),
     )
 
 

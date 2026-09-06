@@ -25,6 +25,11 @@
   <span class="status-badge status-{{ meta.tone }}">{{ meta.label }}</span>
 {%- endmacro %}
 
+{% macro job_status_badge(code) -%}
+  {%- set meta = job_status_meta(code) -%}
+  <span class="status-badge status-{{ meta.tone }}">{{ meta.label }}</span>
+{%- endmacro %}
+
 {% macro empty_state(title, body, action_href="", action_label="") -%}
   <div class="empty-state">
     <div class="empty-mark" aria-hidden="true"></div>
@@ -98,6 +103,12 @@
     <path d="M12 4v11" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
     <path d="m8.2 11.5 3.8 3.8 3.8-3.8" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M5 19.5h14" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+  </svg>
+  {%- elif name == "reports" -%}
+  <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M6 4.5h9.5L18.5 7.5V19.5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/>
+    <path d="M15.5 4.5V7.5H18.5" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/>
+    <path d="M8 11.5h8M8 14.5h8M8 17.5h5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
   </svg>
   {%- elif name == "sources" -%}
   <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -219,6 +230,10 @@
 
 {% macro downloads_pager(pager, filters, aria_label="Download pages") -%}
 {{ collection_pager(pager, downloads_href, filters, aria_label) }}
+{%- endmacro %}
+
+{% macro reports_pager(pager, filters, aria_label="Report pages") -%}
+{{ collection_pager(pager, reports_href, filters, aria_label) }}
 {%- endmacro %}
 
 {% macro sources_pager(pager, filters, aria_label="Source pages") -%}

@@ -313,7 +313,7 @@ uvicorn app.web:app --reload --host 127.0.0.1 --port 8000
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
-Pages: **Dashboard**, **Search**, **Library**, **Downloads**, **Sources**, **Crawler** (admin), **Settings**.
+Pages: **Dashboard**, **Search**, **Library**, **Downloads**, **Reports**, **Sources**, **Crawler** (admin), **Settings**.
 
 ### Crawl schedule
 
@@ -336,6 +336,7 @@ Sources already pending or running are skipped so jobs do not pile up.
 - **Library** — streamlined filters (search, year, sort, PDF toggle, category sidebar); **Detail** modal shows authors, year, rating, status, and categories; PDF preview stays open while the live-results view refreshes in the background
 - **Search & Crawler** — live job cards and queue groups with readable progress logs; status banners and progress panels use transparent backgrounds in dark mode
 - **Search & download progress** — dashboard “Live” card and Downloads progress panel show real-time counts (e.g. `Downloading 14 of 100`) with log output; large PDF batches run in a background worker so other pages stay responsive
+- **Reports** — search and crawler history (who ran it, when, keyword/source, papers found, PDFs downloaded / failed)
 
 Open [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login) to create the first **admin** account (email and password). After that, every visitor must log in. **User** accounts can search and use the library; **admin** accounts also open Sources, Crawler, Settings, and User settings people/roles. Signed-in accounts see **User settings** and **Log out** in the header. Google sign-in is optional when `GOOGLE_CLIENT_ID` is set.
 

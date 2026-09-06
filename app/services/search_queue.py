@@ -217,6 +217,9 @@ async def _run_job(job_id: int) -> None:
                 job_id,
                 status="completed",
                 search_query_id=stats.search_query_id,
+                papers_found=stats.unique_papers,
+                pdfs_downloaded=stats.pdfs_downloaded,
+                pdfs_failed=stats.failed_downloads,
             )
 
         logger.info("Search job %s completed: %s unique papers", job_id, stats.unique_papers)

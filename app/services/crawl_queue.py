@@ -201,13 +201,20 @@ async def _run_job(job_id: int) -> None:
         progress.log(f"Crawl job #{job_id} started for {source}", "info")
 
         service = CrawlService(progress=progress)
-        await service.run(filters, user_id=user_id, skip_progress_start=True)
+        stats = await service.run(filters, user_id=user_id, skip_progress_start=True)
 
         with session_scope() as session:
             row = get_crawl_job(session, job_id)
             if row is None or row.status == "cancelled":
                 return
-            complete_crawl_job(session, job_id, status="completed")
+            complete_crawl_job(
+                session,
+                job_id,
+                status="completed",
+                papers_found=stats.new_papers,
+                pdfs_downloaded=stats.pdfs_downloaded,
+                pdfs_failed=stats.failed_downloads,
+            )
         logger.info("Crawl job %s completed for %s", job_id, source)
     except CrawlCancelled:
         prog = crawl_job_registry.get(job_id)

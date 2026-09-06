@@ -729,6 +729,9 @@ def complete_search_job(
     status: str = "completed",
     error_message: str | None = None,
     search_query_id: int | None = None,
+    papers_found: int | None = None,
+    pdfs_downloaded: int | None = None,
+    pdfs_failed: int | None = None,
 ) -> None:
     row = session.get(SearchJob, job_id)
     if row is None:
@@ -738,6 +741,12 @@ def complete_search_job(
     row.completed_at = utc_now()
     if search_query_id is not None:
         row.search_query_id = search_query_id
+    if papers_found is not None:
+        row.papers_found = int(papers_found)
+    if pdfs_downloaded is not None:
+        row.pdfs_downloaded = int(pdfs_downloaded)
+    if pdfs_failed is not None:
+        row.pdfs_failed = int(pdfs_failed)
 
 
 def get_search_job(session: Session, job_id: int) -> SearchJob | None:
@@ -749,14 +758,40 @@ def list_search_jobs(
     *,
     user_id: int | None = None,
     statuses: tuple[str, ...] | None = None,
+    q: str | None = None,
     limit: int = 50,
+    offset: int = 0,
+    with_user: bool = False,
 ) -> list[SearchJob]:
-    stmt = select(SearchJob).order_by(SearchJob.created_at.desc()).limit(limit)
+    stmt = select(SearchJob).order_by(SearchJob.created_at.desc()).offset(max(0, offset)).limit(limit)
     if user_id is not None:
         stmt = stmt.where(SearchJob.user_id == user_id)
     if statuses:
         stmt = stmt.where(SearchJob.status.in_(statuses))
+    needle = (q or "").strip()
+    if needle:
+        stmt = stmt.where(SearchJob.query.ilike(f"%{needle}%"))
+    if with_user:
+        stmt = stmt.options(selectinload(SearchJob.user))
     return list(session.scalars(stmt).all())
+
+
+def count_search_jobs(
+    session: Session,
+    *,
+    user_id: int | None = None,
+    statuses: tuple[str, ...] | None = None,
+    q: str | None = None,
+) -> int:
+    stmt = select(func.count(SearchJob.id))
+    if user_id is not None:
+        stmt = stmt.where(SearchJob.user_id == user_id)
+    if statuses:
+        stmt = stmt.where(SearchJob.status.in_(statuses))
+    needle = (q or "").strip()
+    if needle:
+        stmt = stmt.where(SearchJob.query.ilike(f"%{needle}%"))
+    return int(session.scalar(stmt) or 0)
 
 
 def queue_position(session: Session, job_id: int) -> int | None:
@@ -853,6 +888,9 @@ def complete_crawl_job(
     *,
     status: str = "completed",
     error_message: str | None = None,
+    papers_found: int | None = None,
+    pdfs_downloaded: int | None = None,
+    pdfs_failed: int | None = None,
 ) -> None:
     row = session.get(CrawlJob, job_id)
     if row is None:
@@ -860,10 +898,72 @@ def complete_crawl_job(
     row.status = status
     row.error_message = error_message
     row.completed_at = utc_now()
+    if papers_found is not None:
+        row.papers_found = int(papers_found)
+    if pdfs_downloaded is not None:
+        row.pdfs_downloaded = int(pdfs_downloaded)
+    if pdfs_failed is not None:
+        row.pdfs_failed = int(pdfs_failed)
 
 
 def get_crawl_job(session: Session, job_id: int) -> CrawlJob | None:
     return session.get(CrawlJob, job_id)
+
+
+def list_crawl_jobs(
+    session: Session,
+    *,
+    user_id: int | None = None,
+    statuses: tuple[str, ...] | None = None,
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    with_user: bool = False,
+) -> list[CrawlJob]:
+    stmt = select(CrawlJob).order_by(CrawlJob.created_at.desc()).offset(max(0, offset)).limit(limit)
+    if user_id is not None:
+        stmt = stmt.where(CrawlJob.user_id == user_id)
+    if statuses:
+        stmt = stmt.where(CrawlJob.status.in_(statuses))
+    needle = (q or "").strip()
+    if needle:
+        stmt = stmt.where(
+            or_(CrawlJob.source.ilike(f"%{needle}%"), CrawlJob.filters_json.ilike(f"%{needle}%"))
+        )
+    if with_user:
+        stmt = stmt.options(selectinload(CrawlJob.user))
+    return list(session.scalars(stmt).all())
+
+
+def count_crawl_jobs(
+    session: Session,
+    *,
+    user_id: int | None = None,
+    statuses: tuple[str, ...] | None = None,
+    q: str | None = None,
+) -> int:
+    stmt = select(func.count(CrawlJob.id))
+    if user_id is not None:
+        stmt = stmt.where(CrawlJob.user_id == user_id)
+    if statuses:
+        stmt = stmt.where(CrawlJob.status.in_(statuses))
+    needle = (q or "").strip()
+    if needle:
+        stmt = stmt.where(
+            or_(CrawlJob.source.ilike(f"%{needle}%"), CrawlJob.filters_json.ilike(f"%{needle}%"))
+        )
+    return int(session.scalar(stmt) or 0)
+
+
+def crawl_job_keyword(job: CrawlJob) -> str:
+    """Keyword/query stored in crawl filters_json, if any."""
+    try:
+        data = json.loads(job.filters_json or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    return str(data.get("query") or "").strip()
 
 
 def crawl_queue_position(session: Session, job_id: int) -> int | None:

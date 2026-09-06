@@ -121,6 +121,7 @@ def active_page(path: str) -> str:
         ("/search", "search"),
         ("/library", "library"),
         ("/downloads", "downloads"),
+        ("/reports", "reports"),
         ("/sources", "sources"),
         ("/crawler", "crawler"),
         ("/settings", "settings"),
@@ -322,6 +323,63 @@ def downloads_href(current: dict | None = None, **overrides) -> str:
         pairs.append(("page", str(page)))
     query_string = urlencode(pairs)
     return f"/downloads?{query_string}" if query_string else "/downloads"
+
+
+def reports_href(current: dict | None = None, **overrides) -> str:
+    """Build a /reports URL, omitting default filter values."""
+    merged = {**(current or {}), **overrides}
+    pairs: list[tuple[str, str]] = []
+    tab = str(merged.get("tab") or "search").strip().lower()
+    if tab not in {"search", "crawl"}:
+        tab = "search"
+    if tab != "search":
+        pairs.append(("tab", tab))
+    query = str(merged.get("q") or "").strip()
+    if query:
+        pairs.append(("q", query))
+    status = str(merged.get("status") or "").strip()
+    if status:
+        pairs.append(("status", status))
+    try:
+        user = int(merged.get("user") or 0)
+    except (TypeError, ValueError):
+        user = 0
+    if user:
+        pairs.append(("user", str(user)))
+    per_page = clamp_page_size(merged.get("per_page") or DEFAULT_PAGE_SIZE)
+    if per_page != DEFAULT_PAGE_SIZE:
+        pairs.append(("per_page", str(per_page)))
+    try:
+        page = int(merged.get("page") or 1)
+    except (TypeError, ValueError):
+        page = 1
+    if page > 1:
+        pairs.append(("page", str(page)))
+    query_string = urlencode(pairs)
+    return f"/reports?{query_string}" if query_string else "/reports"
+
+
+JOB_STATUS_META: dict[str, dict[str, str]] = {
+    "pending": {"label": "Queued", "tone": "secondary"},
+    "running": {"label": "Running", "tone": "primary"},
+    "completed": {"label": "Completed", "tone": "success"},
+    "failed": {"label": "Failed", "tone": "danger"},
+    "cancelled": {"label": "Stopped", "tone": "warning"},
+}
+
+
+def job_status_meta(code: str | None) -> dict[str, str]:
+    if not code:
+        return {"label": "Unknown", "tone": "secondary"}
+    return JOB_STATUS_META.get(str(code).lower(), {"label": str(code).replace("_", " ").title(), "tone": "secondary"})
+
+
+def job_actor_name(job) -> str:
+    user = getattr(job, "user", None)
+    if not user:
+        return "—"
+    label = (getattr(user, "name", None) or getattr(user, "email", None) or "").strip()
+    return label or "—"
 
 
 def sources_href(current: dict | None = None, **overrides) -> str:

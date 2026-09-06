@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% from "_macros.html" import job_status_badge, empty_state, reports_pager %}
+{% block title %}Reports · {{ app_name }}{% endblock %}
+{% block body_class %}page-reports{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="h2 mb-0">Reports</h1>
+    <p class="page-lead mb-0">Search and crawl history with download outcomes.</p>
+  </div>
+</div>
+
+<ul class="nav nav-tabs report-tabs mb-3" role="tablist">
+  <li class="nav-item" role="presentation">
+    <a class="nav-link {% if tab == 'search' %}active{% endif %}" href="{{ reports_href(filters, tab='search', page=1) }}" role="tab" {% if tab == 'search' %}aria-current="page"{% endif %}>Search</a>
+  </li>
+  {% if is_admin %}
+  <li class="nav-item" role="presentation">
+    <a class="nav-link {% if tab == 'crawl' %}active{% endif %}" href="{{ reports_href(filters, tab='crawl', page=1) }}" role="tab" {% if tab == 'crawl' %}aria-current="page"{% endif %}>Crawler</a>
+  </li>
+  {% endif %}
+</ul>
+
+<section class="dl-filters" aria-label="Report filters">
+  <form class="dl-search" method="get" action="/reports">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    {% if user %}<input type="hidden" name="user" value="{{ user }}">{% endif %}
+    {% if per_page != 25 %}<input type="hidden" name="per_page" value="{{ per_page }}">{% endif %}
+    <label class="lib-filter-label" for="report-q">{% if tab == 'crawl' %}Search source or keyword{% else %}Search keyword{% endif %}</label>
+    <div class="dl-search-row">
+      <input class="form-control" id="report-q" name="q" value="{{ q }}" placeholder="{% if tab == 'crawl' %}Source or keyword{% else %}Keyword{% endif %}" autocomplete="off">
+      <button class="btn btn-primary" type="submit">Search</button>
+      {% if q or status or user %}
+      <a class="btn btn-outline-secondary" href="{{ reports_href({'tab': tab, 'per_page': per_page}, q='', status='', user=0, page=1) }}">Clear</a>
+      {% endif %}
+    </div>
+  </form>
+  <div class="chip-row" role="list">
+    <a class="chip {% if not status %}active{% endif %}" href="{{ reports_href(filters, status='', page=1) }}">All</a>
+    {% for item in status_chips %}
+    <a class="chip {% if status == item.code %}active{% endif %}" href="{{ reports_href(filters, status=item.code, page=1) }}">{{ item.label }}</a>
+    {% endfor %}
+  </div>
+  {% if is_admin and user_options %}
+  <form class="mt-2" method="get" action="/reports">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    {% if per_page != 25 %}<input type="hidden" name="per_page" value="{{ per_page }}">{% endif %}
+    <label class="lib-filter-label" for="report-user">User</label>
+    <select class="form-select form-select-sm" id="report-user" name="user" onchange="this.form.submit()" style="max-width: 16rem">
+      <option value="0">All users</option>
+      {% for item in user_options %}
+      <option value="{{ item.id }}" {% if user == item.id %}selected{% endif %}>{{ item.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
+</section>
+
+{% if rows %}
+<div class="lib-toolbar">
+  <div class="lib-count" aria-live="polite">
+    Showing <strong>{{ pager.start }}–{{ pager.end }}</strong> of <strong>{{ pager.total }}</strong>
+  </div>
+  <form class="lib-page-size" method="get" action="/reports">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    {% if user %}<input type="hidden" name="user" value="{{ user }}">{% endif %}
+    <label class="lib-filter-label mb-0" for="per_page">Per page</label>
+    <select class="form-select form-select-sm" id="per_page" name="per_page" onchange="this.form.submit()" aria-label="Results per page">
+      {% for size in page_sizes %}
+      <option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% if pager.total_pages > 1 %}
+  {{ reports_pager(pager, filters) }}
+  {% endif %}
+</div>
+{% endif %}
+
+{% if tab == 'search' %}
+  {% if rows %}
+  <div class="table-responsive card lib-table-card">
+    <table class="table align-middle mb-0 lib-table">
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Keyword</th>
+          <th>User</th>
+          <th>Started</th>
+          <th class="text-end">Papers</th>
+          <th class="text-end">Downloaded</th>
+          <th class="text-end">Failed</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ job_status_badge(row.status) }}</td>
+          <td>
+            <div class="paper-title" title="{{ row.query }}">{{ row.query }}</div>
+            {% if row.error_message %}
+            <div class="paper-meta text-danger">{{ row.error_message }}</div>
+            {% endif %}
+          </td>
+          <td class="paper-meta">{{ job_actor_name(row) }}</td>
+          <td class="text-nowrap paper-meta">{{ (row.started_at or row.created_at)|localdt or "—" }}</td>
+          <td class="text-end">{{ row.papers_found if row.papers_found is not none else "—" }}</td>
+          <td class="text-end">{{ row.pdfs_downloaded if row.pdfs_downloaded is not none else "—" }}</td>
+          <td class="text-end">{{ row.pdfs_failed if row.pdfs_failed is not none else "—" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  {{ empty_state("No search reports yet", "Run a search to see who started it, the keyword, and download outcomes here.", "/search", "Open search") }}
+  {% endif %}
+{% else %}
+  {% if rows %}
+  <div class="table-responsive card lib-table-card">
+    <table class="table align-middle mb-0 lib-table">
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Source</th>
+          <th>Keyword</th>
+          <th>User</th>
+          <th>Started</th>
+          <th class="text-end">New papers</th>
+          <th class="text-end">Downloaded</th>
+          <th class="text-end">Failed</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        {% set keyword = crawl_job_keyword(row) %}
+        <tr>
+          <td>{{ job_status_badge(row.status) }}</td>
+          <td>
+            <div class="paper-title">{{ source_label(row.source) }}</div>
+            <div class="paper-meta">{{ row.source }}</div>
+            {% if row.error_message %}
+            <div class="paper-meta text-danger">{{ row.error_message }}</div>
+            {% endif %}
+          </td>
+          <td class="paper-meta" title="{{ keyword }}">{% if keyword %}{{ keyword }}{% else %}—{% endif %}</td>
+          <td class="paper-meta">{{ job_actor_name(row) }}</td>
+          <td class="text-nowrap paper-meta">{{ (row.started_at or row.created_at)|localdt or "—" }}</td>
+          <td class="text-end">{{ row.papers_found if row.papers_found is not none else "—" }}</td>
+          <td class="text-end">{{ row.pdfs_downloaded if row.pdfs_downloaded is not none else "—" }}</td>
+          <td class="text-end">{{ row.pdfs_failed if row.pdfs_failed is not none else "—" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  {{ empty_state("No crawler reports yet", "Run a source crawl to record new papers and PDF download outcomes.", "/crawler", "Open crawler") }}
+  {% endif %}
+{% endif %}
+{% endblock %}
