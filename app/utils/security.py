@@ -7,7 +7,7 @@ import re
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
-from app.config import load_config
+from app.config import get_runtime_config
 from app.utils.logger import get_logger
 
 logger = get_logger("app.security")
@@ -63,7 +63,7 @@ def looks_like_pdf(content_type: str | None, first_bytes: bytes, min_size: int, 
 
 
 def robots_allowed(url: str, user_agent: str) -> bool:
-    cfg = load_config()
+    cfg = get_runtime_config()
     if not cfg.check_robots_txt:
         return True
     parsed = urlparse(url)

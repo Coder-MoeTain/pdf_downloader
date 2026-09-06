@@ -19,7 +19,12 @@ from app.utils.http import AsyncHttpClient
 from app.utils.logger import get_logger
 from app.utils.pdf_url import is_direct_pdf_url
 from app.utils.security import looks_like_pdf, robots_allowed
-from app.services.progress import ProgressTracker, download_tracker
+from app.services.progress import (
+    ProgressTracker,
+    download_tracker,
+    release_download_batch,
+    try_claim_download_batch,
+)
 
 logger = get_logger("app.download")
 
@@ -431,67 +436,73 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
 
     cfg = get_runtime_config()
     library_root = cfg.resolve_path(cfg.library_dir)
-    download_tracker.start_batch(1, "Preparing PDF")
-    with session_scope() as session:
-        paper = session.scalar(
-            select(Paper)
-            .options(selectinload(Paper.authors).selectinload(PaperAuthor.author), selectinload(Paper.downloads))
-            .where(Paper.id == paper_id)
-        )
-        if paper is None:
-            download_tracker.finish_batch()
-            raise DownloadError("Paper not found")
-        existing = existing_pdf_path(paper, library_root)
-        if existing:
-            if user_id:
-                row = session.scalar(
-                    select(Download).where(Download.paper_id == paper_id).order_by(Download.id.desc())
+    batch_token = try_claim_download_batch(1, "Preparing PDF")
+    own_batch = batch_token is not None
+    try:
+        with session_scope() as session:
+            paper = session.scalar(
+                select(Paper)
+                .options(selectinload(Paper.authors).selectinload(PaperAuthor.author), selectinload(Paper.downloads))
+                .where(Paper.id == paper_id)
+            )
+            if paper is None:
+                raise DownloadError("Paper not found")
+            existing = existing_pdf_path(paper, library_root)
+            if existing:
+                if user_id:
+                    row = session.scalar(
+                        select(Download).where(Download.paper_id == paper_id).order_by(Download.id.desc())
+                    )
+                    if row is not None and row.downloaded_by_user_id is None:
+                        row.downloaded_by_user_id = user_id
+                if own_batch:
+                    download_tracker.begin_item(paper_id, paper.title, 1)
+                    download_tracker.log(f"Already on disk: {existing.name}", "success")
+                    download_tracker.update_bytes(existing.stat().st_size, existing.stat().st_size)
+                    download_tracker.finish_item("DOWNLOADED")
+                from app.services.lms_watch import schedule_lms_sync
+
+                schedule_lms_sync(paper_ids=[paper_id])
+                return existing
+            if paper.status == PaperStatus.PAYWALLED.value and not paper.pdf_url:
+                if own_batch:
+                    download_tracker.finish_item("FAILED", error="Paywalled and no legal PDF URL")
+                raise DownloadError("This paper is paywalled and has no legal PDF URL")
+            record = paper_to_record(paper)
+            if not record.pdf_url:
+                if own_batch:
+                    download_tracker.finish_item("FAILED", error="No legally available PDF URL")
+                raise DownloadError("No legally available PDF URL")
+            title = paper.title
+
+        async with AsyncHttpClient(cfg) as client:
+            downloader = DownloadService(client, cfg)
+            if own_batch:
+                download_tracker.begin_item(paper_id, title, 1)
+            updated = await downloader.download_paper(
+                paper_id,
+                record,
+                topic_slug,
+                on_progress=lambda received, total: download_tracker.update_bytes(received, total)
+                if own_batch
+                else None,
+                user_id=user_id,
+            )
+            with session_scope() as session:
+                paper = session.scalar(
+                    select(Paper).options(selectinload(Paper.downloads)).where(Paper.id == paper_id)
                 )
-                if row is not None and row.downloaded_by_user_id is None:
-                    row.downloaded_by_user_id = user_id
-            download_tracker.begin_item(paper_id, paper.title, 1)
-            download_tracker.log(f"Already on disk: {existing.name}", "success")
-            download_tracker.update_bytes(existing.stat().st_size, existing.stat().st_size)
-            download_tracker.finish_item("DOWNLOADED")
-            download_tracker.finish_batch()
+                path = existing_pdf_path(paper, library_root) if paper else None
+            if own_batch:
+                download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
+            if path is None:
+                raise DownloadError(updated.extra.get("error") or updated.status.value)
             from app.services.lms_watch import schedule_lms_sync
 
             schedule_lms_sync(paper_ids=[paper_id])
-            return existing
-        if paper.status == PaperStatus.PAYWALLED.value and not paper.pdf_url:
-            download_tracker.finish_item("FAILED", error="Paywalled and no legal PDF URL")
-            download_tracker.finish_batch()
-            raise DownloadError("This paper is paywalled and has no legal PDF URL")
-        record = paper_to_record(paper)
-        if not record.pdf_url:
-            download_tracker.finish_item("FAILED", error="No legally available PDF URL")
-            download_tracker.finish_batch()
-            raise DownloadError("No legally available PDF URL")
-        title = paper.title
-
-    async with AsyncHttpClient(cfg) as client:
-        downloader = DownloadService(client, cfg)
-        download_tracker.begin_item(paper_id, title, 1)
-        updated = await downloader.download_paper(
-            paper_id,
-            record,
-            topic_slug,
-            on_progress=lambda received, total: download_tracker.update_bytes(received, total),
-            user_id=user_id,
-        )
-        with session_scope() as session:
-            paper = session.scalar(
-                select(Paper).options(selectinload(Paper.downloads)).where(Paper.id == paper_id)
-            )
-            path = existing_pdf_path(paper, library_root) if paper else None
-        download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
-        download_tracker.finish_batch()
-        if path is None:
-            raise DownloadError(updated.extra.get("error") or updated.status.value)
-        from app.services.lms_watch import schedule_lms_sync
-
-        schedule_lms_sync(paper_ids=[paper_id])
-        return path
+            return path
+    finally:
+        release_download_batch(batch_token)
 
 
 async def download_papers_parallel(
@@ -518,8 +529,16 @@ async def download_papers_parallel(
     assign_lock = asyncio.Lock()
     progress_lock = asyncio.Lock()
 
+    batch_token: object | None = None
+    track_downloads = False
     if use_download_tracker:
-        download_tracker.start_batch(total, "Downloading open-access PDFs")
+        # Wait for any other Downloads-page batch so we never finish_batch mid-flight.
+        while True:
+            batch_token = try_claim_download_batch(total, "Downloading open-access PDFs")
+            if batch_token is not None:
+                track_downloads = True
+                break
+            await asyncio.sleep(0.2)
 
     async def _run_one(paper_id: int, paper: PaperRecord) -> tuple[int, PaperRecord]:
         nonlocal completed
@@ -529,7 +548,7 @@ async def download_papers_parallel(
             async with assign_lock:
                 completed += 1
                 index = completed
-            if use_download_tracker:
+            if track_downloads:
                 download_tracker.begin_item(paper_id, paper.title, index)
             if job_progress is not None:
                 job_progress.begin_item(paper_id, paper.title, index)
@@ -548,11 +567,11 @@ async def download_papers_parallel(
                     topic_slug,
                     max_file_size=max_file_size,
                     on_progress=lambda received, total_bytes: download_tracker.update_bytes(received, total_bytes)
-                    if use_download_tracker
+                    if track_downloads
                     else None,
                     user_id=user_id,
                 )
-            if use_download_tracker:
+            if track_downloads:
                 download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
             if job_progress is not None:
                 job_progress.finish_item(updated.status.value, error=updated.extra.get("error"))
@@ -570,10 +589,12 @@ async def download_papers_parallel(
             return paper_id, updated
 
     try:
-        results = await asyncio.gather(*[_run_one(pid, paper) for pid, paper in jobs])
+        results = await asyncio.gather(
+            *[_run_one(pid, paper) for pid, paper in jobs],
+            return_exceptions=False,
+        )
     finally:
-        if use_download_tracker:
-            download_tracker.finish_batch()
+        release_download_batch(batch_token)
     return list(results)
 
 

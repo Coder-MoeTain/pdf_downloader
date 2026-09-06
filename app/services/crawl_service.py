@@ -195,26 +195,32 @@ class CrawlService:
                                 to_download.append((db_paper.id, paper))
 
                     if to_download:
-                        self._progress.start_batch(len(to_download), "Downloading open-access PDFs")
-                        try:
-                            results = await download_papers_parallel(
-                                downloader,
-                                to_download,
-                                topic_slug=filters.topic_slug,
-                                max_file_size=max_size,
-                                user_id=user_id,
-                                job_progress=self._progress,
-                                use_download_tracker=False,
-                                checkpoint=self._checkpoint,
-                            )
-                            for _paper_id, updated in results:
-                                if updated.status == PaperStatus.DOWNLOADED:
-                                    stats.pdfs_downloaded += 1
-                                    downloaded_count += 1
-                                elif updated.status == PaperStatus.FAILED:
-                                    stats.failed_downloads += 1
-                        finally:
-                            self._progress.finish_batch()
+                        # Do not call start_batch/finish_batch on crawl progress —
+                        # those reset kind to "download" and set active=False mid-crawl.
+                        self._progress.set_phase(
+                            "downloading",
+                            f"Downloading {len(to_download)} open-access PDF"
+                            f"{'s' if len(to_download) != 1 else ''}…",
+                            current=0,
+                            total=len(to_download),
+                            log=True,
+                        )
+                        results = await download_papers_parallel(
+                            downloader,
+                            to_download,
+                            topic_slug=filters.topic_slug,
+                            max_file_size=max_size,
+                            user_id=user_id,
+                            job_progress=self._progress,
+                            use_download_tracker=False,
+                            checkpoint=self._checkpoint,
+                        )
+                        for _paper_id, updated in results:
+                            if updated.status == PaperStatus.DOWNLOADED:
+                                stats.pdfs_downloaded += 1
+                                downloaded_count += 1
+                            elif updated.status == PaperStatus.FAILED:
+                                stats.failed_downloads += 1
 
                 self._progress.update_stats(
                     pages_fetched=stats.pages_fetched,

@@ -28,7 +28,7 @@ from app.services.dedup_service import deduplicate
 from app.services.download_service import DownloadService, download_papers_parallel, write_topic_metadata_csv
 from app.services.export_service import ExportService
 from app.services.oa_service import OpenAccessService
-from app.services.progress import ProgressTracker, download_tracker, tracker
+from app.services.progress import ProgressTracker, tracker
 from app.services.query_expansion import expand_query
 from app.services.ranking_service import rank_papers
 from app.utils.http import AsyncHttpClient
@@ -206,7 +206,9 @@ class SearchService:
                         max_file_size=max_size,
                         user_id=user_id,
                         job_progress=self._progress,
-                        use_download_tracker=True,
+                        # Keep search logs on job_progress only so Downloads-page
+                        # batches are not cut short by a concurrent finish_batch.
+                        use_download_tracker=False,
                         checkpoint=self._checkpoint,
                     )
                     for paper_id, updated in results:
@@ -218,10 +220,10 @@ class SearchService:
                         elif updated.status == PaperStatus.FAILED:
                             stats.failed_downloads += 1
                 finally:
-                    dl = download_tracker.snapshot()
+                    snap = self._progress.snapshot()
                     self._progress.log(
-                        f"PDF downloads: {dl.get('downloaded', 0)} saved, "
-                        f"{dl.get('failed', 0)} failed, {dl.get('skipped', 0)} skipped"
+                        f"PDF downloads: {snap.get('downloaded', 0)} saved, "
+                        f"{snap.get('failed', 0)} failed, {snap.get('skipped', 0)} skipped"
                     )
                 if downloaded_ids:
                     from app.services.lms_watch import schedule_lms_sync

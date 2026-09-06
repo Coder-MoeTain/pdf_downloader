@@ -402,6 +402,8 @@ Full rules: [COMPLIANCE.md](COMPLIANCE.md).
 | Library Detail shows empty fields | Hard-refresh the page; paper metadata is embedded in the Detail button as JSON |
 | Theme looks wrong after update | Hard-refresh (`Ctrl+Shift+R` / `Cmd+Shift+R`) so `theme.css` reloads |
 | Pages hang during large PDF downloads | Downloads now run in a background worker; refresh or open another tab — the server should stay responsive |
+| Downloads log shows “Finished” while items still run | Fixed: only one Downloads-page batch owns the progress tracker at a time; restart the server if you still see a stale run |
+| Many “Blocked by robots.txt” (MDPI, PMC, …) | Expected when **Settings → Honour robots.txt** is on — those hosts disallow automated PDF fetch. Turn the setting off only if your use is allowed, or rely on hosts that permit bots (e.g. arXiv, many IEEE OA links) |
 | Semantic ranking | Install `sentence-transformers` and set `ranking.semantic.enabled: true` |
 
 ## Development

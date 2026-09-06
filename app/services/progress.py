@@ -315,6 +315,48 @@ class ProgressTracker:
 tracker = ProgressTracker()
 download_tracker = ProgressTracker()
 
+# Only one Downloads-page batch may own download_tracker at a time (search, crawl,
+# OA queue, and ensure_local_pdf can otherwise call finish_batch mid-flight).
+_download_batch_lock = threading.Lock()
+_download_batch_token: object | None = None
+
+
+def try_claim_download_batch(total: int, message: str = "") -> object | None:
+    """Start a download_tracker batch if idle. Returns an owner token, or None if busy."""
+    global _download_batch_token
+    with _download_batch_lock:
+        if _download_batch_token is not None:
+            return None
+        if download_tracker.snapshot().get("active"):
+            return None
+        token = object()
+        _download_batch_token = token
+        download_tracker.start_batch(total, message)
+        return token
+
+
+def release_download_batch(token: object | None) -> None:
+    """Finish the batch only if this caller still owns it."""
+    global _download_batch_token
+    if token is None:
+        return
+    with _download_batch_lock:
+        if _download_batch_token is not token:
+            return
+        download_tracker.finish_batch()
+        _download_batch_token = None
+
+
+def clear_download_batch_owner() -> None:
+    """Test/helper: drop ownership without finishing (pair with download_tracker.reset())."""
+    global _download_batch_token
+    with _download_batch_lock:
+        _download_batch_token = None
+
+
+def download_batch_is_owned() -> bool:
+    with _download_batch_lock:
+        return _download_batch_token is not None
 
 class JobProgressRegistry:
     """Per-job progress trackers so multiple users can search in parallel."""
