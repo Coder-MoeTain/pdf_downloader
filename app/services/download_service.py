@@ -19,6 +19,7 @@ from app.utils.http import AsyncHttpClient
 from app.utils.logger import get_logger
 from app.utils.pdf_url import is_direct_pdf_url
 from app.utils.security import looks_like_pdf, robots_allowed
+from app.services.oa_service import OpenAccessService
 from app.services.progress import (
     ProgressTracker,
     download_tracker,
@@ -34,6 +35,32 @@ def _clip_url(url: str, limit: int = 96) -> str:
     if len(value) <= limit:
         return value
     return value[: limit - 1] + "…"
+
+
+def _retryable_download_error(exc: Exception) -> bool:
+    message = str(exc)
+    return any(
+        token in message
+        for token in (
+            "HTTP 404",
+            "HTTP 403",
+            "HTTP 401",
+            "HTTP 410",
+            "Not a PDF",
+            "HTML",
+            "Missing PDF",
+            "CAPTCHA",
+            "access-denied",
+        )
+    )
+
+
+def _progress_log(message: str, level: str = "info") -> None:
+    """Log to the Downloads panel only while a claimed batch is active."""
+    from app.services.progress import download_batch_is_owned
+
+    if download_batch_is_owned() or download_tracker.snapshot().get("active"):
+        download_tracker.log(message, level)
 
 
 class DownloadError(RuntimeError):
@@ -98,7 +125,7 @@ class DownloadService:
                         save_paper(session, paper)
                     if on_progress:
                         on_progress(dest.stat().st_size, dest.stat().st_size)
-                    download_tracker.log(f"Already on disk: {dest.name}", "success")
+                    _progress_log(f"Already on disk: {dest.name}", "success")
                     return paper, False
 
         if not paper.pdf_url or not is_direct_pdf_url(paper.pdf_url, prefer_https=self.config.prefer_https):
@@ -112,7 +139,7 @@ class DownloadService:
                     error="No legal PDF URL",
                 )
                 save_paper(session, paper)
-            download_tracker.log("No legal PDF URL", "info")
+            _progress_log("No legal PDF URL", "info")
             paper.extra["error"] = "No legal PDF URL"
             return paper, False
 
@@ -127,7 +154,7 @@ class DownloadService:
                     error="Blocked by robots.txt",
                 )
                 save_paper(session, paper)
-            download_tracker.log(f"Blocked by robots.txt: {_clip_url(paper.pdf_url)}", "info")
+            _progress_log(f"Blocked by robots.txt: {_clip_url(paper.pdf_url)}", "info")
             paper.extra["error"] = "Blocked by robots.txt"
             return paper, False
 
@@ -220,6 +247,28 @@ class DownloadService:
         )
         dest = dest_dir / filename
 
+        # Replace gated publisher CDNs (IEEE ielx, Wiley pdfdirect, …) with a real OA mirror.
+        if paper.pdf_url and not is_direct_pdf_url(paper.pdf_url, prefer_https=self.config.prefer_https):
+            alt = await OpenAccessService(self.client, self.config).alternate_pdf_url(
+                paper, exclude=paper.pdf_url
+            )
+            if alt:
+                _progress_log(f"Alternate OA URL: {_clip_url(alt)}", "info")
+                paper.pdf_url = alt
+
+        # NCBI/PMC and similar often pass URL checks but fail robots.txt — swap before skip.
+        if (
+            paper.pdf_url
+            and is_direct_pdf_url(paper.pdf_url, prefer_https=self.config.prefer_https)
+            and not robots_allowed(paper.pdf_url, self.config.user_agent_header())
+        ):
+            alt = await OpenAccessService(self.client, self.config).alternate_pdf_url(
+                paper, exclude=paper.pdf_url
+            )
+            if alt and robots_allowed(alt, self.config.user_agent_header()):
+                _progress_log(f"Robots-safe OA URL: {_clip_url(alt)}", "info")
+                paper.pdf_url = alt
+
         paper, should_download = await asyncio.to_thread(
             self._prepare_download,
             paper_id,
@@ -231,10 +280,41 @@ class DownloadService:
         if not should_download:
             return paper
 
-        download_tracker.log(f"GET {_clip_url(paper.pdf_url)}")
+        _progress_log(f"GET {_clip_url(paper.pdf_url)}")
         try:
             size, digest = await self._stream_pdf(paper.pdf_url, dest, max_size, on_progress=on_progress)
         except DownloadError as exc:
+            if _retryable_download_error(exc):
+                alt = await OpenAccessService(self.client, self.config).alternate_pdf_url(
+                    paper, exclude=paper.pdf_url
+                )
+                if alt:
+                    _progress_log(f"Retry GET {_clip_url(alt)}", "info")
+                    paper.pdf_url = alt
+                    try:
+                        size, digest = await self._stream_pdf(
+                            paper.pdf_url, dest, max_size, on_progress=on_progress
+                        )
+                    except DownloadError as retry_exc:
+                        return await asyncio.to_thread(
+                            self._finalize_download,
+                            paper_id,
+                            paper,
+                            dest,
+                            0,
+                            "",
+                            user_id=user_id,
+                            error=retry_exc,
+                        )
+                    return await asyncio.to_thread(
+                        self._finalize_download,
+                        paper_id,
+                        paper,
+                        dest,
+                        size,
+                        digest,
+                        user_id=user_id,
+                    )
             return await asyncio.to_thread(
                 self._finalize_download,
                 paper_id,
@@ -284,15 +364,15 @@ class DownloadService:
                 headers={"User-Agent": self.config.user_agent_header()},
             ) as response:
                 if response.status_code >= 400:
-                    download_tracker.log(f"HTTP {response.status_code}", "danger")
+                    _progress_log(f"HTTP {response.status_code}", "danger")
                     raise DownloadError(f"HTTP {response.status_code}")
                 content_type = response.headers.get("content-type", "")
                 declared = response.headers.get("content-length")
                 if declared and int(declared) > max_size:
-                    download_tracker.log("Remote file exceeds max size", "danger")
+                    _progress_log("Remote file exceeds max size", "danger")
                     raise DownloadError("Remote file exceeds max size")
                 if "html" in content_type.lower() or "json" in content_type.lower():
-                    download_tracker.log(f"Not a PDF (Content-Type {content_type})", "danger")
+                    _progress_log(f"Not a PDF (Content-Type {content_type})", "danger")
                     raise DownloadError(f"Not a PDF (Content-Type {content_type})")
                 total = int(declared) if declared and declared.isdigit() else None
                 ctype = content_type.split(";")[0].strip()
@@ -301,7 +381,7 @@ class DownloadService:
                     header_note += f" · {total:,} bytes"
                 if ctype:
                     header_note += f" · {ctype}"
-                download_tracker.log(header_note)
+                _progress_log(header_note)
                 if on_progress:
                     on_progress(0, total)
 
@@ -572,9 +652,13 @@ async def download_papers_parallel(
                     user_id=user_id,
                 )
             if track_downloads:
-                download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
+                download_tracker.finish_item(
+                    updated.status.value, error=updated.extra.get("error"), title=paper.title
+                )
             if job_progress is not None:
-                job_progress.finish_item(updated.status.value, error=updated.extra.get("error"))
+                job_progress.finish_item(
+                    updated.status.value, error=updated.extra.get("error"), title=paper.title
+                )
             async with progress_lock:
                 done = index
                 if job_progress is not None:

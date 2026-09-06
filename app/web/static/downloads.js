@@ -69,7 +69,11 @@
       panel.dataset.active = "true";
     } else if (panel.dataset.active === "true") {
       panel.dataset.active = "false";
-      if (!reloaded) {
+      var total = Number(data.total || 0);
+      var done =
+        Number(data.downloaded || 0) + Number(data.failed || 0) + Number(data.skipped || 0);
+      // Only reload once the batch is truly complete (avoids mid-run Finished races).
+      if (!reloaded && (total === 0 || done >= total)) {
         reloaded = true;
         window.location.reload();
         return;

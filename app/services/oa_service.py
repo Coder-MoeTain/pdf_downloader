@@ -7,7 +7,7 @@ from app.models.paper import PaperRecord, PaperStatus
 from app.utils.doi import normalize_doi
 from app.utils.http import AsyncHttpClient, HttpError
 from app.utils.logger import get_logger
-from app.utils.pdf_url import is_direct_pdf_url
+from app.utils.pdf_url import is_direct_pdf_url, oa_url_priority
 
 logger = get_logger("app.oa")
 
@@ -20,12 +20,13 @@ class OpenAccessService:
         self.config = config or load_config()
 
     async def resolve(self, paper: PaperRecord) -> PaperRecord:
-        if paper.arxiv_id and not paper.pdf_url:
+        if paper.arxiv_id and not _usable_pdf(paper.pdf_url):
             paper.pdf_url = f"https://arxiv.org/pdf/{paper.arxiv_id}.pdf"
             paper.open_access = True
-        if paper.pmcid and not paper.pdf_url:
+        if paper.pmcid and not _usable_pdf(paper.pdf_url):
             pmc = paper.pmcid if str(paper.pmcid).upper().startswith("PMC") else f"PMC{paper.pmcid}"
-            paper.pdf_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmc}/pdf/"
+            # Prefer Europe PMC render URLs; NCBI often blocks bots via robots.txt.
+            paper.pdf_url = f"https://europepmc.org/articles/{pmc}?pdf=render"
             paper.open_access = True
 
         if paper.doi and not _usable_pdf(paper.pdf_url):
@@ -43,6 +44,7 @@ class OpenAccessService:
                 elif paper.open_access is None:
                     paper.open_access = False
 
+        # Drop gated publisher CDNs left over from earlier metadata merges.
         if paper.pdf_url and not _usable_pdf(paper.pdf_url):
             paper.pdf_url = None
 
@@ -63,7 +65,36 @@ class OpenAccessService:
         paper.status = PaperStatus.NO_PDF if not paper.doi else PaperStatus.PAYWALLED
         return paper
 
-    async def _unpaywall(self, doi: str) -> tuple[str | None, str | None, bool] | None:
+    async def alternate_pdf_url(self, paper: PaperRecord, *, exclude: str | None = None) -> str | None:
+        """Pick another legal OA PDF URL, skipping a URL that already failed."""
+        skip = {(exclude or "").strip(), (paper.pdf_url or "").strip()} - {""}
+        candidates: list[str] = []
+        if paper.arxiv_id:
+            candidates.append(f"https://arxiv.org/pdf/{paper.arxiv_id}.pdf")
+        if paper.pmcid:
+            pmc = paper.pmcid if str(paper.pmcid).upper().startswith("PMC") else f"PMC{paper.pmcid}"
+            candidates.append(f"https://europepmc.org/articles/{pmc}?pdf=render")
+            candidates.append(f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmc}/pdf/")
+        if paper.doi:
+            unpaywall = await self._unpaywall(paper.doi, collect_all=True)
+            if unpaywall:
+                pdfs, _license, _is_oa = unpaywall
+                if isinstance(pdfs, list):
+                    candidates.extend(pdfs)
+                elif pdfs:
+                    candidates.append(str(pdfs))
+        ranked = sorted(
+            {url for url in candidates if _usable_pdf(url) and url not in skip},
+            key=oa_url_priority,
+        )
+        return ranked[0] if ranked else None
+
+    async def _unpaywall(
+        self,
+        doi: str,
+        *,
+        collect_all: bool = False,
+    ) -> tuple[str | list[str] | None, str | None, bool] | None:
         email = self.config.env.polite_email
         if not email or "example.com" in email:
             logger.info("Skipping Unpaywall: set CONTACT_EMAIL / UNPAYWALL_EMAIL to a real address")
@@ -84,17 +115,22 @@ class OpenAccessService:
             return None
         locations = [data.get("best_oa_location") or {}]
         locations.extend(loc for loc in (data.get("oa_locations") or []) if isinstance(loc, dict))
-        pdf = None
+        candidates: list[tuple[int, str, str | None]] = []
         license_ = None
         for loc in locations:
             candidate = loc.get("url_for_pdf")
-            if is_direct_pdf_url(candidate, prefer_https=False):
-                pdf = candidate
-                license_ = loc.get("license") or license_
-                break
             license_ = license_ or loc.get("license")
+            if not is_direct_pdf_url(candidate, prefer_https=False):
+                continue
+            candidates.append((oa_url_priority(candidate), candidate, loc.get("license")))
+        candidates.sort(key=lambda item: item[0])
         is_oa = bool(data.get("is_oa"))
-        return pdf, license_, is_oa
+        if not candidates:
+            return (None, license_, is_oa)
+        if collect_all:
+            return [item[1] for item in candidates], candidates[0][2] or license_, is_oa
+        best = candidates[0]
+        return best[1], best[2] or license_, is_oa
 
 
 def _usable_pdf(url: str | None) -> bool:

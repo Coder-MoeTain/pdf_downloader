@@ -274,27 +274,27 @@ class ProgressTracker:
             elif self._state.get("kind") != "search":
                 self._state["percent"] = None
 
-    def finish_item(self, status: str, *, error: str | None = None) -> None:
+    def finish_item(self, status: str, *, error: str | None = None, title: str | None = None) -> None:
         with self._lock:
-            title = _clip(str(self._state.get("title") or "Paper"))
+            label = _clip(str(title if title is not None else self._state.get("title") or "Paper"))
             size = int(self._state.get("bytes_downloaded") or 0)
             if status == "DOWNLOADED":
                 self._state["downloaded"] += 1
                 if self._state.get("kind") != "search":
                     self._state["percent"] = 100.0
                 extra = f" ({size:,} bytes)" if size else ""
-                self._append_log(f"Saved “{title}”{extra}", "success")
+                self._append_log(f"Saved “{label}”{extra}", "success")
             elif status == "FAILED":
                 self._state["failed"] += 1
                 reason = f" — {error}" if error else ""
-                self._append_log(f"Failed “{title}”{reason}", "danger")
+                self._append_log(f"Failed “{label}”{reason}", "danger")
             elif status == "DUPLICATE":
                 self._state["skipped"] += 1
-                self._append_log(f"Duplicate “{title}”, reused existing file", "info")
+                self._append_log(f"Duplicate “{label}”, reused existing file", "info")
             else:
                 self._state["skipped"] += 1
                 reason = f" — {error}" if error else ""
-                self._append_log(f"Skipped “{title}”{reason}", "info")
+                self._append_log(f"Skipped “{label}”{reason}", "info")
 
     def finish_batch(self) -> None:
         with self._lock:

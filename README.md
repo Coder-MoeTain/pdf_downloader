@@ -405,6 +405,7 @@ Full rules: [COMPLIANCE.md](COMPLIANCE.md).
 | Pages hang during large PDF downloads | Downloads now run in a background worker; refresh or open another tab — the server should stay responsive |
 | Downloads log shows “Finished” while items still run | Fixed: only one Downloads-page batch owns the progress tracker at a time; restart the server if you still see a stale run |
 | Many “Blocked by robots.txt” (MDPI, PMC, …) | Expected when **Settings → Honour robots.txt** is on — those hosts disallow automated PDF fetch. Turn the setting off only if your use is allowed, or rely on hosts that permit bots (e.g. arXiv, many IEEE OA links) |
+| IEEE / Wiley links fail with HTTP 404/403 | Gated publisher CDNs (`ieeexplore…/ielx…`, Wiley `pdfdirect`) are skipped; the downloader prefers arXiv / Europe PMC / other Unpaywall mirrors when available |
 | Semantic ranking | Install `sentence-transformers` and set `ranking.semantic.enabled: true` |
 
 ## Development

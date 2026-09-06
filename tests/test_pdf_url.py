@@ -1,5 +1,10 @@
 from app.services.oa_service import _usable_pdf
-from app.utils.pdf_url import is_direct_pdf_url, is_doi_resolver_url
+from app.utils.pdf_url import (
+    is_direct_pdf_url,
+    is_doi_resolver_url,
+    is_gated_publisher_pdf,
+    oa_url_priority,
+)
 
 
 def test_doi_landing_pages_are_not_pdfs():
@@ -15,6 +20,7 @@ def test_doi_landing_pages_are_not_pdfs():
 def test_real_pdf_urls_are_accepted():
     assert is_direct_pdf_url("https://arxiv.org/pdf/2301.00001.pdf")
     assert is_direct_pdf_url("https://www.ncbi.nlm.nih.gov/pmc/articles/PMC123456/pdf/")
+    assert is_direct_pdf_url("https://europepmc.org/articles/PMC123456?pdf=render")
     assert is_direct_pdf_url("https://journals.plos.org/plosone/article/file?id=10.1371/x&type=printable")
     assert is_direct_pdf_url("https://openreview.net/pdf?id=abc")
     assert _usable_pdf("https://arxiv.org/pdf/2301.00001.pdf")
@@ -24,3 +30,22 @@ def test_publisher_html_pages_are_rejected():
     assert not is_direct_pdf_url("https://www.sciencedirect.com/science/article/pii/S0167404823001234")
     assert not is_direct_pdf_url("https://ieeexplore.ieee.org/document/9591234")
     assert not is_direct_pdf_url("https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4602444")
+
+
+def test_ieee_ielx_and_wiley_pdfdirect_are_gated():
+    ieee = "https://ieeexplore.ieee.org/ielx7/6287639/6514899/09274426.pdf"
+    wiley = "https://onlinelibrary.wiley.com/doi/pdfdirect/10.1002/fsn3.3798"
+    assert is_gated_publisher_pdf(ieee)
+    assert is_gated_publisher_pdf(wiley)
+    assert not is_direct_pdf_url(ieee)
+    assert not is_direct_pdf_url(wiley)
+    assert not _usable_pdf(ieee)
+
+
+def test_oa_url_priority_prefers_arxiv_over_ieee():
+    arxiv = "https://arxiv.org/pdf/2007.12099.pdf"
+    ieee = "https://ieeexplore.ieee.org/ielx7/6287639/6514899/09274426.pdf"
+    assert oa_url_priority(arxiv) < oa_url_priority(ieee)
+    assert oa_url_priority("https://europepmc.org/articles/PMC1?pdf=render") < oa_url_priority(
+        "https://example.com/paper.pdf"
+    )
