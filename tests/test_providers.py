@@ -137,12 +137,15 @@ async def test_crossref_browse_omits_sort_with_cursor():
 
 @pytest.mark.asyncio
 async def test_openalex_browse_uses_valid_type_filter():
+    from datetime import date, timedelta
+
     from app.models.crawl import CrawlFilters
 
     class _Client:
         async def get_json(self, url, **kwargs):
             params = kwargs.get("params") or {}
-            assert params["filter"] == "type:article|preprint|posted-content"
+            since = (date.today() - timedelta(days=45)).isoformat()
+            assert params["filter"] == f"type:article|preprint|posted-content,from_publication_date:{since}"
             assert params["cursor"] == "*"
             return {
                 "meta": {"page": 1, "count": 2, "next_cursor": "next-page"},
@@ -155,6 +158,36 @@ async def test_openalex_browse_uses_valid_type_filter():
     assert page.records[0].title == "OpenAlex Browse Paper"
     assert page.next_cursor == "next-page"
     assert page.has_more is True
+
+
+@pytest.mark.asyncio
+async def test_plos_browse_uses_full_doc_fallback():
+    from app.models.crawl import CrawlFilters
+
+    class _Client:
+        async def get_json(self, url, **kwargs):
+            params = kwargs.get("params") or {}
+            assert params["q"] == "doc_type:full"
+            assert params["sort"] == "publication_date desc"
+            return {
+                "response": {
+                    "numFound": 2,
+                    "docs": [
+                        {
+                            "id": "10.1371/journal.pone.1",
+                            "title": "PLOS Full Article",
+                            "journal": "PLoS ONE",
+                            "doi": "10.1371/journal.pone.1",
+                            "publication_date": "2024-01-01T00:00:00Z",
+                        }
+                    ],
+                }
+            }
+
+    provider = PlosProvider(_Client())  # type: ignore[arg-type]
+    page = await provider.browse(CrawlFilters(source="plos", page_size=25))
+    assert len(page.records) == 1
+    assert page.records[0].title == "PLOS Full Article"
 
 
 def test_openalex_abstract_and_parse():

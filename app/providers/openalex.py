@@ -50,6 +50,8 @@ class OpenAlexProvider(ResearchProvider):
         return [p for p in papers if p and p.title]
 
     async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
+        from datetime import date, timedelta
+
         params: dict[str, Any] = {
             "per_page": min(filters.page_size, 200),
             "sort": "publication_date:desc",
@@ -65,6 +67,11 @@ class OpenAlexProvider(ResearchProvider):
             filt.append(f"from_publication_date:{filters.year_from}-01-01")
         elif filters.year_to:
             filt.append(f"to_publication_date:{filters.year_to}-12-31")
+        elif not filters.query.strip():
+            # Empty scheduled crawls otherwise keep re-reading the same newest pages
+            # that are already in the library (skip_existing → 0 new papers).
+            since = (date.today() - timedelta(days=45)).isoformat()
+            filt.append(f"from_publication_date:{since}")
         if filters.open_access_only:
             filt.append("is_oa:true")
         params["filter"] = ",".join(filt)

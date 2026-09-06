@@ -101,7 +101,7 @@ def run_scheduled_crawl_once(*, force: bool = False) -> dict[str, object]:
             download=bool(settings.get("download")),
             pdfs_only=bool(settings.get("pdfs_only")),
             page_size=100,
-            max_pages=int(settings.get("max_pages") or 5),
+            max_pages=int(settings.get("max_pages") or 10),
             max_papers=int(settings.get("max_papers") or 500),
         )
         enqueue_crawl(user_id=None, filters=filters)

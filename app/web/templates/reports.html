@@ -132,6 +132,8 @@
           <th>User</th>
           <th>Started</th>
           <th class="text-end">New papers</th>
+          <th class="text-end">Seen</th>
+          <th class="text-end">Already had</th>
           <th class="text-end">Downloaded</th>
           <th class="text-end">Failed</th>
         </tr>
@@ -152,6 +154,8 @@
           <td class="paper-meta">{{ job_actor_name(row) }}</td>
           <td class="text-nowrap paper-meta">{{ (row.started_at or row.created_at)|localdt or "—" }}</td>
           <td class="text-end">{{ row.papers_found if row.papers_found is not none else "—" }}</td>
+          <td class="text-end">{{ row.records_seen if row.records_seen is not none else "—" }}</td>
+          <td class="text-end">{{ row.skipped_existing if row.skipped_existing is not none else "—" }}</td>
           <td class="text-end">{{ row.pdfs_downloaded if row.pdfs_downloaded is not none else "—" }}</td>
           <td class="text-end">{{ row.pdfs_failed if row.pdfs_failed is not none else "—" }}</td>
         </tr>

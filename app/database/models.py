@@ -158,6 +158,8 @@ class CrawlJob(Base):
     papers_found: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pdfs_downloaded: Mapped[int | None] = mapped_column(Integer, nullable=True)
     pdfs_failed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    records_seen: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    skipped_existing: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

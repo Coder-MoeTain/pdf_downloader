@@ -214,6 +214,8 @@ async def _run_job(job_id: int) -> None:
                 papers_found=stats.new_papers,
                 pdfs_downloaded=stats.pdfs_downloaded,
                 pdfs_failed=stats.failed_downloads,
+                records_seen=stats.records_seen,
+                skipped_existing=stats.skipped_existing,
             )
         logger.info("Crawl job %s completed for %s", job_id, source)
     except CrawlCancelled:

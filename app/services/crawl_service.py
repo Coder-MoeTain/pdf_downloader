@@ -131,6 +131,11 @@ class CrawlService:
                                 continue
                     page_new.append(record)
 
+                if not page_new and page.records:
+                    self._progress.log(
+                        f"Page {page_num}: all {len(page.records)} record(s) already in the library"
+                    )
+
                 if page_new:
                     self._progress.set_phase(
                         "oa",
@@ -241,6 +246,13 @@ class CrawlService:
                     break
                 cursor = page.next_cursor
 
+            if stats.new_papers == 0 and stats.skipped_existing:
+                self._progress.log(
+                    f"No new papers · {stats.skipped_existing} already in library"
+                    f" · {stats.records_seen} seen across {stats.pages_fetched} page(s). "
+                    "Try a keyword, raise max pages, or turn off skip-existing.",
+                    "warning",
+                )
             self._progress.finish_crawl(
                 stats={
                     "pages_fetched": stats.pages_fetched,

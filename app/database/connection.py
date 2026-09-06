@@ -146,6 +146,12 @@ def _ensure_columns(engine: Engine) -> None:
             for column in ("papers_found", "pdfs_downloaded", "pdfs_failed"):
                 if column not in job_names:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} INTEGER"))
+        crawl_rows = conn.execute(text("PRAGMA table_info(crawl_jobs)")).all()
+        crawl_names = {row[1] for row in crawl_rows}
+        if crawl_names:
+            for column in ("records_seen", "skipped_existing"):
+                if column not in crawl_names:
+                    conn.execute(text(f"ALTER TABLE crawl_jobs ADD COLUMN {column} INTEGER"))
         conn.commit()
 
 

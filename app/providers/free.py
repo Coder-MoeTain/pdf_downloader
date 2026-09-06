@@ -506,10 +506,12 @@ class PlosProvider(ResearchProvider):
         page_size = min(filters.page_size, 50)
         page_num, offset = page_offset(cursor, page_size)
         params: dict[str, Any] = {
-            "q": crawl_query(filters, fallback="*:*"),
+            # *:* returns abstract stubs without titles; full docs are crawlable.
+            "q": crawl_query(filters, fallback="doc_type:full"),
             "wt": "json",
             "rows": page_size,
             "start": offset,
+            "sort": "publication_date desc",
             "fl": "id,title,author,abstract,publication_date,journal,doi,article_type",
         }
         data = await self.request_json(self.BASE, params=params)

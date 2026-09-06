@@ -891,6 +891,8 @@ def complete_crawl_job(
     papers_found: int | None = None,
     pdfs_downloaded: int | None = None,
     pdfs_failed: int | None = None,
+    records_seen: int | None = None,
+    skipped_existing: int | None = None,
 ) -> None:
     row = session.get(CrawlJob, job_id)
     if row is None:
@@ -904,6 +906,10 @@ def complete_crawl_job(
         row.pdfs_downloaded = int(pdfs_downloaded)
     if pdfs_failed is not None:
         row.pdfs_failed = int(pdfs_failed)
+    if records_seen is not None:
+        row.records_seen = int(records_seen)
+    if skipped_existing is not None:
+        row.skipped_existing = int(skipped_existing)
 
 
 def get_crawl_job(session: Session, job_id: int) -> CrawlJob | None:
