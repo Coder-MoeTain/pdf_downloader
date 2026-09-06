@@ -185,7 +185,7 @@
           .join("");
         return (
           '<div class="queue-user-group border-bottom">' +
-          '<div class="px-3 py-2 bg-light fw-semibold small">' +
+          '<div class="px-3 py-2 queue-group-header fw-semibold small">' +
           escapeHtml(group.username || "Anonymous") +
           "</div>" +
           '<ul class="list-group list-group-flush">' +
