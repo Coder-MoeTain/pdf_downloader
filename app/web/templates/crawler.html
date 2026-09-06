@@ -140,7 +140,7 @@
       <div class="card-header d-flex justify-content-between align-items-baseline gap-2">
         <span class="job-live-mark" id="jobTitleWrap">
           {% if job.active %}<span class="nav-live-dot" aria-hidden="true"></span>{% endif %}
-          <span id="jobTitle">{{ "Live crawl" if job.active else "Crawl activity" }}</span>
+          <span id="jobTitle">{% if job.active %}{{ "Live scheduled crawl" if job.scheduled else "Live crawl" }}{% else %}Crawl activity{% endif %}</span>
         </span>
         <span class="paper-meta mb-0 job-query" id="jobQuery" title="{{ job.query }}">{{ job.query }}</span>
         <form method="post" action="/crawler/jobs/{{ active_job_id or 0 }}/stop" class="d-inline{% if not active_job_id %} d-none{% endif %}" id="jobStopForm">

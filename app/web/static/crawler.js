@@ -98,10 +98,15 @@
     jobEl.classList.toggle("is-done", data.phase === "done");
     jobEl.classList.toggle("is-error", data.phase === "error" || data.phase === "cancelled");
     if (titleEl) {
+      var scheduled = !!data.scheduled;
       titleEl.textContent = active
-        ? "Live crawl"
+        ? scheduled
+          ? "Live scheduled crawl"
+          : "Live crawl"
         : data.phase === "done"
-          ? "Last crawl"
+          ? scheduled
+            ? "Last scheduled crawl"
+            : "Last crawl"
           : data.phase === "cancelled"
             ? "Crawl stopped"
             : data.phase === "error"
@@ -162,12 +167,19 @@
               item.status === "pending" && item.position
                 ? "#" + item.position + " pending"
                 : item.status;
+            var watching = trackedJobId && String(item.id) === String(trackedJobId);
+            var sourceText = escapeHtml(item.source_label || item.source || "");
+            if (item.scheduled) {
+              sourceText += ' <span class="text-muted small">· scheduled</span>';
+            }
             return (
-              '<li class="list-group-item d-flex justify-content-between gap-3 align-items-center py-2">' +
-              '<div class="text-truncate" title="' +
-              escapeHtml(item.source_label || item.source || "") +
-              '">' +
-              escapeHtml(item.source_label || item.source || "") +
+              '<li class="list-group-item d-flex justify-content-between gap-3 align-items-center py-2 queue-job' +
+              (watching ? " is-watching" : "") +
+              '" data-job-id="' +
+              item.id +
+              '" role="button" tabindex="0" title="Show live log">' +
+              '<div class="text-truncate">' +
+              sourceText +
               "</div>" +
               '<span class="status-badge status-' +
               (item.status === "running" ? "primary" : "secondary") +
@@ -196,6 +208,28 @@
       .join("");
   }
 
+  function pickQueueJob(data) {
+    if (!data || !data.users) return;
+    var runningId = "";
+    var pendingId = "";
+    var trackedStillActive = false;
+    data.users.forEach(function (group) {
+      (group.jobs || []).forEach(function (item) {
+        var id = String(item.id);
+        if (trackedJobId && id === String(trackedJobId)) {
+          trackedStillActive = item.status === "pending" || item.status === "running";
+        }
+        if (item.status === "running" && !runningId) runningId = id;
+        else if (item.status === "pending" && !pendingId) pendingId = id;
+      });
+    });
+    // Follow background/scheduled runs when idle or current tracked job finished.
+    if (!trackedJobId || !trackedStillActive) {
+      if (runningId) trackedJobId = runningId;
+      else if (!trackedJobId && pendingId) trackedJobId = pendingId;
+    }
+  }
+
   function pollProgress() {
     var url = "/api/crawl-progress";
     if (trackedJobId) url += "?job_id=" + encodeURIComponent(trackedJobId);
@@ -214,20 +248,8 @@
         return response.json();
       })
       .then(function (data) {
+        pickQueueJob(data);
         renderQueue(data);
-        if (!trackedJobId && data.users) {
-          var pendingId = "";
-          data.users.forEach(function (group) {
-            (group.jobs || []).forEach(function (item) {
-              if (item.status === "running" && !trackedJobId) {
-                trackedJobId = String(item.id);
-              } else if (item.status === "pending" && !pendingId) {
-                pendingId = String(item.id);
-              }
-            });
-          });
-          if (!trackedJobId && pendingId) trackedJobId = pendingId;
-        }
         if (trackedJobId && trackedJobId !== previousJobId) {
           pollProgress();
         }
@@ -264,6 +286,27 @@
 
   jobEl.addEventListener("submit", onStopSubmit);
   if (queueCard) queueCard.addEventListener("submit", onStopSubmit);
+
+  function followQueueJob(event) {
+    var row = event.target.closest(".queue-job");
+    if (!row || !queueBody.contains(row)) return;
+    if (event.target.closest("form") || event.target.closest("button")) return;
+    var id = row.getAttribute("data-job-id");
+    if (!id) return;
+    trackedJobId = String(id);
+    pollProgress();
+    pollQueue();
+    jobEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  if (queueBody) {
+    queueBody.addEventListener("click", followQueueJob);
+    queueBody.addEventListener("keydown", function (event) {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      followQueueJob(event);
+      event.preventDefault();
+    });
+  }
 
   if (params.has("live")) {
     jobEl.scrollIntoView({ behavior: "smooth", block: "start" });

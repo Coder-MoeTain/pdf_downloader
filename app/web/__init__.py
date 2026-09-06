@@ -42,10 +42,12 @@ from app.config import ROOT_DIR, get_runtime_config
 from app.database.connection import init_db, retry_on_sqlite_lock, session_scope
 from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuery, SearchResult, User
 from app.database.repository import (
+    active_crawl_job_any,
     active_crawl_job_for_user,
     active_search_job_for_user,
     count_crawl_jobs,
     count_search_jobs,
+    crawl_job_is_scheduled,
     crawl_job_keyword,
     delete_library_paper,
     download_user_options,
@@ -718,9 +720,9 @@ def crawler_page(request: Request):
     crawlable_count = sum(1 for row in crawl_sources if row["crawlable"])
     job_id_param = request.query_params.get("job")
     with session_scope() as session:
-        active_job = active_crawl_job_for_user(session, user_id)
-        focus_job = active_job
-        if focus_job is None and job_id_param:
+        # Prefer this admin's job, then any running/pending (includes scheduled).
+        focus_job = active_crawl_job_for_user(session, user_id) or active_crawl_job_any(session)
+        if job_id_param:
             try:
                 jid = int(job_id_param)
                 row = get_crawl_job(session, jid)
@@ -733,6 +735,7 @@ def crawler_page(request: Request):
         job_progress = crawl_idle_snapshot()
     if focus_job:
         job_progress.setdefault("query", focus_job.source)
+        job_progress["scheduled"] = crawl_job_is_scheduled(focus_job)
     queue = crawl_queue_snapshot(user_id=user_id, is_admin=True)
     return templates.TemplateResponse(
         request,
@@ -823,14 +826,24 @@ def crawl_progress(request: Request, job_id: int | None = None):
         return JSONResponse({"ok": False, "error": "Admin access required"}, status_code=403)
     user_id = _request_user_id(request)
     target_id = job_id
-    if target_id is None and user_id is not None:
+    scheduled = False
+    if target_id is None:
         with session_scope() as session:
-            active = active_crawl_job_for_user(session, user_id)
+            active = active_crawl_job_for_user(session, user_id) if user_id is not None else None
+            if active is None:
+                active = active_crawl_job_any(session)
             if active:
                 target_id = active.id
+                scheduled = crawl_job_is_scheduled(active)
     if target_id is not None:
         snap = crawl_progress_snapshot(target_id)
         if snap:
+            if not scheduled:
+                with session_scope() as session:
+                    row = get_crawl_job(session, target_id)
+                    if row is not None:
+                        scheduled = crawl_job_is_scheduled(row)
+            snap["scheduled"] = scheduled
             return JSONResponse(snap, headers={"Cache-Control": "no-store"})
     return JSONResponse(crawl_idle_snapshot(), headers={"Cache-Control": "no-store"})
 

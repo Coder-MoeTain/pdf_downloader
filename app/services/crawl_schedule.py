@@ -104,7 +104,7 @@ def run_scheduled_crawl_once(*, force: bool = False) -> dict[str, object]:
             max_pages=int(settings.get("max_pages") or 10),
             max_papers=int(settings.get("max_papers") or 500),
         )
-        enqueue_crawl(user_id=None, filters=filters)
+        enqueue_crawl(user_id=None, filters=filters, scheduled=True)
         queued.append(slug)
 
     mark_crawl_schedule_run()

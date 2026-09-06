@@ -1491,6 +1491,15 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
 }
 .search-job.is-done { border-color: rgba(47, 125, 74, 0.32); }
 .search-job.is-error { border-color: rgba(180, 35, 24, 0.28); }
+.queue-job {
+  cursor: pointer;
+}
+.queue-job.is-watching {
+  background: rgba(31, 111, 139, 0.08);
+}
+.queue-job:hover {
+  background: rgba(31, 111, 139, 0.05);
+}
 .job-query {
   max-width: 14rem;
   overflow: hidden;

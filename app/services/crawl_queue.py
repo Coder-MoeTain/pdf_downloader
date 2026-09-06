@@ -11,6 +11,7 @@ from app.database.connection import session_scope
 from app.database.repository import (
     claim_next_crawl_job,
     complete_crawl_job,
+    crawl_job_is_scheduled,
     crawl_jobs_grouped_by_user,
     crawl_queue_position,
     get_crawl_job,
@@ -51,8 +52,9 @@ def filters_from_dict(data: dict[str, Any]) -> CrawlFilters:
 
 
 def job_to_dict(job, *, position: int | None = None, source_labels: dict[str, str] | None = None) -> dict[str, Any]:
-    username = job.user.email if job.user else "Anonymous"
-    name = job.user.name if job.user and job.user.name else username
+    scheduled = crawl_job_is_scheduled(job)
+    username = "Schedule" if scheduled else (job.user.email if job.user else "Anonymous")
+    name = "Schedule" if scheduled else (job.user.name if job.user and job.user.name else username)
     labels = source_labels or {}
     source_slug = job.source or ""
     return {
@@ -60,6 +62,7 @@ def job_to_dict(job, *, position: int | None = None, source_labels: dict[str, st
         "user_id": job.user_id,
         "username": username,
         "name": name,
+        "scheduled": scheduled,
         "source": source_slug,
         "source_label": labels.get(source_slug, source_slug.replace("_", " ").title()),
         "status": job.status,
@@ -198,7 +201,10 @@ async def _run_job(job_id: int) -> None:
                 complete_crawl_job(session, job_id, status="cancelled", error_message="Stopped by user.")
             return
         progress.mark_crawl_started(source)
-        progress.log(f"Crawl job #{job_id} started for {source}", "info")
+        if filters_data.get("scheduled"):
+            progress.log(f"Scheduled crawl job #{job_id} started for {source}", "info")
+        else:
+            progress.log(f"Crawl job #{job_id} started for {source}", "info")
 
         service = CrawlService(progress=progress)
         stats = await service.run(filters, user_id=user_id, skip_progress_start=True)
@@ -273,14 +279,18 @@ async def start_crawl_queue_worker() -> None:
     logger.info("Crawl queue worker started")
 
 
-def enqueue_crawl(*, user_id: int | None, filters: CrawlFilters) -> int:
+def enqueue_crawl(*, user_id: int | None, filters: CrawlFilters, scheduled: bool = False) -> int:
     from app.database.repository import enqueue_crawl_job
 
     payload = dataclasses.asdict(filters)
+    if scheduled:
+        payload["scheduled"] = True
     with session_scope() as session:
         job = enqueue_crawl_job(session, user_id=user_id, source=filters.source, filters=payload)
         job_id = job.id
-    crawl_job_registry.register_queued_crawl(job_id, filters.source)
+    prog = crawl_job_registry.register_queued_crawl(job_id, filters.source)
+    if scheduled:
+        prog.log(f"Queued by schedule for {filters.source}", "info")
     return job_id
 
 

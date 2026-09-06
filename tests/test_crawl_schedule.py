@@ -86,8 +86,10 @@ def test_run_scheduled_crawl_queues_due_sources(tmp_db, monkeypatch):
     mark_crawl_schedule_run(datetime.now(timezone.utc) - timedelta(hours=2))
     calls: list[str] = []
 
-    def fake_enqueue(*, user_id, filters):
+    def fake_enqueue(*, user_id, filters, scheduled=False):
         calls.append(filters.source)
+        assert user_id is None
+        assert scheduled is True
         return len(calls)
 
     monkeypatch.setattr("app.services.crawl_schedule.enqueue_crawl", fake_enqueue)

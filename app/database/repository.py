@@ -998,6 +998,34 @@ def active_crawl_job_for_user(session: Session, user_id: int | None) -> CrawlJob
     )
 
 
+def active_crawl_job_any(session: Session) -> CrawlJob | None:
+    """Any running crawl, else the oldest pending (includes scheduled user_id=None jobs)."""
+    running = session.scalar(
+        select(CrawlJob)
+        .where(CrawlJob.status == "running")
+        .order_by(CrawlJob.started_at.desc().nullslast(), CrawlJob.created_at.desc())
+        .limit(1)
+    )
+    if running is not None:
+        return running
+    return session.scalar(
+        select(CrawlJob)
+        .where(CrawlJob.status == "pending")
+        .order_by(CrawlJob.created_at.asc())
+        .limit(1)
+    )
+
+
+def crawl_job_is_scheduled(job: CrawlJob) -> bool:
+    if job.user_id is None:
+        return True
+    try:
+        data = json.loads(job.filters_json or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+    return bool(isinstance(data, dict) and data.get("scheduled"))
+
+
 def crawl_jobs_grouped_by_user(session: Session, *, limit: int = 100) -> dict[str, list[CrawlJob]]:
     rows = session.scalars(
         select(CrawlJob)
@@ -1008,7 +1036,10 @@ def crawl_jobs_grouped_by_user(session: Session, *, limit: int = 100) -> dict[st
     ).all()
     grouped: dict[str, list[CrawlJob]] = {}
     for job in rows:
-        label = job.user.email if job.user else "Anonymous"
+        if crawl_job_is_scheduled(job):
+            label = "Schedule"
+        else:
+            label = job.user.email if job.user else "Anonymous"
         grouped.setdefault(label, []).append(job)
     return grouped
 
