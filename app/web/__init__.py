@@ -64,8 +64,10 @@ from app.database.settings_repository import (
     get_academic_source,
     list_academic_sources,
     save_credential_settings,
+    save_crawl_schedule_settings,
     save_search_settings,
     save_workspace_settings,
+    load_crawl_schedule,
     seed_academic_sources,
     source_to_dict,
     toggle_academic_source,
@@ -89,6 +91,7 @@ from app.services.crawl_queue import (
     queue_snapshot as crawl_queue_snapshot,
     start_crawl_queue_worker,
 )
+from app.services.crawl_schedule import next_run_at, start_crawl_schedule_worker
 from app.services.crawl_service import filters_from_form
 from app.services.progress import crawl_idle_snapshot, crawl_job_registry, download_tracker, job_registry, live_progress, tracker
 from app.services.search_queue import (
@@ -209,6 +212,7 @@ async def _startup() -> None:
     await start_search_queue_worker()
     await start_crawl_queue_worker()
     await start_download_worker()
+    await start_crawl_schedule_worker()
     try:
         from app.services.lms_watch import schedule_lms_sync, start_lms_watch
 
@@ -1372,6 +1376,21 @@ def _settings_ctx(request: Request, section: str = "workspace"):
             }
         )
     available = sum(1 for s in sources if s["available"])
+    crawl_schedule = None
+    crawl_sources = []
+    if section == "crawl":
+        crawl_schedule = load_crawl_schedule()
+        crawl_sources = _crawl_source_rows()
+        nxt = next_run_at(crawl_schedule)
+        crawl_schedule["next_run_label"] = format_local(nxt) if nxt else "—"
+        last = crawl_schedule.get("last_run") or ""
+        try:
+            from datetime import datetime
+
+            last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00")) if last else None
+        except ValueError:
+            last_dt = None
+        crawl_schedule["last_run_label"] = format_local(last_dt) if last_dt else "Never"
     return _ctx(
         request,
         config=cfg,
@@ -1383,6 +1402,8 @@ def _settings_ctx(request: Request, section: str = "workspace"):
         source_stats={"total": len(sources), "available": available, "disabled": sum(1 for s in sources if not s["enabled"])},
         timezones=timezone_choices(cfg.timezone),
         now_local=now_local(cfg.timezone).strftime("%Y-%m-%d %H:%M:%S"),
+        crawl_schedule=crawl_schedule,
+        crawl_sources=crawl_sources,
         git=git_status() if section == "updates" else {"ok": False, "dirty": True, "error": ""},
         git_log=_git_log["text"] if section == "updates" else "",
         pm2=pm2_status() if section == "updates" else {"ok": False, "error": ""},
@@ -1393,7 +1414,7 @@ def _settings_ctx(request: Request, section: str = "workspace"):
 
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, section: str = "workspace"):
-    allowed = {"workspace", "search", "credentials", "sources", "updates", "activity"}
+    allowed = {"workspace", "search", "crawl", "credentials", "sources", "updates", "activity"}
     if section not in allowed:
         section = "workspace"
     return templates.TemplateResponse(request, "settings.html", _settings_ctx(request, section))
@@ -1542,6 +1563,40 @@ def settings_save_search(
         return _settings_redirect("search", "Search and download settings saved to MySQL.")
     except SettingsError as exc:
         return _settings_redirect("search", str(exc), "danger")
+
+
+@app.post("/settings/crawl")
+def settings_save_crawl(
+    enabled: str | None = Form(None),
+    interval_minutes: int = Form(60),
+    sources: list[str] = Form(default=[]),
+    query: str = Form(""),
+    skip_existing: str | None = Form(None),
+    open_access_only: str | None = Form(None),
+    download: str | None = Form(None),
+    pdfs_only: str | None = Form(None),
+    max_pages: int = Form(5),
+    max_papers: int = Form(500),
+):
+    try:
+        save_crawl_schedule_settings(
+            {
+                "enabled": bool(enabled),
+                "interval_minutes": interval_minutes,
+                "sources": sources,
+                "query": query,
+                "skip_existing": skip_existing is not None,
+                "open_access_only": bool(open_access_only),
+                "download": bool(download),
+                "pdfs_only": bool(pdfs_only),
+                "max_pages": max_pages,
+                "max_papers": max_papers,
+            }
+        )
+        state = "enabled" if enabled else "disabled"
+        return _settings_redirect("crawl", f"Crawl schedule saved ({state}).")
+    except SettingsError as exc:
+        return _settings_redirect("crawl", str(exc), "danger")
 
 
 @app.post("/settings/credentials")

@@ -437,7 +437,9 @@ a.stat-card:hover {
   color: var(--ink);
 }
 
-[data-bs-theme="dark"] .dash-live {
+[data-bs-theme="dark"] .crawl-schedule-source {
+  background: rgba(18, 28, 40, 0.72);
+}
   background: transparent;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;

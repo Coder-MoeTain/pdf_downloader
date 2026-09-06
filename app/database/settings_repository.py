@@ -80,6 +80,17 @@ def seed_default_settings() -> None:
             ("request_timeout_seconds", cfg.env.request_timeout_seconds, "search", False),
             ("download_timeout_seconds", cfg.env.download_timeout_seconds, "search", False),
             ("max_redirects", cfg.env.max_redirects, "search", False),
+            ("crawl_schedule_enabled", False, "crawl", False),
+            ("crawl_schedule_interval_minutes", 60, "crawl", False),
+            ("crawl_schedule_sources", "[]", "crawl", False),
+            ("crawl_schedule_query", "", "crawl", False),
+            ("crawl_schedule_skip_existing", True, "crawl", False),
+            ("crawl_schedule_open_access_only", False, "crawl", False),
+            ("crawl_schedule_download", False, "crawl", False),
+            ("crawl_schedule_pdfs_only", False, "crawl", False),
+            ("crawl_schedule_max_pages", 5, "crawl", False),
+            ("crawl_schedule_max_papers", 500, "crawl", False),
+            ("crawl_schedule_last_run", "", "crawl", False),
         ]
         for key, value, group, secret in defaults:
             if key not in existing:
@@ -349,6 +360,125 @@ def save_credential_settings(data: dict[str, Any]) -> None:
             elif raw:
                 row.api_key = raw
             row.updated_at = utc_now()
+
+
+def _parse_bool(raw: str | None, default: bool = False) -> bool:
+    if raw is None or raw == "":
+        return default
+    return str(raw).strip().lower() in {"1", "true", "on", "yes"}
+
+
+def load_crawl_schedule() -> dict[str, Any]:
+    """Return crawl schedule settings with typed defaults."""
+    import json
+
+    with settings_session() as session:
+        rows = all_settings(session)
+
+    sources_raw = rows.get("crawl_schedule_sources") or "[]"
+    try:
+        sources = json.loads(sources_raw)
+        if not isinstance(sources, list):
+            sources = []
+    except json.JSONDecodeError:
+        sources = []
+    sources = [str(item).strip() for item in sources if str(item).strip()]
+
+    try:
+        interval = int(float(rows.get("crawl_schedule_interval_minutes") or 60))
+    except (TypeError, ValueError):
+        interval = 60
+    interval = max(15, min(interval, 10080))
+
+    try:
+        max_pages = int(float(rows.get("crawl_schedule_max_pages") or 5))
+    except (TypeError, ValueError):
+        max_pages = 5
+    max_pages = max(0, min(max_pages, 1000))
+
+    try:
+        max_papers = int(float(rows.get("crawl_schedule_max_papers") or 500))
+    except (TypeError, ValueError):
+        max_papers = 500
+    max_papers = max(10, min(max_papers, 50000))
+
+    return {
+        "enabled": _parse_bool(rows.get("crawl_schedule_enabled"), False),
+        "interval_minutes": interval,
+        "sources": sources,
+        "query": str(rows.get("crawl_schedule_query") or "").strip(),
+        "skip_existing": _parse_bool(rows.get("crawl_schedule_skip_existing"), True),
+        "open_access_only": _parse_bool(rows.get("crawl_schedule_open_access_only"), False),
+        "download": _parse_bool(rows.get("crawl_schedule_download"), False),
+        "pdfs_only": _parse_bool(rows.get("crawl_schedule_pdfs_only"), False),
+        "max_pages": max_pages,
+        "max_papers": max_papers,
+        "last_run": str(rows.get("crawl_schedule_last_run") or "").strip(),
+    }
+
+
+def save_crawl_schedule_settings(data: dict[str, Any]) -> None:
+    """Persist crawl schedule options from the Settings form."""
+    import json
+
+    def _int(name: str, minimum: int, maximum: int, default: int) -> int:
+        raw = data.get(name)
+        if raw is None or str(raw).strip() == "":
+            return default
+        try:
+            value = int(float(raw))
+        except (TypeError, ValueError) as exc:
+            raise SettingsError(f"{name.replace('_', ' ').title()} must be a number.") from exc
+        if value < minimum or value > maximum:
+            raise SettingsError(f"{name.replace('_', ' ').title()} must be between {minimum} and {maximum}.")
+        return value
+
+    sources = data.get("sources") or []
+    if isinstance(sources, str):
+        sources = [sources]
+    cleaned = []
+    seen: set[str] = set()
+    for item in sources:
+        slug = str(item or "").strip()
+        if not slug or slug in seen:
+            continue
+        if not SLUG_RE.match(slug):
+            raise SettingsError(f"Invalid source id: {slug}")
+        seen.add(slug)
+        cleaned.append(slug)
+
+    enabled = bool(data.get("enabled"))
+    with settings_session() as session:
+        set_setting(session, "crawl_schedule_enabled", enabled, group="crawl")
+        set_setting(
+            session,
+            "crawl_schedule_interval_minutes",
+            _int("interval_minutes", 15, 10080, 60),
+            group="crawl",
+        )
+        set_setting(session, "crawl_schedule_sources", json.dumps(cleaned), group="crawl")
+        set_setting(session, "crawl_schedule_query", str(data.get("query") or "").strip(), group="crawl")
+        set_setting(session, "crawl_schedule_skip_existing", bool(data.get("skip_existing")), group="crawl")
+        set_setting(
+            session,
+            "crawl_schedule_open_access_only",
+            bool(data.get("open_access_only")),
+            group="crawl",
+        )
+        set_setting(session, "crawl_schedule_download", bool(data.get("download")), group="crawl")
+        set_setting(session, "crawl_schedule_pdfs_only", bool(data.get("pdfs_only")), group="crawl")
+        set_setting(session, "crawl_schedule_max_pages", _int("max_pages", 0, 1000, 5), group="crawl")
+        set_setting(session, "crawl_schedule_max_papers", _int("max_papers", 10, 50000, 500), group="crawl")
+        if enabled and not str(get_setting(session, "crawl_schedule_last_run") or "").strip():
+            # Avoid an immediate burst on first enable; start the clock now.
+            set_setting(session, "crawl_schedule_last_run", utc_now().isoformat(), group="crawl")
+
+
+def mark_crawl_schedule_run(when: Any | None = None) -> None:
+    stamp = when or utc_now()
+    value = stamp.isoformat() if hasattr(stamp, "isoformat") else str(stamp)
+    with settings_session() as session:
+        set_setting(session, "crawl_schedule_last_run", value, group="crawl")
 
 
 def source_has_key(row: AcademicSource) -> bool:

@@ -1073,6 +1073,34 @@ a.paper-meta:hover { color: var(--accent); }
   font-size: 1rem;
 }
 .crawl-selected-chip-remove:hover { color: var(--danger); }
+.crawl-schedule-sources {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.55rem;
+}
+.crawl-schedule-source {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.28);
+  cursor: pointer;
+}
+.crawl-schedule-source.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.crawl-schedule-source input {
+  margin-top: 0.2rem;
+}
+.crawl-schedule-source-body {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
 .crawl-source-grid {
   display: grid;
   gap: 0.55rem;

@@ -24,6 +24,7 @@
   <nav class="settings-nav card" aria-label="Settings sections">
     <a class="settings-nav-link {% if section == 'workspace' %}active{% endif %}" href="/settings?section=workspace">{{ settings_nav_icon("workspace") }}<span>Workspace</span></a>
     <a class="settings-nav-link {% if section == 'search' %}active{% endif %}" href="/settings?section=search">{{ settings_nav_icon("search") }}<span>Search &amp; downloads</span></a>
+    <a class="settings-nav-link {% if section == 'crawl' %}active{% endif %}" href="/settings?section=crawl">{{ settings_nav_icon("crawl") }}<span>Crawl schedule</span></a>
     <a class="settings-nav-link {% if section == 'credentials' %}active{% endif %}" href="/settings?section=credentials">{{ settings_nav_icon("credentials") }}<span>API credentials</span></a>
     <a class="settings-nav-link {% if section == 'sources' %}active{% endif %}" href="/settings?section=sources">{{ settings_nav_icon("sources") }}<span>Academic sources</span></a>
     <a class="settings-nav-link {% if section == 'activity' %}active{% endif %}" href="/settings?section=activity">{{ settings_nav_icon("activity") }}<span>Activity</span></a>
@@ -139,6 +140,92 @@
       </div>
       <div class="card-footer settings-footer">
         <button class="btn btn-primary" type="submit">Save</button>
+      </div>
+    </form>
+    {% endif %}
+
+    {% if section == 'crawl' %}
+    <form method="post" action="/settings/crawl" class="card" data-busy="Saving…">
+      <div class="card-body">
+        <div class="mb-3">
+          <h2 class="h5 mb-1">Scheduled crawler</h2>
+          <p class="paper-meta mb-0">Automatically queue selected sources on an interval. Jobs appear in the Crawler queue.</p>
+        </div>
+        <div class="row g-3">
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="enabled" id="crawl_enabled" value="1" {% if crawl_schedule.enabled %}checked{% endif %}>
+              <label class="form-check-label" for="crawl_enabled">Enable scheduled crawls</label>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="interval_minutes">Run every</label>
+            <select class="form-select" id="interval_minutes" name="interval_minutes">
+              {% for mins, label in [(15, "15 minutes"), (30, "30 minutes"), (60, "1 hour"), (120, "2 hours"), (360, "6 hours"), (720, "12 hours"), (1440, "24 hours")] %}
+              <option value="{{ mins }}" {% if crawl_schedule.interval_minutes == mins %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="crawl_max_pages">Max pages per source</label>
+            <input class="form-control" id="crawl_max_pages" name="max_pages" type="number" min="0" max="1000" value="{{ crawl_schedule.max_pages }}">
+            <div class="form-text">0 = keep going until the API runs out (use carefully).</div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="crawl_max_papers">Max new papers per source</label>
+            <input class="form-control" id="crawl_max_papers" name="max_papers" type="number" min="10" max="50000" value="{{ crawl_schedule.max_papers }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="crawl_query">Optional query filter</label>
+            <input class="form-control" id="crawl_query" name="query" value="{{ crawl_schedule.query }}" placeholder="Leave blank to browse broadly" autocomplete="off">
+          </div>
+          <div class="col-12 d-flex flex-wrap gap-4">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="skip_existing" id="crawl_skip" value="1" {% if crawl_schedule.skip_existing %}checked{% endif %}>
+              <label class="form-check-label" for="crawl_skip">Skip papers already in the library</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="open_access_only" id="crawl_oa" value="1" {% if crawl_schedule.open_access_only %}checked{% endif %}>
+              <label class="form-check-label" for="crawl_oa">Open access only</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="download" id="crawl_dl" value="1" {% if crawl_schedule.download %}checked{% endif %}>
+              <label class="form-check-label" for="crawl_dl">Download legal PDFs during crawl</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="pdfs_only" id="crawl_pdfs" value="1" {% if crawl_schedule.pdfs_only %}checked{% endif %}>
+              <label class="form-check-label" for="crawl_pdfs">Keep only records with a PDF URL</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="lib-filter-label mb-2">Sources to crawl</div>
+            <div class="crawl-schedule-sources">
+              {% for s in crawl_sources if s.supports_browse %}
+              <label class="crawl-schedule-source {% if not s.crawlable %}is-disabled{% endif %}">
+                <input type="checkbox" name="sources" value="{{ s.slug }}" {% if s.slug in crawl_schedule.sources %}checked{% endif %} {% if not s.crawlable %}disabled{% endif %}>
+                <span class="crawl-schedule-source-body">
+                  {{ source_mark(s.slug, s.homepage_url or '', s.display_name, true, 18) }}
+                  {% if not s.crawlable %}
+                  <span class="paper-meta">Unavailable</span>
+                  {% endif %}
+                </span>
+              </label>
+              {% else %}
+              <p class="paper-meta mb-0">No browse-capable sources are configured yet.</p>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="readonly-stack">
+              <div><span>Last run</span><code>{{ crawl_schedule.last_run_label }}</code></div>
+              <div><span>Next run</span><code>{{ crawl_schedule.next_run_label if crawl_schedule.enabled else "—" }}</code></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card-footer settings-footer">
+        <button class="btn btn-primary" type="submit">Save schedule</button>
+        <a class="btn btn-outline-secondary" href="/crawler">Open crawler</a>
       </div>
     </form>
     {% endif %}

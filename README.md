@@ -49,7 +49,7 @@ It does **not** scrape Google Scholar, ResearchGate, or Academia.edu. It does **
 
 - **Multi-source search** — 30+ official APIs (OpenAlex, Crossref, arXiv, PLOS, OpenAIRE, HAL, Zenodo, and more). IEEE / Springer / Elsevier / NASA ADS when keys are present
 - **Persistent search queue** — per-user jobs with live progress logs; queued jobs stay visible in the log until they finish
-- **Source crawler** — harvest metadata from configured academic sources (admin); crawl queue uses the same reliable progress tracking as search
+- **Source crawler** — harvest metadata from configured academic sources (admin); crawl queue uses the same reliable progress tracking as search; optional **hourly (or custom-interval) schedule** in Settings
 - **Query expansion** with configurable synonyms
 - **DOI normalization** and fuzzy duplicate detection
 - **Relevance ranking** (keyword by default; optional `sentence-transformers`)
@@ -314,6 +314,18 @@ uvicorn app.web:app --reload --host 127.0.0.1 --port 8000
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
 Pages: **Dashboard**, **Search**, **Library**, **Downloads**, **Sources**, **Crawler** (admin), **Settings**.
+
+### Crawl schedule
+
+Admins can enable a recurring crawler under **Settings → Crawl schedule**:
+
+1. Turn on **Enable scheduled crawls**
+2. Choose how often to run (15 minutes to 24 hours; default **1 hour**)
+3. Select browse-capable sources
+4. Optionally set query filters, max pages/papers, and whether to download PDFs
+5. Save — the worker polls about every 30 seconds and queues due crawls into the normal Crawler queue
+
+Sources already pending or running are skipped so jobs do not pile up.
 
 ### Dashboard UI
 

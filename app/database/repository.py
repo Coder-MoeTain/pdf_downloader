@@ -802,6 +802,19 @@ def search_jobs_grouped_by_user(session: Session, *, limit: int = 100) -> dict[s
     return grouped
 
 
+def active_crawl_job_for_source(session: Session, source: str) -> CrawlJob | None:
+    """Return a pending or running crawl for this source, if any."""
+    slug = (source or "").strip()
+    if not slug:
+        return None
+    return session.scalar(
+        select(CrawlJob)
+        .where(CrawlJob.source == slug, CrawlJob.status.in_(("pending", "running")))
+        .order_by(CrawlJob.created_at.desc())
+        .limit(1)
+    )
+
+
 def enqueue_crawl_job(session: Session, *, user_id: int | None, source: str, filters: dict) -> CrawlJob:
     row = CrawlJob(
         user_id=user_id,
