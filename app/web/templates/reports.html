@@ -163,4 +163,11 @@
   {{ empty_state("No crawler reports yet", "Run a source crawl to record new papers and PDF download outcomes.", "/crawler", "Open crawler") }}
   {% endif %}
 {% endif %}
+
+{% if rows and pager.total_pages > 1 %}
+<div class="lib-toolbar lib-toolbar-bottom">
+  <div class="lib-count">Page <strong>{{ pager.page }}</strong> of <strong>{{ pager.total_pages }}</strong></div>
+  {{ reports_pager(pager, filters, "Report pages footer") }}
+</div>
+{% endif %}
 {% endblock %}
