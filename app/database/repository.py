@@ -340,6 +340,14 @@ def downloadable_clause():
     )
 
 
+def open_access_clause():
+    """Papers marked open access or currently available as OA metadata."""
+    return or_(
+        Paper.open_access.is_(True),
+        Paper.status == PaperStatus.OA_AVAILABLE.value,
+    )
+
+
 def show_paywalled_papers() -> bool:
     """True when paywalled records should appear in library lists and analytics."""
     try:
@@ -414,6 +422,7 @@ def apply_paper_filters(
     *,
     status: str = "",
     downloadable: bool = False,
+    open_access: bool = False,
     min_rating: int = 0,
     category: str = "",
     year: int | None = None,
@@ -427,6 +436,8 @@ def apply_paper_filters(
         stmt = stmt.where(clause)
     if downloadable:
         stmt = stmt.where(downloadable_clause())
+    if open_access:
+        stmt = stmt.where(open_access_clause())
     if min_rating:
         stmt = stmt.where(Paper.user_rating.is_not(None), Paper.user_rating >= min_rating)
     if category.strip():
@@ -489,6 +500,7 @@ def library_filter_kwargs(
     *,
     status: str = "",
     downloadable: bool = False,
+    open_access: bool = False,
     min_rating: int = 0,
     category: str = "",
     year: int | None = None,
@@ -499,6 +511,7 @@ def library_filter_kwargs(
     return {
         "status": status,
         "downloadable": downloadable,
+        "open_access": open_access,
         "min_rating": min_rating,
         "category": category,
         "year": year,
@@ -514,6 +527,7 @@ def query_library(
     q: str = "",
     status: str = "",
     downloadable: bool = False,
+    open_access: bool = False,
     min_rating: int = 0,
     category: str = "",
     year: int | None = None,
@@ -529,6 +543,7 @@ def query_library(
     filters = library_filter_kwargs(
         status=status,
         downloadable=downloadable,
+        open_access=open_access,
         min_rating=min_rating,
         category=category,
         year=year,
@@ -606,6 +621,7 @@ def library_facets(session: Session) -> dict:
     status_counts = {code: count for code, count in status_rows if code}
     visible_total = sum(status_counts.values())
     downloadable = session.scalar(select(func.count(Paper.id)).where(downloadable_clause(), *visible)) or 0
+    open_access = session.scalar(select(func.count(Paper.id)).where(open_access_clause(), *visible)) or 0
     paywalled = session.scalar(
         select(func.count(Paper.id)).where(Paper.status == PaperStatus.PAYWALLED.value)
     ) or 0
@@ -617,6 +633,7 @@ def library_facets(session: Session) -> dict:
         "status_counts": status_counts,
         "visible_total": visible_total,
         "downloadable": downloadable,
+        "open_access": open_access,
         "paywalled": paywalled,
     }
 

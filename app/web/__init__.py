@@ -41,6 +41,7 @@ from app.auth import (
 from app.config import ROOT_DIR, get_runtime_config
 from app.database.connection import init_db, retry_on_sqlite_lock, session_scope
 from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuery, SearchResult, User
+from app.models.paper import PaperStatus
 from app.database.repository import (
     active_crawl_job_any,
     active_crawl_job_for_user,
@@ -618,11 +619,41 @@ def dashboard(request: Request):
     statuses.sort(key=lambda row: (-row["count"], row["label"]))
     kpis = [
         {"href": "/library", "label": "Papers in library", "value": total, "tone": "primary", "hint": f"{searches} search{'es' if searches != 1 else ''} run"},
-        {"href": "/library?pdf=1", "label": "Downloadable PDFs", "value": downloadable, "tone": "success", "hint": f"{share(downloadable, total)}% of library"},
-        {"href": "/downloads?status=DOWNLOADED", "label": "Downloaded", "value": downloaded, "tone": "info", "hint": "Saved to disk"},
-        {"href": "/library?status=PAYWALLED", "label": "Paywalled", "value": paywalled, "tone": "warning", "hint": f"{share(paywalled, stored_total)}% of library"},
-        {"href": "/downloads?status=FAILED", "label": "Failed downloads", "value": failed, "tone": "danger", "hint": "Retry from Downloads"},
-        {"href": "/library?status=OA_AVAILABLE", "label": "Open access", "value": oa, "tone": "secondary", "hint": f"{share(oa, total)}% of library"},
+        {
+            "href": "/library?pdf=1",
+            "label": "Downloadable PDFs",
+            "value": downloadable,
+            "tone": "success",
+            "hint": f"{share(downloadable, total)}% of library",
+        },
+        {
+            "href": "/downloads?status=DOWNLOADED",
+            "label": "Downloaded",
+            "value": downloaded,
+            "tone": "info",
+            "hint": "Saved to disk",
+        },
+        {
+            "href": "/library?status=PAYWALLED",
+            "label": "Paywalled",
+            "value": paywalled,
+            "tone": "warning",
+            "hint": f"{share(paywalled, stored_total)}% of library",
+        },
+        {
+            "href": "/downloads?status=FAILED",
+            "label": "Failed downloads",
+            "value": failed,
+            "tone": "danger",
+            "hint": "Retry from Downloads",
+        },
+        {
+            "href": "/library?oa=1",
+            "label": "Open access",
+            "value": oa,
+            "tone": "secondary",
+            "hint": f"{share(oa, total)}% of library",
+        },
     ]
     return templates.TemplateResponse(
         request,
@@ -946,6 +977,8 @@ def library_page(
     page: QueryPage = 1,
     latest: QueryInt = 0,
     pdf: QueryInt = 0,
+    oa: QueryInt = 0,
+    access: str = "",
     min_rating: QueryInt = 0,
     category: str = "",
     year: QueryInt = 0,
@@ -955,7 +988,31 @@ def library_page(
     sort: str = DEFAULT_SORT,
     per_page: QueryInt = DEFAULT_PAGE_SIZE,
 ):
+    status = status.strip().upper()
+    access = access.strip().lower()
+    if access == "open":
+        oa = 1
+        pdf = 0
+        status = ""
+    elif access == "paywalled":
+        status = PaperStatus.PAYWALLED.value
+        oa = 0
+        pdf = 0
+    elif access == "downloadable":
+        pdf = 1
+        oa = 0
+        status = ""
     downloadable = bool(pdf)
+    open_access = bool(oa)
+    # Access chips are exclusive: prefer the most specific requested filter.
+    if status == PaperStatus.PAYWALLED.value:
+        downloadable = False
+        open_access = False
+    elif open_access:
+        status = ""
+        downloadable = False
+    elif downloadable:
+        status = ""
     min_rating = max(0, min(min_rating, 5))
     category = category.strip()
     source = source.strip()
@@ -973,6 +1030,7 @@ def library_page(
             q=q,
             status=status,
             downloadable=downloadable,
+            open_access=open_access,
             min_rating=min_rating,
             category=category,
             year=year or None,
@@ -1017,6 +1075,7 @@ def library_page(
         "q": q,
         "status": status,
         "pdf": downloadable,
+        "oa": open_access,
         "min_rating": min_rating,
         "latest": use_latest,
         "category": category,
@@ -1029,12 +1088,22 @@ def library_page(
     }
     user_label = next((item["name"] for item in user_options if item["id"] == user_id), "")
     has_filters = bool(
-        q or status or downloadable or min_rating or category or year or source or journal or user_id
+        q
+        or status
+        or downloadable
+        or open_access
+        or min_rating
+        or category
+        or year
+        or source
+        or journal
+        or user_id
     )
     stats = library_status_panel(facets)
+    base_filters = {"latest": use_latest, "sort": sort, "per_page": per_page}
     kpis = [
         {
-            "href": library_href({"latest": use_latest, "sort": sort, "per_page": per_page}),
+            "href": library_href(base_filters),
             "label": "Papers",
             "value": stats["visible_total"],
             "tone": "primary",
@@ -1042,12 +1111,30 @@ def library_page(
             "active": not has_filters,
         },
         {
-            "href": library_href(filters, pdf=True, page=1),
-            "label": "Downloadable PDFs",
+            "href": library_href(base_filters, pdf=True, oa=False, status="", page=1),
+            "label": "Downloadable",
             "value": stats["downloadable"],
             "tone": "success",
             "hint": f"{share(stats['downloadable'], stats['visible_total'])}% of library",
-            "active": bool(downloadable),
+            "active": bool(downloadable) and not open_access and status != PaperStatus.PAYWALLED.value,
+        },
+        {
+            "href": library_href(base_filters, oa=True, pdf=False, status="", page=1),
+            "label": "Open access",
+            "value": stats["open_access"],
+            "tone": "secondary",
+            "hint": "Marked open access",
+            "active": bool(open_access),
+        },
+        {
+            "href": library_href(
+                base_filters, status=PaperStatus.PAYWALLED.value, pdf=False, oa=False, page=1
+            ),
+            "label": "Paywalled",
+            "value": stats["paywalled"],
+            "tone": "warning",
+            "hint": "Metadata only",
+            "active": status == PaperStatus.PAYWALLED.value,
         },
         {
             "href": "/downloads?status=DOWNLOADED",
@@ -1055,22 +1142,6 @@ def library_page(
             "value": stats["downloaded"],
             "tone": "info",
             "hint": "Saved locally",
-            "active": False,
-        },
-        {
-            "href": library_href({"latest": use_latest, "sort": sort, "per_page": per_page}, pdf=True, page=1),
-            "label": "Open access",
-            "value": stats["open_access"],
-            "tone": "secondary",
-            "hint": "Legal PDF available",
-            "active": False,
-        },
-        {
-            "href": "/library",
-            "label": "Paywalled",
-            "value": stats["paywalled"],
-            "tone": "warning",
-            "hint": "Metadata only",
             "active": False,
         },
     ]
@@ -1083,6 +1154,7 @@ def library_page(
             q=q,
             status=status,
             pdf=downloadable,
+            oa=open_access,
             min_rating=min_rating,
             category=category,
             year=year,

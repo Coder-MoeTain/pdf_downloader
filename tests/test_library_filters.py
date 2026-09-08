@@ -61,6 +61,100 @@ def test_downloadable_filter_excludes_paywalled(tmp_db):
         assert titles == {"Open PDF"}
 
 
+def test_open_access_filter_clause(tmp_db):
+    with session_scope() as session:
+        save_paper(
+            session,
+            PaperRecord(
+                title="OA status paper",
+                doi="10.1000/oa-status",
+                status=PaperStatus.OA_AVAILABLE,
+            ),
+        )
+        save_paper(
+            session,
+            PaperRecord(
+                title="OA flag paper",
+                doi="10.1000/oa-flag",
+                open_access=True,
+                status=PaperStatus.FOUND,
+            ),
+        )
+        save_paper(
+            session,
+            PaperRecord(title="Closed", doi="10.1000/oa-closed", status=PaperStatus.PAYWALLED),
+        )
+        titles = {p.title for p in session.scalars(apply_paper_filters(select(Paper), open_access=True))}
+        assert titles == {"OA status paper", "OA flag paper"}
+
+
+def test_library_access_filters_page(tmp_db):
+    with session_scope() as session:
+        save_paper(
+            session,
+            PaperRecord(
+                title="Open access visible",
+                doi="10.1000/access-oa",
+                pdf_url="https://arxiv.org/pdf/access-oa.pdf",
+                status=PaperStatus.OA_AVAILABLE,
+            ),
+        )
+        save_paper(
+            session,
+            PaperRecord(
+                title="Downloadable found",
+                doi="10.1000/access-pdf",
+                pdf_url="https://arxiv.org/pdf/access-pdf.pdf",
+                status=PaperStatus.FOUND,
+            ),
+        )
+        save_paper(
+            session,
+            PaperRecord(title="Paywalled closed", doi="10.1000/access-pay", status=PaperStatus.PAYWALLED),
+        )
+    client = TestClient(app)
+
+    page = client.get("/library")
+    assert page.status_code == 200
+    assert 'name="access"' in page.text
+    assert ">Open access<" in page.text or "Open access" in page.text
+    assert "Paywalled" in page.text
+    assert "Downloadable" in page.text
+
+    oa = client.get("/library?oa=1")
+    assert oa.status_code == 200
+    assert "Open access visible" in oa.text
+    assert "Paywalled closed" not in oa.text
+    assert 'class="chip active"' in oa.text or 'chip active' in oa.text
+
+    access_open = client.get("/library?access=open")
+    assert access_open.status_code == 200
+    assert "Open access visible" in access_open.text
+    assert "Paywalled closed" not in access_open.text
+
+    paywalled = client.get("/library?status=PAYWALLED")
+    assert paywalled.status_code == 200
+    assert "Paywalled closed" in paywalled.text
+    assert "Open access visible" not in paywalled.text
+
+    access_pay = client.get("/library?access=paywalled")
+    assert access_pay.status_code == 200
+    assert "Paywalled closed" in access_pay.text
+    assert "Open access visible" not in access_pay.text
+
+    downloadable = client.get("/library?pdf=1")
+    assert downloadable.status_code == 200
+    assert "Open access visible" in downloadable.text
+    assert "Downloadable found" in downloadable.text
+    assert "Paywalled closed" not in downloadable.text
+
+    access_dl = client.get("/library?access=downloadable")
+    assert access_dl.status_code == 200
+    assert "Open access visible" in access_dl.text
+    assert "Downloadable found" in access_dl.text
+    assert "Paywalled closed" not in access_dl.text
+
+
 def test_min_rating_filter(tmp_db):
     with session_scope() as session:
         low = save_paper(session, PaperRecord(title="Low", doi="10.1000/low", status=PaperStatus.FOUND))
@@ -409,7 +503,9 @@ def test_library_status_panel_shows_counts(tmp_db):
     assert 'class="lib-status-panel"' in page.text
     assert 'aria-label="Library overview"' in page.text
     assert "stat-card" in page.text
-    assert "Downloadable PDFs" in page.text
+    assert "Downloadable" in page.text
+    assert "Open access" in page.text
+    assert "Paywalled" in page.text
     assert "lib-status-mix-card" not in page.text
     filtered = client.get("/library?status=DOWNLOADED")
     assert filtered.status_code == 200

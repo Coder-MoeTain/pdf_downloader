@@ -250,6 +250,8 @@ def library_href(current: dict | None = None, **overrides) -> str:
     status = str(merged.get("status") or "").strip()
     if status:
         pairs.append(("status", status))
+    if merged.get("oa") or merged.get("open_access"):
+        pairs.append(("oa", "1"))
     if merged.get("pdf"):
         pairs.append(("pdf", "1"))
     try:
@@ -485,7 +487,7 @@ def library_status_panel(facets: dict) -> dict:
         "visible_total": total,
         "downloadable": downloadable,
         "downloaded": int(counts.get("DOWNLOADED") or 0),
-        "open_access": int(counts.get("OA_AVAILABLE") or 0),
+        "open_access": int(facets.get("open_access") or counts.get("OA_AVAILABLE") or 0),
         "paywalled": paywalled,
         "statuses": statuses,
         "has_stats": bool(total or paywalled or statuses),

@@ -48,9 +48,11 @@
 {% endif %}
 
 <section class="lib-filters" aria-label="Library filters">
-  <div class="chip-row lib-quick-chips">
-    <a class="chip {% if not has_filters %}active{% endif %}" href="{{ library_href({'latest': latest, 'sort': sort, 'per_page': per_page}) }}">All</a>
-    <a class="chip {% if pdf %}active{% endif %}" href="{{ library_href(filters, pdf=true, page=1) }}">Downloadable PDF</a>
+  <div class="chip-row lib-quick-chips" role="list">
+    <a class="chip {% if not status and not pdf and not oa %}active{% endif %}" href="{{ library_href({'latest': latest, 'sort': sort, 'per_page': per_page, 'q': q, 'category': category, 'year': year}) }}">All</a>
+    <a class="chip {% if oa %}active{% endif %}" href="{{ library_href(filters, oa=true, pdf=false, status='', page=1) }}">Open access{% if facets.open_access is defined %} · {{ facets.open_access }}{% endif %}</a>
+    <a class="chip {% if status == 'PAYWALLED' %}active{% endif %}" href="{{ library_href(filters, status='PAYWALLED', pdf=false, oa=false, page=1) }}">Paywalled{% if facets.paywalled is defined %} · {{ facets.paywalled }}{% endif %}</a>
+    <a class="chip {% if pdf and not oa and status != 'PAYWALLED' %}active{% endif %}" href="{{ library_href(filters, pdf=true, oa=false, status='', page=1) }}">Downloadable{% if facets.downloadable is defined %} · {{ facets.downloadable }}{% endif %}</a>
   </div>
 
   <form class="lib-filter-form" method="get" action="/library">
@@ -78,13 +80,18 @@
           {% endfor %}
         </select>
       </div>
+      <div class="lib-field">
+        <label class="lib-filter-label" for="access">Access</label>
+        <select class="form-select" id="access" name="access" onchange="this.form.submit()">
+          <option value="" {% if not oa and not pdf and status != 'PAYWALLED' %}selected{% endif %}>Any access</option>
+          <option value="open" {% if oa %}selected{% endif %}>Open access</option>
+          <option value="paywalled" {% if status == 'PAYWALLED' %}selected{% endif %}>Paywalled</option>
+          <option value="downloadable" {% if pdf and not oa and status != 'PAYWALLED' %}selected{% endif %}>Downloadable PDF</option>
+        </select>
+      </div>
       <div class="lib-field lib-field-actions">
-        <label class="lib-filter-label" for="pdf">Access</label>
+        <label class="lib-filter-label">&nbsp;</label>
         <div class="lib-inline-actions">
-          <div class="form-check">
-            <input class="form-check-input" type="checkbox" name="pdf" value="1" id="pdf" {% if pdf %}checked{% endif %} onchange="this.form.submit()">
-            <label class="form-check-label" for="pdf">PDF</label>
-          </div>
           <button class="btn btn-primary" type="submit">Apply</button>
           {% if has_filters %}
           <a class="btn btn-outline-secondary" href="{{ library_href({'latest': latest, 'sort': sort, 'per_page': per_page}) }}">Clear</a>
@@ -99,7 +106,9 @@
     {% if q %}<a class="lib-active-pill" href="{{ library_href(filters, q='', page=1) }}">Search: {{ q }} <span aria-hidden="true">×</span></a>{% endif %}
     {% if category %}<a class="lib-active-pill" href="{{ library_href(filters, category='', page=1) }}">{{ category }} <span aria-hidden="true">×</span></a>{% endif %}
     {% if year %}<a class="lib-active-pill" href="{{ library_href(filters, year=0, page=1) }}">{{ year }} <span aria-hidden="true">×</span></a>{% endif %}
-    {% if pdf %}<a class="lib-active-pill" href="{{ library_href(filters, pdf=false, page=1) }}">Downloadable PDF <span aria-hidden="true">×</span></a>{% endif %}
+    {% if oa %}<a class="lib-active-pill" href="{{ library_href(filters, oa=false, page=1) }}">Open access <span aria-hidden="true">×</span></a>{% endif %}
+    {% if status == 'PAYWALLED' %}<a class="lib-active-pill" href="{{ library_href(filters, status='', page=1) }}">Paywalled <span aria-hidden="true">×</span></a>{% endif %}
+    {% if pdf and not oa and status != 'PAYWALLED' %}<a class="lib-active-pill" href="{{ library_href(filters, pdf=false, page=1) }}">Downloadable <span aria-hidden="true">×</span></a>{% endif %}
   </div>
   {% endif %}
 </section>
