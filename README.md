@@ -58,6 +58,7 @@ It does **not** scrape Google Scholar, ResearchGate, or Academia.edu. It does **
 - **Resume-safe downloads** with retries and status tracking
 - **SQLite paper library**, CSV / JSON / XLSX reports, and per-topic `metadata.csv`
 - **Interactive CLI** and an optional **FastAPI dashboard** with light / dark theme
+- **Admin system health** page with live CPU, RAM, storage, network, and process infographics
 - **Optional local full-text index** with PyMuPDF
 - **Scheduled topic updates** from `config.yaml`
 
@@ -313,7 +314,7 @@ uvicorn app.web:app --reload --host 127.0.0.1 --port 8000
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000)
 
-Pages: **Dashboard**, **Search**, **Library**, **Downloads**, **Reports**, **Sources**, **Crawler** (admin), **Settings**.
+Pages: **Dashboard**, **Search**, **Library**, **Downloads**, **Reports**, **Sources**, **Crawler**, **System** (admin), **Settings**.
 
 ### Crawl schedule
 
@@ -338,7 +339,7 @@ Sources already pending or running are skipped so jobs do not pile up.
 - **Search & download progress** — dashboard “Live” card and Downloads progress panel show real-time counts (e.g. `Downloading 14 of 100`) with log output; large PDF batches run in a background worker so other pages stay responsive
 - **Reports** — search and crawler history (who ran it, when, keyword/source, papers found, PDFs downloaded / failed)
 
-Open [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login) to create the first **admin** account (email and password). After that, every visitor must log in. **User** accounts can search and use the library; **admin** accounts also open Sources, Crawler, Settings, and User settings people/roles. Signed-in accounts see **User settings** and **Log out** in the header. Google sign-in is optional when `GOOGLE_CLIENT_ID` is set.
+Open [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login) to create the first **admin** account (email and password). After that, every visitor must log in. **User** accounts can search and use the library; **admin** accounts also open Sources, Crawler, System health, Settings, and User settings people/roles. Signed-in accounts see **User settings** and **Log out** in the header. Google sign-in is optional when `GOOGLE_CLIENT_ID` is set.
 
 On a server you can seed the default admin instead:
 

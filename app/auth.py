@@ -16,7 +16,17 @@ from app.database.models import User
 from app.utils.time import utc_now
 
 PUBLIC_PATHS = {"/login", "/auth/google", "/auth/google/callback", "/logout"}
-ADMIN_PREFIXES = ("/sources", "/settings", "/crawler", "/api/sources", "/api/activity", "/api/crawl", "/account/users")
+ADMIN_PREFIXES = (
+    "/sources",
+    "/settings",
+    "/crawler",
+    "/system",
+    "/api/sources",
+    "/api/activity",
+    "/api/crawl",
+    "/api/system-health",
+    "/account/users",
+)
 ROLE_USER = "user"
 ROLE_ADMIN = "admin"
 PASSWORD_MIN_LENGTH = 8

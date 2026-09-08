@@ -3049,3 +3049,254 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
     background: #0b1c2e;
   }
 }
+
+/* —— System health —— */
+.page-system .sys-head-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+.page-system .sys-live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(47, 125, 74, 0.14);
+  color: var(--ok);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.page-system .sys-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+@media (max-width: 1199.98px) {
+  .page-system .sys-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 575.98px) {
+  .page-system .sys-kpi-grid { grid-template-columns: 1fr; }
+}
+.page-system .sys-gauge-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.9rem 1rem;
+  align-items: center;
+  padding: 1rem 1.1rem;
+  border-radius: 1rem;
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  box-shadow: var(--card-shadow, 0 10px 28px rgba(16, 36, 61, 0.06));
+  min-height: 8.5rem;
+}
+.page-system .sys-gauge {
+  position: relative;
+  width: 5.6rem;
+  height: 5.6rem;
+  --pct: 0;
+}
+.page-system .sys-gauge svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.page-system .sys-gauge-track,
+.page-system .sys-gauge-arc {
+  fill: none;
+  stroke-width: 9;
+}
+.page-system .sys-gauge-track { stroke: var(--surface-track); }
+.page-system .sys-gauge-arc {
+  stroke: var(--ok);
+  stroke-linecap: round;
+  stroke-dasharray: 301.6;
+  stroke-dashoffset: 301.6;
+  transition: stroke-dashoffset 0.45s ease, stroke 0.3s ease;
+}
+.page-system .sys-gauge-card[data-tone="info"] .sys-gauge-arc { stroke: var(--accent-2); }
+.page-system .sys-gauge-card[data-tone="warning"] .sys-gauge-arc { stroke: var(--warn); }
+.page-system .sys-gauge-card[data-tone="danger"] .sys-gauge-arc { stroke: var(--danger); }
+.page-system .sys-gauge-card[data-tone="success"] .sys-gauge-arc { stroke: var(--ok); }
+.page-system .sys-gauge-value {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  font-family: "Fraunces", serif;
+  font-weight: 650;
+  font-size: 1.35rem;
+  color: var(--ink);
+  line-height: 1;
+}
+.page-system .sys-gauge-value small {
+  display: block;
+  margin-top: 0.15rem;
+  font-family: "Source Sans 3", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.page-system .sys-gauge-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.page-system .sys-spark {
+  display: block;
+  width: 100%;
+  height: 2.1rem;
+  margin-top: 0.55rem;
+}
+.page-system .sys-spark-line { stroke: var(--accent); }
+.page-system .sys-gauge-card[data-metric="cpu"] .sys-spark-line { stroke: var(--accent-2); }
+.page-system .sys-gauge-card[data-metric="memory"] .sys-spark-line { stroke: var(--accent); }
+.page-system .sys-gauge-card[data-metric="network"] .sys-spark-line { stroke: var(--ok); }
+.page-system .sys-net-hero {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 5.6rem;
+}
+.page-system .sys-net-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.page-system .sys-net-rate {
+  font-family: "Fraunces", serif;
+  font-size: 1.25rem;
+  font-weight: 650;
+  line-height: 1.1;
+}
+.page-system .sys-net-rate small {
+  font-family: "Source Sans 3", sans-serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.page-system .sys-mini-bars {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+}
+.page-system .sys-mini-bar {
+  height: 0.38rem;
+  border-radius: 999px;
+  background: var(--surface-track);
+  overflow: hidden;
+}
+.page-system .sys-mini-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+.page-system .sys-panel .card-body { padding: 1.1rem 1.2rem; }
+.page-system .sys-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem 1.25rem;
+  margin: 0 0 1.1rem;
+}
+@media (max-width: 575.98px) {
+  .page-system .sys-facts { grid-template-columns: 1fr; }
+}
+.page-system .sys-facts dt {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.page-system .sys-facts dd {
+  margin: 0.15rem 0 0;
+  font-size: 0.95rem;
+  color: var(--ink);
+  word-break: break-word;
+}
+.page-system .sys-core-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.28rem;
+  min-height: 4.5rem;
+  padding-top: 0.35rem;
+  overflow-x: auto;
+}
+.page-system .sys-core {
+  flex: 1 0 0.7rem;
+  max-width: 1.4rem;
+  height: 4.2rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.2rem;
+}
+.page-system .sys-core-fill {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 0.35rem 0.35rem 0.2rem 0.2rem;
+  background: linear-gradient(180deg, var(--accent-2), var(--accent));
+}
+.page-system .sys-core span {
+  font-size: 0.62rem;
+  color: var(--ink-soft);
+}
+.page-system .sys-table {
+  --bs-table-bg: transparent;
+  margin: 0;
+}
+.page-system .sys-table th {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.page-system .sys-table td {
+  vertical-align: middle;
+  font-size: 0.9rem;
+}
+.page-system .sys-table code {
+  font-size: 0.86rem;
+  color: var(--ink);
+}
+.page-system .sys-cap .progress {
+  height: 0.45rem;
+  margin: 0.3rem 0;
+  max-width: 9rem;
+}
+.page-system .sys-meter-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.9rem;
+}
+.page-system .sys-meter .progress { height: 0.55rem; }
+.page-system .sys-net-totals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.page-system .sys-net-total {
+  margin-top: 0.25rem;
+  font-family: "Fraunces", serif;
+  font-size: 1.45rem;
+  font-weight: 650;
+}
+.page-system .sys-proc-name {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

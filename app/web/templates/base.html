@@ -50,7 +50,8 @@
           ("/reports", "Reports", "reports"),
           ("/sources", "Sources", "sources"),
           ("/crawler", "Crawler", "crawler"),
-        ] if is_admin or key not in ("sources", "crawler") %}
+          ("/system", "System", "system"),
+        ] if is_admin or key not in ("sources", "crawler", "system") %}
         <li class="nav-item">
           <a class="nav-link {% if page == key %}active{% endif %}" href="{{ href }}" title="{{ label }}" {% if page == key %}aria-current="page"{% endif %}>
             {{ nav_icon(key) }}

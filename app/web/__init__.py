@@ -116,6 +116,7 @@ from app.services.search_queue import (
 )
 from app.services.search_service import SearchService, filters_from_cli
 from app.services.library_reset import reset_library_repository
+from app.services.system_health import collect_system_health
 from app.services.usage import activity_payload, drop_presence, record_usage, touch_presence
 from app.utils.git_update import GitUpdateError, git_pull, git_status
 from app.utils.pm2_control import Pm2Error, pm2_logs, pm2_restart, pm2_status
@@ -209,7 +210,7 @@ async def _auth_gate(request: Request, call_next):
     if user and is_admin_path(path) and user_role(user) != ROLE_ADMIN:
         if path.startswith("/api/"):
             return JSONResponse({"ok": False, "error": "Admin access required"}, status_code=403)
-        _search_message["text"] = "Sources and Settings are limited to admin accounts."
+        _search_message["text"] = "Sources, Crawler, System, and Settings are limited to admin accounts."
         _search_message["level"] = "warning"
         return RedirectResponse("/", status_code=302)
     if user:
@@ -824,6 +825,22 @@ async def crawler_submit(
     _search_message["text"] = msg
     _search_message["level"] = "info"
     return RedirectResponse(f"/crawler?live=1&job={job_ids[0]}", status_code=303)
+
+
+@app.get("/system", response_class=HTMLResponse)
+def system_health_page(request: Request):
+    if not user_is_admin(request):
+        return RedirectResponse("/", status_code=302)
+    return templates.TemplateResponse(request, "system.html", _ctx(request))
+
+
+@app.get("/api/system-health")
+def system_health_api(request: Request):
+    if not user_is_admin(request):
+        return JSONResponse({"ok": False, "error": "Admin access required"}, status_code=403)
+    payload = collect_system_health(process_limit=15)
+    status = 200 if payload.get("ok") else 503
+    return JSONResponse(payload, status_code=status, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/crawl-progress")
