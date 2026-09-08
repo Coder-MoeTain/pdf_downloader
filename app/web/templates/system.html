@@ -5,156 +5,222 @@
 <script src="/static/health.js?v={{ version }}"></script>
 {% endblock %}
 {% block content %}
-<div class="page-head">
+<div class="page-head sys-head">
   <div>
     <div class="page-kicker">Operations</div>
     <h1 class="h2 mb-0">System health</h1>
-    <p class="lede mb-0 mt-1">Live CPU, memory, storage, network, and process activity on this host.</p>
+    <p class="lede mb-0 mt-1">Live host telemetry for CPU, memory, storage, network, and processes.</p>
   </div>
-  <div class="sys-head-meta" id="sysHeadMeta">
-    <span class="sys-live-pill"><span class="nav-live-dot" aria-hidden="true"></span> Live</span>
-    <span class="paper-meta mb-0" id="sysUpdated">Connecting…</span>
+  <div class="sys-head-actions">
+    <div class="sys-status-chip" id="sysStatusChip" data-tone="secondary">
+      <span class="sys-status-dot" aria-hidden="true"></span>
+      <span id="sysStatusLabel">Connecting</span>
+    </div>
+    <div class="sys-refresh-group">
+      <span class="paper-meta mb-0" id="sysUpdated">Waiting for first sample…</span>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="sysPauseBtn" aria-pressed="false">Pause</button>
+    </div>
   </div>
 </div>
 
 <div id="sysError" class="alert alert-danger d-none" role="alert"></div>
 
+<section class="sys-status-banner" id="sysStatusBanner" data-tone="secondary" aria-live="polite">
+  <div class="sys-status-banner-main">
+    <div class="sys-status-banner-kicker">Host status</div>
+    <div class="sys-status-banner-title" id="sysBannerTitle">Collecting metrics…</div>
+    <p class="sys-status-banner-copy mb-0" id="sysBannerCopy">The first sample primes CPU counters, then updates every two seconds.</p>
+  </div>
+  <dl class="sys-status-banner-facts">
+    <div>
+      <dt>Hostname</dt>
+      <dd id="bannerHostname">—</dd>
+    </div>
+    <div>
+      <dt>Uptime</dt>
+      <dd id="bannerUptime">—</dd>
+    </div>
+    <div>
+      <dt>Platform</dt>
+      <dd id="bannerPlatform">—</dd>
+    </div>
+    <div>
+      <dt>App PID</dt>
+      <dd id="bannerPid">—</dd>
+    </div>
+  </dl>
+</section>
+
 <section class="sys-kpi-grid" aria-label="Resource overview">
-  <article class="sys-gauge-card" data-metric="cpu">
-    <div class="sys-gauge" style="--pct: 0">
-      <svg viewBox="0 0 120 120" aria-hidden="true">
-        <circle class="sys-gauge-track" cx="60" cy="60" r="48"></circle>
-        <circle class="sys-gauge-arc" cx="60" cy="60" r="48"></circle>
-      </svg>
-      <div class="sys-gauge-value"><span id="kpiCpu">—</span><small>%</small></div>
-    </div>
-    <div class="sys-gauge-copy">
-      <h2 class="sys-gauge-title">CPU</h2>
-      <p class="paper-meta mb-0" id="kpiCpuMeta">—</p>
-      <svg class="sys-spark" id="sparkCpu" viewBox="0 0 120 36" preserveAspectRatio="none" aria-hidden="true"></svg>
-    </div>
-  </article>
-  <article class="sys-gauge-card" data-metric="memory">
-    <div class="sys-gauge" style="--pct: 0">
-      <svg viewBox="0 0 120 120" aria-hidden="true">
-        <circle class="sys-gauge-track" cx="60" cy="60" r="48"></circle>
-        <circle class="sys-gauge-arc" cx="60" cy="60" r="48"></circle>
-      </svg>
-      <div class="sys-gauge-value"><span id="kpiMem">—</span><small>%</small></div>
-    </div>
-    <div class="sys-gauge-copy">
-      <h2 class="sys-gauge-title">Memory</h2>
-      <p class="paper-meta mb-0" id="kpiMemMeta">—</p>
-      <svg class="sys-spark" id="sparkMem" viewBox="0 0 120 36" preserveAspectRatio="none" aria-hidden="true"></svg>
-    </div>
-  </article>
-  <article class="sys-gauge-card" data-metric="storage">
-    <div class="sys-gauge" style="--pct: 0">
-      <svg viewBox="0 0 120 120" aria-hidden="true">
-        <circle class="sys-gauge-track" cx="60" cy="60" r="48"></circle>
-        <circle class="sys-gauge-arc" cx="60" cy="60" r="48"></circle>
-      </svg>
-      <div class="sys-gauge-value"><span id="kpiDisk">—</span><small>%</small></div>
-    </div>
-    <div class="sys-gauge-copy">
-      <h2 class="sys-gauge-title">Storage</h2>
-      <p class="paper-meta mb-0" id="kpiDiskMeta">—</p>
-      <div class="sys-mini-bars" id="diskMini" aria-hidden="true"></div>
-    </div>
-  </article>
-  <article class="sys-gauge-card" data-metric="network">
-    <div class="sys-net-hero">
+  <article class="sys-gauge-card" data-metric="cpu" data-tone="secondary">
+    <header class="sys-card-top">
+      <span class="sys-card-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="5" y="5" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.75"/><path d="M9 2.75v2.5M15 2.75v2.5M9 18.75v2.5M15 18.75v2.5M2.75 9h2.5M2.75 15h2.5M18.75 9h2.5M18.75 15h2.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><rect x="9" y="9" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.75"/></svg>
+      </span>
       <div>
-        <div class="sys-net-label">Down</div>
-        <div class="sys-net-rate"><span id="kpiRecv">—</span> <small>Mbps</small></div>
+        <h2 class="sys-gauge-title">CPU</h2>
+        <p class="paper-meta mb-0" id="kpiCpuMeta">—</p>
       </div>
-      <div>
-        <div class="sys-net-label">Up</div>
-        <div class="sys-net-rate"><span id="kpiSent">—</span> <small>Mbps</small></div>
+      <span class="sys-tone-badge" id="kpiCpuBadge">—</span>
+    </header>
+    <div class="sys-card-body">
+      <div class="sys-gauge" style="--pct: 0">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="sys-gauge-track" cx="60" cy="60" r="48"></circle>
+          <circle class="sys-gauge-arc" cx="60" cy="60" r="48"></circle>
+        </svg>
+        <div class="sys-gauge-value"><span id="kpiCpu">—</span><small>%</small></div>
+      </div>
+      <div class="sys-card-trend">
+        <div class="sys-trend-label">Recent load</div>
+        <svg class="sys-spark" id="sparkCpu" viewBox="0 0 160 48" preserveAspectRatio="none" aria-hidden="true"></svg>
       </div>
     </div>
-    <div class="sys-gauge-copy">
-      <h2 class="sys-gauge-title">Network</h2>
-      <p class="paper-meta mb-0" id="kpiNetMeta">—</p>
-      <svg class="sys-spark" id="sparkNet" viewBox="0 0 120 36" preserveAspectRatio="none" aria-hidden="true"></svg>
+  </article>
+
+  <article class="sys-gauge-card" data-metric="memory" data-tone="secondary">
+    <header class="sys-card-top">
+      <span class="sys-card-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="7" width="17" height="10" rx="2" stroke="currentColor" stroke-width="1.75"/><path d="M7 10.5v3M10.5 10.5v3M14 10.5v3M17.5 10.5v3" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><path d="M6 17v2.5M18 17v2.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg>
+      </span>
+      <div>
+        <h2 class="sys-gauge-title">Memory</h2>
+        <p class="paper-meta mb-0" id="kpiMemMeta">—</p>
+      </div>
+      <span class="sys-tone-badge" id="kpiMemBadge">—</span>
+    </header>
+    <div class="sys-card-body">
+      <div class="sys-gauge" style="--pct: 0">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="sys-gauge-track" cx="60" cy="60" r="48"></circle>
+          <circle class="sys-gauge-arc" cx="60" cy="60" r="48"></circle>
+        </svg>
+        <div class="sys-gauge-value"><span id="kpiMem">—</span><small>%</small></div>
+      </div>
+      <div class="sys-card-trend">
+        <div class="sys-trend-label">RAM pressure</div>
+        <svg class="sys-spark" id="sparkMem" viewBox="0 0 160 48" preserveAspectRatio="none" aria-hidden="true"></svg>
+      </div>
     </div>
+  </article>
+
+  <article class="sys-gauge-card" data-metric="storage" data-tone="secondary">
+    <header class="sys-card-top">
+      <span class="sys-card-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="6.5" rx="7.25" ry="2.75" stroke="currentColor" stroke-width="1.75"/><path d="M4.75 6.5v5c0 1.5 3.25 2.75 7.25 2.75s7.25-1.25 7.25-2.75v-5" stroke="currentColor" stroke-width="1.75"/><path d="M4.75 11.5v5c0 1.5 3.25 2.75 7.25 2.75s7.25-1.25 7.25-2.75v-5" stroke="currentColor" stroke-width="1.75"/></svg>
+      </span>
+      <div>
+        <h2 class="sys-gauge-title">Storage</h2>
+        <p class="paper-meta mb-0" id="kpiDiskMeta">—</p>
+      </div>
+      <span class="sys-tone-badge" id="kpiDiskBadge">—</span>
+    </header>
+    <div class="sys-card-body">
+      <div class="sys-gauge" style="--pct: 0">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="sys-gauge-track" cx="60" cy="60" r="48"></circle>
+          <circle class="sys-gauge-arc" cx="60" cy="60" r="48"></circle>
+        </svg>
+        <div class="sys-gauge-value"><span id="kpiDisk">—</span><small>%</small></div>
+      </div>
+      <div class="sys-card-trend">
+        <div class="sys-trend-label">Volumes</div>
+        <div class="sys-mini-bars" id="diskMini" aria-hidden="true"></div>
+      </div>
+    </div>
+  </article>
+
+  <article class="sys-gauge-card" data-metric="network" data-tone="secondary">
+    <header class="sys-card-top">
+      <span class="sys-card-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><path d="m8 8-4 4 4 4M16 8l4 4-4 4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <div>
+        <h2 class="sys-gauge-title">Network</h2>
+        <p class="paper-meta mb-0" id="kpiNetMeta">—</p>
+      </div>
+      <span class="sys-tone-badge" id="kpiNetBadge">Live</span>
+    </header>
+    <div class="sys-net-grid">
+      <div class="sys-net-stat is-down">
+        <div class="sys-net-label">Download</div>
+        <div class="sys-net-rate"><span id="kpiRecv">—</span><small>Mbps</small></div>
+      </div>
+      <div class="sys-net-stat is-up">
+        <div class="sys-net-label">Upload</div>
+        <div class="sys-net-rate"><span id="kpiSent">—</span><small>Mbps</small></div>
+      </div>
+    </div>
+    <svg class="sys-spark sys-spark-wide" id="sparkNet" viewBox="0 0 160 48" preserveAspectRatio="none" aria-hidden="true"></svg>
   </article>
 </section>
 
-<div class="row g-4 mt-1">
-  <div class="col-lg-7">
+<div class="sys-layout">
+  <div class="sys-main-col">
     <div class="card sys-panel">
       <div class="card-header dash-card-head">
         <div>
-          <div>Host</div>
-          <div class="card-sub">Runtime and machine identity</div>
+          <div>CPU cores</div>
+          <div class="card-sub">Per-logical-core utilization</div>
         </div>
-        <span class="paper-meta mb-0" id="hostUptime">—</span>
+        <span class="paper-meta mb-0" id="coreSummary">—</span>
       </div>
       <div class="card-body">
-        <dl class="sys-facts" id="hostFacts">
-          <div><dt>Hostname</dt><dd id="factHostname">—</dd></div>
-          <div><dt>Platform</dt><dd id="factPlatform">—</dd></div>
-          <div><dt>CPU cores</dt><dd id="factCores">—</dd></div>
-          <div><dt>Python</dt><dd id="factPython">—</dd></div>
-          <div><dt>App PID</dt><dd id="factPid">—</dd></div>
-          <div><dt>Processes</dt><dd id="factProcs">—</dd></div>
-        </dl>
-        <div class="sys-core-bars" id="coreBars" aria-label="Per-core CPU"></div>
+        <div class="sys-core-bars" id="coreBars" aria-label="Per-core CPU">
+          <div class="sys-skeleton-row"></div>
+        </div>
       </div>
     </div>
 
-    <div class="card sys-panel mt-4">
+    <div class="card sys-panel">
       <div class="card-header dash-card-head">
         <div>
           <div>Storage volumes</div>
-          <div class="card-sub">Mounted disks with free space</div>
+          <div class="card-sub">Mounted disks and free capacity</div>
         </div>
       </div>
-      <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table sys-table mb-0">
-            <thead>
-              <tr>
-                <th>Mount</th>
-                <th>Type</th>
-                <th>Used</th>
-                <th>Free</th>
-                <th>Capacity</th>
-              </tr>
-            </thead>
-            <tbody id="diskTable">
-              <tr><td colspan="5" class="paper-meta">Loading volumes…</td></tr>
-            </tbody>
-          </table>
+      <div class="card-body sys-disk-body">
+        <div class="sys-disk-list" id="diskCards">
+          <div class="sys-skeleton-card"></div>
+          <div class="sys-skeleton-card"></div>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="col-lg-5">
+  <aside class="sys-side-col">
     <div class="card sys-panel">
       <div class="card-header dash-card-head">
         <div>
-          <div>Memory detail</div>
+          <div>Memory</div>
           <div class="card-sub">RAM and swap pressure</div>
         </div>
       </div>
       <div class="card-body">
         <div class="sys-meter">
-          <div class="sys-meter-top"><span>RAM</span><strong id="memDetailPct">—</strong></div>
-          <div class="progress" role="progressbar"><div class="progress-bar" id="memBar" style="width:0%"></div></div>
-          <div class="paper-meta" id="memDetailText">—</div>
+          <div class="sys-meter-top">
+            <span>RAM</span>
+            <strong id="memDetailPct">—</strong>
+          </div>
+          <div class="progress sys-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-bar" id="memBar" style="width:0%"></div>
+          </div>
+          <div class="paper-meta mb-0" id="memDetailText">—</div>
         </div>
-        <div class="sys-meter mt-3">
-          <div class="sys-meter-top"><span>Swap</span><strong id="swapDetailPct">—</strong></div>
-          <div class="progress" role="progressbar"><div class="progress-bar" id="swapBar" style="width:0%"></div></div>
-          <div class="paper-meta" id="swapDetailText">—</div>
+        <div class="sys-meter">
+          <div class="sys-meter-top">
+            <span>Swap</span>
+            <strong id="swapDetailPct">—</strong>
+          </div>
+          <div class="progress sys-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-bar" id="swapBar" style="width:0%"></div>
+          </div>
+          <div class="paper-meta mb-0" id="swapDetailText">—</div>
         </div>
       </div>
     </div>
 
-    <div class="card sys-panel mt-4">
+    <div class="card sys-panel">
       <div class="card-header dash-card-head">
         <div>
           <div>Network totals</div>
@@ -163,44 +229,62 @@
       </div>
       <div class="card-body">
         <div class="sys-net-totals">
-          <div>
+          <div class="sys-net-total-card">
             <div class="sys-net-label">Received</div>
             <div class="sys-net-total" id="netRecvTotal">—</div>
           </div>
-          <div>
+          <div class="sys-net-total-card">
             <div class="sys-net-label">Sent</div>
             <div class="sys-net-total" id="netSentTotal">—</div>
           </div>
         </div>
       </div>
     </div>
-  </div>
+
+    <div class="card sys-panel">
+      <div class="card-header dash-card-head">
+        <div>
+          <div>Host profile</div>
+          <div class="card-sub">Runtime identity</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <dl class="sys-facts">
+          <div><dt>Hostname</dt><dd id="factHostname">—</dd></div>
+          <div><dt>Platform</dt><dd id="factPlatform">—</dd></div>
+          <div><dt>CPU cores</dt><dd id="factCores">—</dd></div>
+          <div><dt>Python</dt><dd id="factPython">—</dd></div>
+          <div><dt>Processes</dt><dd id="factProcs">—</dd></div>
+          <div><dt>Uptime</dt><dd id="hostUptime">—</dd></div>
+        </dl>
+      </div>
+    </div>
+  </aside>
 </div>
 
-<div class="card sys-panel mt-4">
+<div class="card sys-panel sys-proc-panel">
   <div class="card-header dash-card-head">
     <div>
       <div>Top processes</div>
       <div class="card-sub">Sorted by CPU, then memory</div>
     </div>
-    <span class="paper-meta mb-0" id="procCount">—</span>
+    <span class="sys-chip-count" id="procCount">—</span>
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
       <table class="table sys-table mb-0">
         <thead>
           <tr>
-            <th>PID</th>
-            <th>Name</th>
+            <th>Process</th>
             <th>User</th>
-            <th>CPU %</th>
-            <th>Mem %</th>
+            <th>CPU</th>
+            <th>Memory</th>
             <th>RSS</th>
             <th>Status</th>
           </tr>
         </thead>
         <tbody id="procTable">
-          <tr><td colspan="7" class="paper-meta">Loading processes…</td></tr>
+          <tr><td colspan="6" class="paper-meta sys-table-empty">Loading processes…</td></tr>
         </tbody>
       </table>
     </div>

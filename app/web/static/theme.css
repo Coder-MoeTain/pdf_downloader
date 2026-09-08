@@ -552,13 +552,35 @@ a.stat-card:hover {
   border-top-color: #5a6878;
 }
 
-[data-bs-theme="dark"] .page-system .sys-live-pill {
+[data-bs-theme="dark"] .page-system .sys-status-chip[data-tone="success"],
+[data-bs-theme="dark"] .page-system .tone-pill-success {
   background: rgba(47, 125, 74, 0.28);
   color: #b7e4c7;
 }
-
+[data-bs-theme="dark"] .page-system .sys-status-chip[data-tone="info"],
+[data-bs-theme="dark"] .page-system .tone-pill-info {
+  background: rgba(94, 184, 214, 0.18);
+  color: #9ad7ea;
+}
+[data-bs-theme="dark"] .page-system .sys-status-chip[data-tone="warning"],
+[data-bs-theme="dark"] .page-system .tone-pill-warning {
+  background: rgba(201, 162, 39, 0.22);
+  color: #e6c56a;
+}
+[data-bs-theme="dark"] .page-system .sys-status-chip[data-tone="danger"] {
+  background: rgba(176, 58, 46, 0.24);
+  color: #f0a39a;
+}
+[data-bs-theme="dark"] .page-system .sys-disk-card,
+[data-bs-theme="dark"] .page-system .sys-net-stat,
+[data-bs-theme="dark"] .page-system .sys-net-total-card {
+  background: rgba(255, 255, 255, 0.03);
+}
 [data-bs-theme="dark"] .page-system .sys-table thead th {
   background: var(--table-head-bg);
+}
+[data-bs-theme="dark"] .page-system .sys-table tbody tr:hover {
+  background: rgba(94, 224, 181, 0.06);
 }
 
 [data-bs-theme="dark"] .page-library .lib-table thead th,
