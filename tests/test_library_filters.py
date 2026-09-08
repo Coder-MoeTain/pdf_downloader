@@ -233,9 +233,9 @@ def test_category_year_source_and_journal_filters(tmp_db):
     assert page.status_code == 200
     assert "Satellite cyber paper" in page.text
     assert "ML vision paper" in page.text
-    assert "Categories" in page.text
-    assert "Research topics" in page.text
-    assert "lib-topic" in page.text
+    assert "Categories" not in page.text
+    assert "Research topics" not in page.text
+    assert "lib-topic" not in page.text
     year_page = client.get("/library?year=2021")
     assert "Satellite cyber paper" in year_page.text
     assert "ML vision paper" not in year_page.text

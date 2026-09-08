@@ -415,18 +415,4 @@
   }
   pollNavLive();
   setInterval(pollNavLive, 1000);
-
-  document.querySelectorAll("[data-topics-toggle]").forEach(function (button) {
-    var panel = button.closest(".lib-topics");
-    function syncLabel() {
-      var expanded = panel && panel.classList.contains("is-expanded");
-      button.textContent = expanded ? button.getAttribute("data-less") : button.getAttribute("data-more");
-    }
-    syncLabel();
-    button.addEventListener("click", function () {
-      if (!panel) return;
-      panel.classList.toggle("is-expanded");
-      syncLabel();
-    });
-  });
 })();
