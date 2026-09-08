@@ -1,6 +1,23 @@
 {% extends "base.html" %}
 {% block title %}System health · {{ app_name }}{% endblock %}
 {% block body_class %}page-system{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="/static/system.css?v={{ version }}">
+<style>
+  /* Intrinsic guards so gauges/icons never explode if CSS is cached/old */
+  .page-system .sys-card-icon { display:inline-grid; place-items:center; width:2.2rem; height:2.2rem; overflow:hidden; flex:0 0 auto; }
+  .page-system .sys-card-icon svg { width:1.15rem !important; height:1.15rem !important; max-width:1.15rem; max-height:1.15rem; display:block; }
+  .page-system .sys-gauge { position:relative; width:5.4rem !important; height:5.4rem !important; max-width:5.4rem; max-height:5.4rem; flex:0 0 auto; }
+  .page-system .sys-gauge > svg { width:5.4rem !important; height:5.4rem !important; max-width:100%; max-height:100%; display:block; transform:rotate(-90deg); }
+  .page-system .sys-gauge-track,
+  .page-system .sys-gauge-arc { fill:none !important; stroke-width:8.5; }
+  .page-system .sys-gauge-title { margin:0; font-size:0.98rem !important; font-weight:700; line-height:1.25; }
+  .page-system .sys-spark { display:block; width:100%; height:3rem; max-height:3rem; }
+  .page-system .sys-kpi-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1rem; }
+  @media (max-width:1199.98px){ .page-system .sys-kpi-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (max-width:575.98px){ .page-system .sys-kpi-grid{ grid-template-columns:1fr; } }
+</style>
+{% endblock %}
 {% block extra_js %}
 <script src="/static/health.js?v={{ version }}"></script>
 {% endblock %}
@@ -55,25 +72,25 @@
   <article class="sys-gauge-card" data-metric="cpu" data-tone="secondary">
     <header class="sys-card-top">
       <span class="sys-card-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none"><rect x="5" y="5" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.75"/><path d="M9 2.75v2.5M15 2.75v2.5M9 18.75v2.5M15 18.75v2.5M2.75 9h2.5M2.75 15h2.5M18.75 9h2.5M18.75 15h2.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><rect x="9" y="9" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.75"/></svg>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.75"/><path d="M9 2.75v2.5M15 2.75v2.5M9 18.75v2.5M15 18.75v2.5M2.75 9h2.5M2.75 15h2.5M18.75 9h2.5M18.75 15h2.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><rect x="9" y="9" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.75"/></svg>
       </span>
       <div>
-        <h2 class="sys-gauge-title">CPU</h2>
+        <div class="sys-gauge-title">CPU</div>
         <p class="paper-meta mb-0" id="kpiCpuMeta">—</p>
       </div>
       <span class="sys-tone-badge" id="kpiCpuBadge">—</span>
     </header>
     <div class="sys-card-body">
       <div class="sys-gauge" style="--pct: 0">
-        <svg viewBox="0 0 120 120" aria-hidden="true">
-          <circle class="sys-gauge-track" cx="60" cy="60" r="48"></circle>
-          <circle class="sys-gauge-arc" cx="60" cy="60" r="48"></circle>
+        <svg width="88" height="88" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="sys-gauge-track" cx="60" cy="60" r="48" fill="none" stroke="currentColor" stroke-width="8.5" opacity="0.2"></circle>
+          <circle class="sys-gauge-arc" cx="60" cy="60" r="48" fill="none" stroke="currentColor" stroke-width="8.5" stroke-linecap="round"></circle>
         </svg>
         <div class="sys-gauge-value"><span id="kpiCpu">—</span><small>%</small></div>
       </div>
       <div class="sys-card-trend">
         <div class="sys-trend-label">Recent load</div>
-        <svg class="sys-spark" id="sparkCpu" viewBox="0 0 160 48" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <svg class="sys-spark" id="sparkCpu" width="160" height="48" viewBox="0 0 160 48" preserveAspectRatio="none" aria-hidden="true"></svg>
       </div>
     </div>
   </article>
@@ -81,25 +98,25 @@
   <article class="sys-gauge-card" data-metric="memory" data-tone="secondary">
     <header class="sys-card-top">
       <span class="sys-card-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="7" width="17" height="10" rx="2" stroke="currentColor" stroke-width="1.75"/><path d="M7 10.5v3M10.5 10.5v3M14 10.5v3M17.5 10.5v3" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><path d="M6 17v2.5M18 17v2.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="7" width="17" height="10" rx="2" stroke="currentColor" stroke-width="1.75"/><path d="M7 10.5v3M10.5 10.5v3M14 10.5v3M17.5 10.5v3" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><path d="M6 17v2.5M18 17v2.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg>
       </span>
       <div>
-        <h2 class="sys-gauge-title">Memory</h2>
+        <div class="sys-gauge-title">Memory</div>
         <p class="paper-meta mb-0" id="kpiMemMeta">—</p>
       </div>
       <span class="sys-tone-badge" id="kpiMemBadge">—</span>
     </header>
     <div class="sys-card-body">
       <div class="sys-gauge" style="--pct: 0">
-        <svg viewBox="0 0 120 120" aria-hidden="true">
-          <circle class="sys-gauge-track" cx="60" cy="60" r="48"></circle>
-          <circle class="sys-gauge-arc" cx="60" cy="60" r="48"></circle>
+        <svg width="88" height="88" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="sys-gauge-track" cx="60" cy="60" r="48" fill="none" stroke="currentColor" stroke-width="8.5" opacity="0.2"></circle>
+          <circle class="sys-gauge-arc" cx="60" cy="60" r="48" fill="none" stroke="currentColor" stroke-width="8.5" stroke-linecap="round"></circle>
         </svg>
         <div class="sys-gauge-value"><span id="kpiMem">—</span><small>%</small></div>
       </div>
       <div class="sys-card-trend">
         <div class="sys-trend-label">RAM pressure</div>
-        <svg class="sys-spark" id="sparkMem" viewBox="0 0 160 48" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <svg class="sys-spark" id="sparkMem" width="160" height="48" viewBox="0 0 160 48" preserveAspectRatio="none" aria-hidden="true"></svg>
       </div>
     </div>
   </article>
@@ -107,19 +124,19 @@
   <article class="sys-gauge-card" data-metric="storage" data-tone="secondary">
     <header class="sys-card-top">
       <span class="sys-card-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="6.5" rx="7.25" ry="2.75" stroke="currentColor" stroke-width="1.75"/><path d="M4.75 6.5v5c0 1.5 3.25 2.75 7.25 2.75s7.25-1.25 7.25-2.75v-5" stroke="currentColor" stroke-width="1.75"/><path d="M4.75 11.5v5c0 1.5 3.25 2.75 7.25 2.75s7.25-1.25 7.25-2.75v-5" stroke="currentColor" stroke-width="1.75"/></svg>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><ellipse cx="12" cy="6.5" rx="7.25" ry="2.75" stroke="currentColor" stroke-width="1.75"/><path d="M4.75 6.5v5c0 1.5 3.25 2.75 7.25 2.75s7.25-1.25 7.25-2.75v-5" stroke="currentColor" stroke-width="1.75"/><path d="M4.75 11.5v5c0 1.5 3.25 2.75 7.25 2.75s7.25-1.25 7.25-2.75v-5" stroke="currentColor" stroke-width="1.75"/></svg>
       </span>
       <div>
-        <h2 class="sys-gauge-title">Storage</h2>
+        <div class="sys-gauge-title">Storage</div>
         <p class="paper-meta mb-0" id="kpiDiskMeta">—</p>
       </div>
       <span class="sys-tone-badge" id="kpiDiskBadge">—</span>
     </header>
     <div class="sys-card-body">
       <div class="sys-gauge" style="--pct: 0">
-        <svg viewBox="0 0 120 120" aria-hidden="true">
-          <circle class="sys-gauge-track" cx="60" cy="60" r="48"></circle>
-          <circle class="sys-gauge-arc" cx="60" cy="60" r="48"></circle>
+        <svg width="88" height="88" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="sys-gauge-track" cx="60" cy="60" r="48" fill="none" stroke="currentColor" stroke-width="8.5" opacity="0.2"></circle>
+          <circle class="sys-gauge-arc" cx="60" cy="60" r="48" fill="none" stroke="currentColor" stroke-width="8.5" stroke-linecap="round"></circle>
         </svg>
         <div class="sys-gauge-value"><span id="kpiDisk">—</span><small>%</small></div>
       </div>
@@ -133,10 +150,10 @@
   <article class="sys-gauge-card" data-metric="network" data-tone="secondary">
     <header class="sys-card-top">
       <span class="sys-card-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M4 12h16" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><path d="m8 8-4 4 4 4M16 8l4 4-4 4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12h16" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/><path d="m8 8-4 4 4 4M16 8l4 4-4 4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </span>
       <div>
-        <h2 class="sys-gauge-title">Network</h2>
+        <div class="sys-gauge-title">Network</div>
         <p class="paper-meta mb-0" id="kpiNetMeta">—</p>
       </div>
       <span class="sys-tone-badge" id="kpiNetBadge">Live</span>
@@ -151,7 +168,7 @@
         <div class="sys-net-rate"><span id="kpiSent">—</span><small>Mbps</small></div>
       </div>
     </div>
-    <svg class="sys-spark sys-spark-wide" id="sparkNet" viewBox="0 0 160 48" preserveAspectRatio="none" aria-hidden="true"></svg>
+    <svg class="sys-spark sys-spark-wide" id="sparkNet" width="160" height="48" viewBox="0 0 160 48" preserveAspectRatio="none" aria-hidden="true"></svg>
   </article>
 </section>
 

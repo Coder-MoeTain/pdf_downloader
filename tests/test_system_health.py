@@ -61,6 +61,7 @@ def test_admin_can_open_system_health(tmp_db, monkeypatch):
     assert "sys-kpi-grid" in page.text
     assert "sys-status-banner" in page.text
     assert "/static/health.js" in page.text
+    assert "/static/system.css" in page.text
     api = client.get("/api/system-health")
     assert api.status_code == 200
     body = api.json()

@@ -169,15 +169,10 @@ def collect_system_health(*, process_limit: int = 12) -> dict[str, Any]:
 
     global _boot_cpu_primed
     if not _boot_cpu_primed:
-        # First cpu_percent call always returns 0; prime once.
+        # First cpu_percent call always returns 0; prime once without scanning every process.
         psutil.cpu_percent(interval=None)
-        for proc in psutil.process_iter(["cpu_percent"]):
-            try:
-                _ = proc.info
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
+        psutil.cpu_percent(interval=0.1, percpu=True)
         _boot_cpu_primed = True
-        time.sleep(0.15)
 
     cpu_total = float(psutil.cpu_percent(interval=None))
     per_cpu = [float(v) for v in psutil.cpu_percent(interval=None, percpu=True)]
