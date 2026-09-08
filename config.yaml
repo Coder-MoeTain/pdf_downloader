@@ -8,7 +8,7 @@ app:
   logs_dir: logs
   fulltext_dir: data/fulltext
   min_pdf_size_bytes: 2048
-  max_file_size: 50MB
+  max_file_size: 150MB
   download_limit: 100
   max_filename_length: 120
   prefer_https: true

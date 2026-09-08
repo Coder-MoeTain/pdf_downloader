@@ -120,7 +120,7 @@ class AppConfig(BaseModel):
     logs_dir: Path = Path("logs")
     fulltext_dir: Path = Path("data/fulltext")
     min_pdf_size_bytes: int = 2048
-    max_file_size_bytes: int = 50 * 1024 * 1024
+    max_file_size_bytes: int = 150 * 1024 * 1024
     download_limit: int = 100
     max_filename_length: int = 120
     prefer_https: bool = True
@@ -158,7 +158,7 @@ class AppConfig(BaseModel):
         return p
 
 
-def parse_size(value: str | int | None, default: int = 50 * 1024 * 1024) -> int:
+def parse_size(value: str | int | None, default: int = 150 * 1024 * 1024) -> int:
     if value is None:
         return default
     if isinstance(value, int):

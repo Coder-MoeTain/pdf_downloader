@@ -75,6 +75,7 @@ def seed_default_settings() -> None:
             ("show_paywalled", cfg.show_paywalled, "workspace", False),
             ("download_limit", cfg.download_limit, "search", False),
             ("default_max_results", cfg.default_max_results, "search", False),
+            ("max_file_size", f"{max(1, int(cfg.max_file_size_bytes / (1024 * 1024)))}MB", "search", False),
             ("max_concurrent_requests", cfg.env.max_concurrent_requests, "search", False),
             ("max_concurrent_downloads", cfg.env.max_concurrent_downloads, "search", False),
             ("request_timeout_seconds", cfg.env.request_timeout_seconds, "search", False),
@@ -339,6 +340,16 @@ def save_search_settings(data: dict[str, Any]) -> None:
     with settings_session() as session:
         set_setting(session, "download_limit", _int("download_limit", 1, 1000), group="search")
         set_setting(session, "default_max_results", _int("default_max_results", 1, 500), group="search")
+        raw_size = str(data.get("max_file_size") or "").strip() or "150MB"
+        try:
+            from app.config import parse_size
+
+            size_bytes = parse_size(raw_size)
+        except (TypeError, ValueError) as exc:
+            raise SettingsError("Max PDF size must look like 50MB or 150MB.") from exc
+        if size_bytes < 5 * 1024 * 1024 or size_bytes > 1024 * 1024 * 1024:
+            raise SettingsError("Max PDF size must be between 5MB and 1GB.")
+        set_setting(session, "max_file_size", raw_size, group="search")
         set_setting(session, "max_concurrent_requests", _int("max_concurrent_requests", 1, 20), group="search")
         set_setting(session, "max_concurrent_downloads", _int("max_concurrent_downloads", 1, 10), group="search")
         set_setting(session, "request_timeout_seconds", _float("request_timeout_seconds", 5, 120), group="search")
@@ -571,6 +582,13 @@ def apply_runtime_overlay(cfg: AppConfig) -> AppConfig:
     cfg.env.max_redirects = _int("max_redirects", cfg.env.max_redirects)
     cfg.download_limit = _int("download_limit", cfg.download_limit)
     cfg.default_max_results = _int("default_max_results", cfg.default_max_results)
+    if stored.get("max_file_size"):
+        from app.config import parse_size
+
+        try:
+            cfg.max_file_size_bytes = parse_size(stored["max_file_size"], cfg.max_file_size_bytes)
+        except (TypeError, ValueError):
+            pass
     cfg.check_robots_txt = _bool("check_robots_txt", cfg.check_robots_txt)
     cfg.prefer_https = _bool("prefer_https", cfg.prefer_https)
     cfg.show_paywalled = _bool("show_paywalled", cfg.show_paywalled)

@@ -348,7 +348,7 @@ class DownloadService:
     ) -> tuple[int, str]:
         timeout = httpx.Timeout(
             connect=8.0,
-            read=min(float(self.config.env.download_timeout_seconds), 45.0),
+            read=max(15.0, float(self.config.env.download_timeout_seconds)),
             write=30.0,
             pool=10.0,
         )
@@ -370,14 +370,22 @@ class DownloadService:
                     _progress_log(f"HTTP {response.status_code}", "danger")
                     raise DownloadError(f"HTTP {response.status_code}")
                 content_type = response.headers.get("content-type", "")
-                declared = response.headers.get("content-length")
-                if declared and int(declared) > max_size:
-                    _progress_log("Remote file exceeds max size", "danger")
-                    raise DownloadError("Remote file exceeds max size")
+                declared_raw = (response.headers.get("content-length") or "").strip()
+                declared_size: int | None = None
+                if declared_raw.isdigit():
+                    declared_size = int(declared_raw)
+                if declared_size is not None and declared_size > max_size:
+                    _progress_log(
+                        f"Remote file exceeds max size ({declared_size:,} > {max_size:,} bytes)",
+                        "danger",
+                    )
+                    raise DownloadError(
+                        f"Remote file exceeds max size ({declared_size:,} > {max_size:,} bytes)"
+                    )
                 if "html" in content_type.lower() or "json" in content_type.lower():
                     _progress_log(f"Not a PDF (Content-Type {content_type})", "danger")
                     raise DownloadError(f"Not a PDF (Content-Type {content_type})")
-                total = int(declared) if declared and declared.isdigit() else None
+                total = declared_size
                 ctype = content_type.split(";")[0].strip()
                 header_note = f"HTTP {response.status_code}"
                 if total:
@@ -405,7 +413,9 @@ class DownloadService:
                                     raise DownloadError("Missing PDF magic bytes")
                         size += len(chunk)
                         if size > max_size:
-                            raise DownloadError("Download exceeded max file size")
+                            raise DownloadError(
+                                f"Download exceeded max file size ({size:,} > {max_size:,} bytes)"
+                            )
                         hasher.update(chunk)
                         handle.write(chunk)
                         if on_progress:
@@ -708,10 +718,26 @@ async def download_papers_parallel(
             return paper_id, updated
 
     try:
-        results = await asyncio.gather(
+        gathered = await asyncio.gather(
             *[_run_one(pid, paper) for pid, paper in jobs],
-            return_exceptions=False,
+            return_exceptions=True,
         )
+        results: list[tuple[int, PaperRecord]] = []
+        for (paper_id, paper), outcome in zip(jobs, gathered):
+            if isinstance(outcome, BaseException):
+                paper.status = PaperStatus.FAILED
+                paper.extra["error"] = str(outcome) or outcome.__class__.__name__
+                if track_downloads:
+                    download_tracker.finish_item(
+                        "FAILED", error=paper.extra["error"], title=paper.title
+                    )
+                if job_progress is not None:
+                    job_progress.finish_item(
+                        "FAILED", error=paper.extra["error"], title=paper.title
+                    )
+                results.append((paper_id, paper))
+            else:
+                results.append(outcome)
     finally:
         cancelled = download_stop_requested()
         release_download_batch(batch_token)
@@ -721,7 +747,7 @@ async def download_papers_parallel(
 
             with session_scope() as session:
                 mark_downloading_stopped(session, error="Stopped by user")
-    return list(results)
+    return results
 
 
 async def download_open_access_papers(

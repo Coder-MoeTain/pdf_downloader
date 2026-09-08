@@ -63,7 +63,6 @@
           <div class="col-12">
             <div class="readonly-stack">
               <div><span>Exports</span><code>{{ config.exports_dir }}</code></div>
-              <div><span>Max PDF size</span><code>{{ config.max_file_size_bytes|filesize }}</code></div>
               <div><span>Local time</span><code>{{ now_local }}</code></div>
             </div>
           </div>
@@ -130,6 +129,11 @@
           <div class="col-md-4">
             <label class="form-label" for="download_limit">Download limit</label>
             <input class="form-control" id="download_limit" name="download_limit" type="number" min="1" max="1000" value="{{ config.download_limit }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="max_file_size">Max PDF size</label>
+            <input class="form-control" id="max_file_size" name="max_file_size" value="{{ (config.max_file_size_bytes / 1048576)|int }}MB" placeholder="150MB" autocomplete="off">
+            <div class="form-text">NASA reports are often larger than 50MB.</div>
           </div>
           <div class="col-md-4">
             <label class="form-label" for="max_redirects">Max redirects</label>

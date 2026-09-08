@@ -486,7 +486,7 @@ def library_status_panel(facets: dict) -> dict:
     return {
         "visible_total": total,
         "downloadable": downloadable,
-        "downloaded": int(counts.get("DOWNLOADED") or 0),
+        "downloaded": int(facets.get("downloaded") or downloadable or counts.get("DOWNLOADED") or 0),
         "open_access": int(facets.get("open_access") or counts.get("OA_AVAILABLE") or 0),
         "paywalled": paywalled,
         "statuses": statuses,

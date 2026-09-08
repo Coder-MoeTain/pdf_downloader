@@ -11,7 +11,7 @@
     <p class="lede mb-0 mt-1">
       {{ total }} paper{{ "s" if total != 1 else "" }} in your library
       {% if searches %} · {{ searches }} search{{ "es" if searches != 1 else "" }} run{% endif %}
-      {% if downloadable %} · {{ downloadable }} PDF{{ "s" if downloadable != 1 else "" }} ready{% endif %}
+      {% if downloadable %} · {{ downloadable }} PDF{{ "s" if downloadable != 1 else "" }} on server{% endif %}
     </p>
     {% else %}
     <p class="lede mb-0 mt-1">Search academic sources and build your research library.</p>
@@ -178,7 +178,7 @@
           </span>
           <span class="dash-action-copy">
             <strong>Downloadable PDFs</strong>
-            <span>{{ downloadable }} ready</span>
+            <span>{{ downloadable }} on server</span>
           </span>
         </a>
         <a class="dash-action-tile" href="/downloads">

@@ -104,7 +104,7 @@ def download(
 def list_papers(
     limit: int = typer.Option(25, "--limit"),
     status: Optional[str] = typer.Option(None, "--status"),
-    downloadable: bool = typer.Option(False, "--downloadable", help="Only papers with a legal PDF"),
+    downloadable: bool = typer.Option(False, "--downloadable", help="Only papers with a PDF saved on this server"),
     min_rating: int = typer.Option(0, "--min-rating", help="Minimum user rating 1–5"),
 ) -> None:
     """List papers stored in the local library."""

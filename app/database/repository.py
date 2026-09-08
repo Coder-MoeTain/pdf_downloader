@@ -323,20 +323,17 @@ def list_failed_downloads(session: Session) -> list[Download]:
 
 
 def downloadable_clause():
-    """Papers with a legally available PDF URL or an already-downloaded file."""
-    return or_(
-        Paper.status == PaperStatus.DOWNLOADED.value,
-        and_(
-            Paper.pdf_url.is_not(None),
-            Paper.pdf_url != "",
-            Paper.status.notin_(
-                [
-                    PaperStatus.PAYWALLED.value,
-                    PaperStatus.SKIPPED.value,
-                    PaperStatus.NO_PDF.value,
-                ]
-            ),
+    """Papers with a PDF file recorded as saved on this server."""
+    return exists().where(
+        Download.paper_id == Paper.id,
+        Download.status.in_(
+            [
+                PaperStatus.DOWNLOADED.value,
+                PaperStatus.DUPLICATE.value,
+            ]
         ),
+        Download.local_path.is_not(None),
+        Download.local_path != "",
     )
 
 
@@ -633,6 +630,7 @@ def library_facets(session: Session) -> dict:
         "status_counts": status_counts,
         "visible_total": visible_total,
         "downloadable": downloadable,
+        "downloaded": downloadable,
         "open_access": open_access,
         "paywalled": paywalled,
     }

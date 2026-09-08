@@ -546,7 +546,7 @@ def dashboard(request: Request):
         total = session.scalar(select(func.count(Paper.id)).where(*visible)) or 0
         oa = session.scalar(select(func.count(Paper.id)).where(Paper.open_access.is_(True), *visible)) or 0
         downloadable = session.scalar(select(func.count(Paper.id)).where(downloadable_clause(), *visible)) or 0
-        downloaded = session.scalar(select(func.count(Download.id)).where(Download.status == "DOWNLOADED")) or 0
+        downloaded = downloadable
         paywalled = session.scalar(select(func.count(Paper.id)).where(Paper.status == "PAYWALLED")) or 0
         failed = session.scalar(select(func.count(Download.id)).where(Download.status == "FAILED")) or 0
         searches = session.scalar(select(func.count(SearchQuery.id))) or 0
@@ -622,17 +622,10 @@ def dashboard(request: Request):
         {"href": "/library", "label": "Papers in library", "value": total, "tone": "primary", "hint": f"{searches} search{'es' if searches != 1 else ''} run"},
         {
             "href": "/library?pdf=1",
-            "label": "Downloadable PDFs",
+            "label": "PDFs on server",
             "value": downloadable,
             "tone": "success",
-            "hint": f"{share(downloadable, total)}% of library",
-        },
-        {
-            "href": "/downloads?status=DOWNLOADED",
-            "label": "Downloaded",
-            "value": downloaded,
-            "tone": "info",
-            "hint": "Saved to disk",
+            "hint": "Files saved in the library folder",
         },
         {
             "href": "/library?status=PAYWALLED",
@@ -653,7 +646,7 @@ def dashboard(request: Request):
             "label": "Open access",
             "value": oa,
             "tone": "secondary",
-            "hint": f"{share(oa, total)}% of library",
+            "hint": "OA metadata / link",
         },
     ]
     return templates.TemplateResponse(
@@ -1113,10 +1106,10 @@ def library_page(
         },
         {
             "href": library_href(base_filters, pdf=True, oa=False, status="", page=1),
-            "label": "Downloadable",
+            "label": "On server",
             "value": stats["downloadable"],
             "tone": "success",
-            "hint": f"{share(stats['downloadable'], stats['visible_total'])}% of library",
+            "hint": "PDF file saved locally",
             "active": bool(downloadable) and not open_access and status != PaperStatus.PAYWALLED.value,
         },
         {
@@ -1124,7 +1117,7 @@ def library_page(
             "label": "Open access",
             "value": stats["open_access"],
             "tone": "secondary",
-            "hint": "Marked open access",
+            "hint": "OA metadata / link",
             "active": bool(open_access),
         },
         {
@@ -1136,14 +1129,6 @@ def library_page(
             "tone": "warning",
             "hint": "Metadata only",
             "active": status == PaperStatus.PAYWALLED.value,
-        },
-        {
-            "href": "/downloads?status=DOWNLOADED",
-            "label": "Downloaded",
-            "value": stats["downloaded"],
-            "tone": "info",
-            "hint": "Saved locally",
-            "active": False,
         },
     ]
     return templates.TemplateResponse(
@@ -1845,6 +1830,7 @@ def settings_cleanup_missing_pdfs(request: Request, confirm: str = Form("")):
 def settings_save_search(
     download_limit: int = Form(100),
     default_max_results: int = Form(50),
+    max_file_size: str = Form("150MB"),
     max_concurrent_requests: int = Form(5),
     max_concurrent_downloads: int = Form(3),
     request_timeout_seconds: float = Form(30),
@@ -1856,6 +1842,7 @@ def settings_save_search(
             {
                 "download_limit": download_limit,
                 "default_max_results": default_max_results,
+                "max_file_size": max_file_size,
                 "max_concurrent_requests": max_concurrent_requests,
                 "max_concurrent_downloads": max_concurrent_downloads,
                 "request_timeout_seconds": request_timeout_seconds,

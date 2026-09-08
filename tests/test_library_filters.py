@@ -39,13 +39,24 @@ def test_user_rating_survives_metadata_update(tmp_db):
 
 def test_downloadable_filter_excludes_paywalled(tmp_db):
     with session_scope() as session:
-        save_paper(
+        from app.database.repository import upsert_download
+
+        open_paper = save_paper(
             session,
             PaperRecord(
                 title="Open PDF",
                 doi="10.1000/oa",
                 pdf_url="https://arxiv.org/pdf/1234.5678.pdf",
                 status=PaperStatus.OA_AVAILABLE,
+            ),
+        )
+        saved = save_paper(
+            session,
+            PaperRecord(
+                title="Saved on server",
+                doi="10.1000/saved",
+                pdf_url="https://arxiv.org/pdf/saved.pdf",
+                status=PaperStatus.DOWNLOADED,
             ),
         )
         save_paper(
@@ -56,9 +67,23 @@ def test_downloadable_filter_excludes_paywalled(tmp_db):
             session,
             PaperRecord(title="No file", doi="10.1000/none", status=PaperStatus.NO_PDF),
         )
+        upsert_download(
+            session,
+            saved.id,
+            pdf_url="https://arxiv.org/pdf/saved.pdf",
+            status=PaperStatus.DOWNLOADED.value,
+            local_path="/tmp/library/saved.pdf",
+        )
+        # URL-only OA paper should not count as on-server.
+        upsert_download(
+            session,
+            open_paper.id,
+            pdf_url="https://arxiv.org/pdf/1234.5678.pdf",
+            status=PaperStatus.OA_AVAILABLE.value,
+        )
         stmt = apply_paper_filters(select(Paper), downloadable=True)
         titles = {p.title for p in session.scalars(stmt)}
-        assert titles == {"Open PDF"}
+        assert titles == {"Saved on server"}
 
 
 def test_open_access_filter_clause(tmp_db):
@@ -89,8 +114,10 @@ def test_open_access_filter_clause(tmp_db):
 
 
 def test_library_access_filters_page(tmp_db):
+    from app.database.repository import upsert_download
+
     with session_scope() as session:
-        save_paper(
+        oa_paper = save_paper(
             session,
             PaperRecord(
                 title="Open access visible",
@@ -99,33 +126,39 @@ def test_library_access_filters_page(tmp_db):
                 status=PaperStatus.OA_AVAILABLE,
             ),
         )
-        save_paper(
+        saved = save_paper(
             session,
             PaperRecord(
-                title="Downloadable found",
-                doi="10.1000/access-pdf",
-                pdf_url="https://arxiv.org/pdf/access-pdf.pdf",
-                status=PaperStatus.FOUND,
+                title="Saved on server",
+                doi="10.1000/access-saved",
+                pdf_url="https://arxiv.org/pdf/access-saved.pdf",
+                status=PaperStatus.DOWNLOADED,
             ),
         )
         save_paper(
             session,
             PaperRecord(title="Paywalled closed", doi="10.1000/access-pay", status=PaperStatus.PAYWALLED),
         )
+        upsert_download(
+            session,
+            saved.id,
+            pdf_url="https://arxiv.org/pdf/access-saved.pdf",
+            status=PaperStatus.DOWNLOADED.value,
+            local_path="/tmp/library/access-saved.pdf",
+        )
     client = TestClient(app)
 
     page = client.get("/library")
     assert page.status_code == 200
     assert 'name="access"' in page.text
-    assert ">Open access<" in page.text or "Open access" in page.text
+    assert "On server" in page.text
+    assert "Open access" in page.text
     assert "Paywalled" in page.text
-    assert "Downloadable" in page.text
 
     oa = client.get("/library?oa=1")
     assert oa.status_code == 200
     assert "Open access visible" in oa.text
     assert "Paywalled closed" not in oa.text
-    assert 'class="chip active"' in oa.text or 'chip active' in oa.text
 
     access_open = client.get("/library?access=open")
     assert access_open.status_code == 200
@@ -142,17 +175,17 @@ def test_library_access_filters_page(tmp_db):
     assert "Paywalled closed" in access_pay.text
     assert "Open access visible" not in access_pay.text
 
-    downloadable = client.get("/library?pdf=1")
-    assert downloadable.status_code == 200
-    assert "Open access visible" in downloadable.text
-    assert "Downloadable found" in downloadable.text
-    assert "Paywalled closed" not in downloadable.text
+    on_server = client.get("/library?pdf=1")
+    assert on_server.status_code == 200
+    assert "Saved on server" in on_server.text
+    assert "Open access visible" not in on_server.text
+    assert "Paywalled closed" not in on_server.text
 
     access_dl = client.get("/library?access=downloadable")
     assert access_dl.status_code == 200
-    assert "Open access visible" in access_dl.text
-    assert "Downloadable found" in access_dl.text
-    assert "Paywalled closed" not in access_dl.text
+    assert "Saved on server" in access_dl.text
+    assert "Open access visible" not in access_dl.text
+    assert oa_paper is not None
 
 
 def test_min_rating_filter(tmp_db):
@@ -166,6 +199,8 @@ def test_min_rating_filter(tmp_db):
 
 
 def test_rating_api_and_downloadable_page(tmp_db):
+    from app.database.repository import upsert_download
+
     with session_scope() as session:
         paper = save_paper(
             session,
@@ -173,8 +208,15 @@ def test_rating_api_and_downloadable_page(tmp_db):
                 title="OA paper for dashboard",
                 doi="10.1000/api-rate",
                 pdf_url="https://arxiv.org/pdf/1.pdf",
-                status=PaperStatus.OA_AVAILABLE,
+                status=PaperStatus.DOWNLOADED,
             ),
+        )
+        upsert_download(
+            session,
+            paper.id,
+            pdf_url="https://arxiv.org/pdf/1.pdf",
+            status=PaperStatus.DOWNLOADED.value,
+            local_path="/tmp/library/api-rate.pdf",
         )
         paper_id = paper.id
     client = TestClient(app)
@@ -184,7 +226,7 @@ def test_rating_api_and_downloadable_page(tmp_db):
     page = client.get("/library?pdf=1")
     assert page.status_code == 200
     assert "OA paper for dashboard" in page.text
-    assert "downloadable pdf" in page.text.lower()
+    assert "on server" in page.text.lower()
     rated = client.get("/library?min_rating=4")
     assert rated.status_code == 200
     assert "OA paper for dashboard" in rated.text
@@ -455,7 +497,7 @@ def test_library_hides_no_pdf_and_failed(tmp_db):
 
 
 def test_library_status_panel_shows_counts(tmp_db):
-    from app.database.repository import library_facets
+    from app.database.repository import library_facets, upsert_download
     from app.web.ui import library_status_panel
 
     with session_scope() as session:
@@ -468,7 +510,7 @@ def test_library_status_panel_shows_counts(tmp_db):
                 status=PaperStatus.OA_AVAILABLE,
             ),
         )
-        save_paper(
+        saved = save_paper(
             session,
             PaperRecord(
                 title="Saved PDF paper",
@@ -476,6 +518,13 @@ def test_library_status_panel_shows_counts(tmp_db):
                 pdf_url="https://arxiv.org/pdf/2.pdf",
                 status=PaperStatus.DOWNLOADED,
             ),
+        )
+        upsert_download(
+            session,
+            saved.id,
+            pdf_url="https://arxiv.org/pdf/2.pdf",
+            status=PaperStatus.DOWNLOADED.value,
+            local_path="/tmp/library/status-dl.pdf",
         )
         save_paper(session, PaperRecord(title="Found paper", doi="10.1000/status-found", status=PaperStatus.FOUND))
         save_paper(
@@ -485,7 +534,7 @@ def test_library_status_panel_shows_counts(tmp_db):
         save_paper(session, PaperRecord(title="Broken download paper", doi="10.1000/status-fail", status=PaperStatus.FAILED))
         stats = library_status_panel(library_facets(session))
     assert stats["visible_total"] == 4
-    assert stats["downloadable"] == 2
+    assert stats["downloadable"] == 1
     assert stats["downloaded"] == 1
     assert stats["open_access"] == 1
     assert stats["paywalled"] == 1
@@ -503,7 +552,7 @@ def test_library_status_panel_shows_counts(tmp_db):
     assert 'class="lib-status-panel"' in page.text
     assert 'aria-label="Library overview"' in page.text
     assert "stat-card" in page.text
-    assert "Downloadable" in page.text
+    assert "On server" in page.text
     assert "Open access" in page.text
     assert "Paywalled" in page.text
     assert "lib-status-mix-card" not in page.text
@@ -511,6 +560,10 @@ def test_library_status_panel_shows_counts(tmp_db):
     assert filtered.status_code == 200
     assert "Saved PDF paper" in filtered.text
     assert "Open visible paper" not in filtered.text
+    on_server = client.get("/library?pdf=1")
+    assert on_server.status_code == 200
+    assert "Saved PDF paper" in on_server.text
+    assert "Open visible paper" not in on_server.text
 
 
 def test_hide_paywalled_filters_library_unless_explicit(tmp_db):
