@@ -258,17 +258,21 @@ class DownloadService:
                 paper.pdf_url = alt
 
         # NCBI/PMC and similar often pass URL checks but fail robots.txt — swap before skip.
-        if (
-            paper.pdf_url
-            and is_direct_pdf_url(paper.pdf_url, prefer_https=self.config.prefer_https)
-            and not robots_allowed(paper.pdf_url, self.config.user_agent_header())
-        ):
-            alt = await OpenAccessService(self.client, self.config).alternate_pdf_url(
-                paper, exclude=paper.pdf_url
+        if paper.pdf_url and is_direct_pdf_url(paper.pdf_url, prefer_https=self.config.prefer_https):
+            allowed = await asyncio.to_thread(
+                robots_allowed, paper.pdf_url, self.config.user_agent_header()
             )
-            if alt and robots_allowed(alt, self.config.user_agent_header()):
-                _progress_log(f"Robots-safe OA URL: {_clip_url(alt)}", "info")
-                paper.pdf_url = alt
+            if not allowed:
+                alt = await OpenAccessService(self.client, self.config).alternate_pdf_url(
+                    paper, exclude=paper.pdf_url
+                )
+                if alt:
+                    alt_ok = await asyncio.to_thread(
+                        robots_allowed, alt, self.config.user_agent_header()
+                    )
+                    if alt_ok:
+                        _progress_log(f"Robots-safe OA URL: {_clip_url(alt)}", "info")
+                        paper.pdf_url = alt
 
         paper, should_download = await asyncio.to_thread(
             self._prepare_download,

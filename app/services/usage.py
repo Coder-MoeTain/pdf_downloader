@@ -91,15 +91,18 @@ def touch_presence(user: dict[str, Any] | None, *, path: str = "") -> None:
             _FLUSHED[user_id] = now.timestamp()
     if due:
         def _flush() -> None:
-            with session_scope() as session:
-                row = session.get(User, user_id)
-                if row is not None:
-                    row.last_seen_at = now
+            try:
+                def _write() -> None:
+                    with session_scope() as session:
+                        row = session.get(User, user_id)
+                        if row is not None:
+                            row.last_seen_at = now
 
-        try:
-            retry_on_sqlite_lock(_flush)
-        except Exception:
-            pass
+                retry_on_sqlite_lock(_write)
+            except Exception:
+                pass
+
+        threading.Thread(target=_flush, name=f"presence-flush-{user_id}", daemon=True).start()
 
 
 def drop_presence(user_id: int | None) -> None:

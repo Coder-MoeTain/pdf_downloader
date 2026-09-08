@@ -313,8 +313,8 @@
   }
   pollProgress();
   pollQueue();
-  setInterval(pollProgress, 700);
-  setInterval(pollQueue, 1500);
+  setInterval(pollProgress, 1200);
+  setInterval(pollQueue, 2500);
 
   var crawlForm = document.getElementById("crawlForm");
   var crawlGrid = document.getElementById("crawlSourceGrid");

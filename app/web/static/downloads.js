@@ -187,5 +187,5 @@
   var logsEl = document.getElementById("downloadLogs");
   if (logsEl) logsEl.scrollTop = logsEl.scrollHeight;
   pollProgress();
-  setInterval(pollProgress, 800);
+  setInterval(pollProgress, 1500);
 })();

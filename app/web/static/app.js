@@ -414,5 +414,5 @@
       .catch(function () {});
   }
   pollNavLive();
-  setInterval(pollNavLive, 1000);
+  setInterval(pollNavLive, 2500);
 })();

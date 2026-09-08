@@ -37,6 +37,9 @@ _PBKDF2_ITERATIONS = 120_000
 
 _oauth = None
 _oauth_key: tuple[str, str] | None = None
+_user_count_cache: int | None = None
+_user_count_cache_at: float = 0.0
+_USER_COUNT_TTL_SECONDS = 30.0
 
 
 def google_login_enabled() -> bool:
@@ -67,16 +70,33 @@ def is_admin_email(email: str | None) -> bool:
     return email.strip().lower() in admin_emails()
 
 
+def invalidate_user_count_cache() -> None:
+    global _user_count_cache, _user_count_cache_at
+    _user_count_cache = None
+    _user_count_cache_at = 0.0
+
+
 def current_user(request: Request) -> dict[str, Any] | None:
     user = request.session.get("user")
     return user if isinstance(user, dict) else None
 
 
 def user_count() -> int:
+    """Cached user count so auth middleware does not hit the DB on every request."""
+    global _user_count_cache, _user_count_cache_at
+    import time
+
+    now = time.monotonic()
+    if _user_count_cache is not None and (now - _user_count_cache_at) < _USER_COUNT_TTL_SECONDS:
+        return _user_count_cache
+
     from app.database.connection import session_scope
 
     with session_scope() as session:
-        return int(session.scalar(select(func.count(User.id))) or 0)
+        count = int(session.scalar(select(func.count(User.id))) or 0)
+    _user_count_cache = count
+    _user_count_cache_at = now
+    return count
 
 
 def auth_required() -> bool:
@@ -214,6 +234,7 @@ def upsert_google_user(
             role=ROLE_ADMIN if admin else ROLE_USER,
         )
         session.add(row)
+        invalidate_user_count_cache()
     else:
         row.google_id = google_id or row.google_id
         row.email = email or row.email
@@ -260,6 +281,7 @@ def create_local_user(
     )
     session.add(row)
     session.flush()
+    invalidate_user_count_cache()
     return row
 
 

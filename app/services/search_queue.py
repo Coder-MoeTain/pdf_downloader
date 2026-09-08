@@ -173,6 +173,13 @@ def search_progress_snapshot(job_id: int) -> dict[str, Any] | None:
         return db_job_progress_snapshot(job, position=pos)
 
 
+def _run_search_sync(filters: SearchFilters, user_id: int | None, progress) -> Any:
+    """Execute a search on a worker thread with its own event loop."""
+    return asyncio.run(
+        SearchService(progress=progress).run(filters, user_id=user_id, skip_progress_start=True)
+    )
+
+
 async def _run_job(job_id: int) -> None:
     async with _lock:
         if job_id in _running_job_ids:
@@ -205,8 +212,8 @@ async def _run_job(job_id: int) -> None:
             raise SearchCancelled("Search stopped.")
         progress.log(f"Search job #{job_id} started for {query}", "info")
 
-        service = SearchService(progress=progress)
-        stats = await service.run(filters, user_id=user_id, skip_progress_start=True)
+        # Run off the uvicorn event loop so page loads stay responsive.
+        stats = await asyncio.to_thread(_run_search_sync, filters, user_id, progress)
 
         with session_scope() as session:
             row = get_search_job(session, job_id)
@@ -255,15 +262,16 @@ async def _run_job(job_id: int) -> None:
 async def _dispatch_pending() -> None:
     from app.config import get_runtime_config
 
+    def _claim(max_per_user: int) -> int | None:
+        with session_scope() as session:
+            job = claim_next_search_job(session, max_per_user=max_per_user)
+            return job.id if job is not None else None
+
     while True:
         cfg = get_runtime_config()
         max_per_user = max(1, int(getattr(cfg, "max_concurrent_search_jobs_per_user", 1) or 1))
         for _ in range(32):
-            job_id: int | None = None
-            with session_scope() as session:
-                job = claim_next_search_job(session, max_per_user=max_per_user)
-                if job is not None:
-                    job_id = job.id
+            job_id = await asyncio.to_thread(_claim, max_per_user)
             if job_id is None:
                 break
             task = asyncio.create_task(_run_job(job_id))
