@@ -117,6 +117,7 @@ from app.services.search_queue import (
 )
 from app.services.search_service import SearchService, filters_from_cli
 from app.services.library_reset import reset_library_repository
+from app.services.missing_pdf_cleanup import cleanup_missing_pdf_records
 from app.services.system_health import collect_system_health
 from app.services.usage import activity_payload, drop_presence, record_usage, touch_presence
 from app.utils.git_update import GitUpdateError, git_pull, git_status
@@ -1803,6 +1804,39 @@ def settings_reset_repository(request: Request, confirm: str = Form("")):
             f"Library reset complete — removed {stats.papers} papers, "
             f"{stats.search_queries} searches, {stats.search_jobs} search jobs, "
             f"{stats.crawl_jobs} crawl jobs, and {stats.pdf_files_removed} PDF file(s)."
+        ),
+    )
+
+
+@app.post("/settings/cleanup-missing-pdfs")
+def settings_cleanup_missing_pdfs(request: Request, confirm: str = Form("")):
+    if not user_is_admin(request):
+        return RedirectResponse("/", status_code=302)
+    if confirm.strip().upper() != "CLEANUP":
+        return _settings_redirect(
+            "workspace",
+            "Cleanup cancelled — type CLEANUP in the confirmation box.",
+            "warning",
+        )
+    try:
+        stats = cleanup_missing_pdf_records()
+    except Exception as exc:
+        return _settings_redirect("workspace", f"Cleanup failed: {exc}", "danger")
+    record_usage(
+        request,
+        "cleanup",
+        f"{stats.downloads_cleared} missing downloads, {stats.papers_updated} papers",
+    )
+    if not stats.downloads_cleared and not stats.papers_updated:
+        return _settings_redirect(
+            "workspace",
+            "No missing PDF records found — every downloaded entry still has a file on disk.",
+        )
+    return _settings_redirect(
+        "workspace",
+        (
+            f"Removed {stats.downloads_cleared} download record(s) whose PDF file is missing, "
+            f"and updated {stats.papers_updated} paper(s) so they can be downloaded again."
         ),
     )
 

@@ -88,6 +88,21 @@
       </div>
     </form>
 
+    <form method="post" action="/settings/cleanup-missing-pdfs" class="card danger-zone mt-4" data-busy="Cleaning…">
+      <div class="card-body">
+        <div class="reset-row">
+          <div>
+            <h2 class="danger-title">Remove missing PDFs</h2>
+            <p class="paper-meta mb-0">Deletes download records marked as saved when the PDF file is no longer on this server. Paper metadata is kept so you can download again.</p>
+          </div>
+          <div class="reset-actions">
+            <input class="form-control" id="cleanup_confirm" name="confirm" autocomplete="off" placeholder="Type CLEANUP" aria-label="Type CLEANUP to confirm" required>
+            <button class="btn btn-outline-danger" type="submit">Clean up</button>
+          </div>
+        </div>
+      </div>
+    </form>
+
     <form method="post" action="/settings/reset" class="card danger-zone mt-4" data-busy="Resetting…">
       <div class="card-body">
         <div class="reset-row">
