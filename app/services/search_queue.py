@@ -301,10 +301,10 @@ def enqueue_search(*, user_id: int | None, query: str, filters: dict) -> int:
     return job_id
 
 
-def _interrupt_running_job(job_id: int) -> None:
-    task = _running_tasks.get(job_id)
-    if task is not None and not task.done():
-        task.cancel()
+def _signal_running_job_stop(job_id: int) -> None:
+    """Ask a running search to stop cooperatively (do not cancel the worker thread awaiter)."""
+    prog = job_registry.get_or_create(job_id)
+    prog.request_cancel()
 
 
 def cancel_search(job_id: int, *, user_id: int | None, is_admin: bool = False) -> str:
@@ -324,17 +324,14 @@ def cancel_search(job_id: int, *, user_id: int | None, is_admin: bool = False) -
             return was
 
     _cancel_requested.add(job_id)
-    prog = job_registry.get(job_id)
-    if prog:
-        prog.request_cancel()
     try:
         running_loop = asyncio.get_running_loop()
     except RuntimeError:
         running_loop = None
     if running_loop is not None:
-        _interrupt_running_job(job_id)
+        _signal_running_job_stop(job_id)
     elif _loop is not None and _loop.is_running():
-        _loop.call_soon_threadsafe(_interrupt_running_job, job_id)
+        _loop.call_soon_threadsafe(_signal_running_job_stop, job_id)
     else:
-        _interrupt_running_job(job_id)
+        _signal_running_job_stop(job_id)
     return was

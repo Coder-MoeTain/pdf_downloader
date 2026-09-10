@@ -175,9 +175,14 @@ def crawl_progress_snapshot(job_id: int) -> dict[str, Any] | None:
 
 def _run_crawl_sync(filters: CrawlFilters, user_id: int | None, progress) -> Any:
     """Execute a crawl on a worker thread with its own event loop."""
-    return asyncio.run(
-        CrawlService(progress=progress).run(filters, user_id=user_id, skip_progress_start=True)
-    )
+    try:
+        return asyncio.run(
+            CrawlService(progress=progress).run(filters, user_id=user_id, skip_progress_start=True)
+        )
+    except CrawlCancelled:
+        # Ensure the cancel flag stays set for any late observers.
+        progress.request_cancel("Stopping crawl…")
+        raise
 
 
 async def _run_job(job_id: int) -> None:
@@ -214,11 +219,15 @@ async def _run_job(job_id: int) -> None:
             progress.log(f"Crawl job #{job_id} started for {source}", "info")
 
         # Run off the uvicorn event loop so page loads stay responsive.
+        # Do not cancel this awaiter — cooperative stop via progress.request_cancel().
         stats = await asyncio.to_thread(_run_crawl_sync, filters, user_id, progress)
 
         with session_scope() as session:
             row = get_crawl_job(session, job_id)
             if row is None or row.status == "cancelled":
+                prog = crawl_job_registry.get(job_id)
+                if prog and prog.snapshot().get("phase") != "cancelled":
+                    prog.finish_crawl(cancelled=True)
                 return
             complete_crawl_job(
                 session,
@@ -237,13 +246,16 @@ async def _run_job(job_id: int) -> None:
             prog.finish_crawl(cancelled=True)
         with session_scope() as session:
             complete_crawl_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+        logger.info("Crawl job %s stopped", job_id)
     except asyncio.CancelledError:
+        # Only cooperative cancel stops the worker thread; still mark cancelled if the task dies.
         prog = crawl_job_registry.get(job_id)
         if prog:
             prog.request_cancel("Stopping crawl…")
             prog.finish_crawl(cancelled=True)
         with session_scope() as session:
             complete_crawl_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+        raise
     except Exception as exc:
         logger.exception("Crawl job %s failed", job_id)
         prog = crawl_job_registry.get(job_id)
@@ -302,10 +314,10 @@ def enqueue_crawl(*, user_id: int | None, filters: CrawlFilters, scheduled: bool
     return job_id
 
 
-def _interrupt_running_job(job_id: int) -> None:
-    task = _running_tasks.get(job_id)
-    if task is not None and not task.done():
-        task.cancel()
+def _signal_running_job_stop(job_id: int) -> None:
+    """Ask a running crawl to stop cooperatively (do not cancel the worker thread awaiter)."""
+    prog = crawl_job_registry.get_or_create(job_id)
+    prog.request_cancel("Stopping crawl…")
 
 
 def cancel_crawl(job_id: int, *, user_id: int | None, is_admin: bool = False) -> str:
@@ -324,17 +336,14 @@ def cancel_crawl(job_id: int, *, user_id: int | None, is_admin: bool = False) ->
             return was
 
     _cancel_requested.add(job_id)
-    prog = crawl_job_registry.get(job_id)
-    if prog:
-        prog.request_cancel("Stopping crawl…")
     try:
         running_loop = asyncio.get_running_loop()
     except RuntimeError:
         running_loop = None
     if running_loop is not None:
-        _interrupt_running_job(job_id)
+        _signal_running_job_stop(job_id)
     elif _loop is not None and _loop.is_running():
-        _loop.call_soon_threadsafe(_interrupt_running_job, job_id)
+        _loop.call_soon_threadsafe(_signal_running_job_stop, job_id)
     else:
-        _interrupt_running_job(job_id)
+        _signal_running_job_stop(job_id)
     return was

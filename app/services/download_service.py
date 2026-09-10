@@ -31,6 +31,14 @@ from app.services.progress import (
 logger = get_logger("app.download")
 
 
+class ParallelDownloadAborted(Exception):
+    """Raised when a parent search/crawl job asks the PDF batch to stop."""
+
+
+class DownloadError(RuntimeError):
+    pass
+
+
 def _clip_url(url: str, limit: int = 96) -> str:
     value = (url or "").strip()
     if len(value) <= limit:
@@ -62,10 +70,6 @@ def _progress_log(message: str, level: str = "info") -> None:
 
     if download_batch_is_owned() or download_tracker.snapshot().get("active"):
         download_tracker.log(message, level)
-
-
-class DownloadError(RuntimeError):
-    pass
 
 
 class DownloadService:
@@ -634,6 +638,10 @@ async def download_papers_parallel(
     if use_download_tracker:
         # Wait for any other Downloads-page batch so we never finish_batch mid-flight.
         while True:
+            if job_progress is not None and job_progress.is_cancelled():
+                raise ParallelDownloadAborted("Stopped by user")
+            if checkpoint is not None:
+                await checkpoint()
             batch_token = try_claim_download_batch(total, "Downloading open-access PDFs")
             if batch_token is not None:
                 track_downloads = True
@@ -643,6 +651,8 @@ async def download_papers_parallel(
     async def _run_one(paper_id: int, paper: PaperRecord) -> tuple[int, PaperRecord]:
         nonlocal completed
         async with sem:
+            if job_progress is not None and job_progress.is_cancelled():
+                raise ParallelDownloadAborted("Stopped by user")
             if download_stop_requested():
                 from app.database.connection import session_scope
                 from app.database.models import Paper as DbPaper
@@ -721,6 +731,7 @@ async def download_papers_parallel(
                     )
             return paper_id, updated
 
+    aborted: BaseException | None = None
     try:
         gathered = await asyncio.gather(
             *[_run_one(pid, paper) for pid, paper in jobs],
@@ -728,7 +739,14 @@ async def download_papers_parallel(
         )
         results: list[tuple[int, PaperRecord]] = []
         for (paper_id, paper), outcome in zip(jobs, gathered):
+            if isinstance(outcome, ParallelDownloadAborted):
+                aborted = outcome
+                continue
             if isinstance(outcome, BaseException):
+                # Crawl/search checkpoints raise domain cancel errors mid-download.
+                if outcome.__class__.__name__ in {"CrawlCancelled", "SearchCancelled"}:
+                    aborted = outcome
+                    continue
                 paper.status = PaperStatus.FAILED
                 paper.extra["error"] = str(outcome) or outcome.__class__.__name__
                 if track_downloads:
@@ -742,8 +760,12 @@ async def download_papers_parallel(
                 results.append((paper_id, paper))
             else:
                 results.append(outcome)
+        if aborted is not None:
+            raise aborted
     finally:
-        cancelled = download_stop_requested()
+        cancelled = download_stop_requested() or (
+            job_progress is not None and job_progress.is_cancelled()
+        )
         release_download_batch(batch_token)
         if cancelled:
             from app.database.connection import session_scope

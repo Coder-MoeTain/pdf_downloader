@@ -26,7 +26,12 @@ from app.models.paper import PaperRecord, PaperStatus
 from app.models.search import SearchFilters, SearchStats
 from app.providers import build_providers
 from app.services.dedup_service import deduplicate
-from app.services.download_service import DownloadService, download_papers_parallel, write_topic_metadata_csv
+from app.services.download_service import (
+    DownloadService,
+    ParallelDownloadAborted,
+    download_papers_parallel,
+    write_topic_metadata_csv,
+)
 from app.services.export_service import ExportService
 from app.services.oa_service import OpenAccessService
 from app.services.progress import ProgressTracker, tracker
@@ -220,6 +225,8 @@ class SearchService:
                             downloaded_ids.append(paper_id)
                         elif updated.status == PaperStatus.FAILED:
                             stats.failed_downloads += 1
+                except ParallelDownloadAborted as exc:
+                    raise SearchCancelled(str(exc) or "Search stopped.") from exc
                 finally:
                     snap = self._progress.snapshot()
                     self._progress.log(

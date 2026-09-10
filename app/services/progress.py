@@ -19,7 +19,7 @@ def _clip(text: str, limit: int = 88) -> str:
 
 class ProgressTracker:
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._state: dict[str, Any] = self._empty()
 
     def _empty(self) -> dict[str, Any]:

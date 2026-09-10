@@ -12,7 +12,7 @@ from app.database.repository import filter_new_paper_records, invalidate_library
 from app.models.crawl import CrawlFilters, CrawlStats
 from app.models.paper import PaperRecord, PaperStatus
 from app.providers import build_providers
-from app.services.download_service import DownloadService, download_papers_parallel
+from app.services.download_service import DownloadService, ParallelDownloadAborted, download_papers_parallel
 from app.services.oa_service import OpenAccessService
 from app.services.progress import ProgressTracker, tracker
 from app.utils.http import AsyncHttpClient
@@ -123,9 +123,11 @@ class CrawlService:
 
                 page_new: list[PaperRecord] = []
                 if filters.skip_existing and page.records:
+                    await self._checkpoint()
                     with session_scope() as session:
                         page_new = filter_new_paper_records(session, page.records)
                     stats.skipped_existing += len(page.records) - len(page_new)
+                    await self._checkpoint()
                 else:
                     page_new = list(page.records)
 
@@ -185,6 +187,7 @@ class CrawlService:
 
                     self._progress.set_phase("storing", f"Saving {len(to_save)} papers…", percent=80)
                     to_download: list[tuple[int, PaperRecord]] = []
+                    await self._checkpoint()
                     with session_scope() as session:
                         for paper in to_save:
                             db_paper = save_paper(session, paper)
@@ -197,6 +200,7 @@ class CrawlService:
                             ):
                                 to_download.append((db_paper.id, paper))
                     invalidate_library_facets_cache()
+                    await self._checkpoint()
 
                     if to_download:
                         # Do not call start_batch/finish_batch on crawl progress —
@@ -209,16 +213,19 @@ class CrawlService:
                             total=len(to_download),
                             log=True,
                         )
-                        results = await download_papers_parallel(
-                            downloader,
-                            to_download,
-                            topic_slug=filters.topic_slug,
-                            max_file_size=max_size,
-                            user_id=user_id,
-                            job_progress=self._progress,
-                            use_download_tracker=True,
-                            checkpoint=self._checkpoint,
-                        )
+                        try:
+                            results = await download_papers_parallel(
+                                downloader,
+                                to_download,
+                                topic_slug=filters.topic_slug,
+                                max_file_size=max_size,
+                                user_id=user_id,
+                                job_progress=self._progress,
+                                use_download_tracker=True,
+                                checkpoint=self._checkpoint,
+                            )
+                        except ParallelDownloadAborted as exc:
+                            raise CrawlCancelled(str(exc) or "Source crawl stopped.") from exc
                         for _paper_id, updated in results:
                             if updated.status == PaperStatus.DOWNLOADED:
                                 stats.pdfs_downloaded += 1
@@ -289,9 +296,16 @@ class CrawlService:
                     logger.warning("OA resolve failed for %s: %s", paper.title[:60], exc)
 
         tasks = [asyncio.create_task(_resolve_one(paper)) for paper in papers]
-        for fut in asyncio.as_completed(tasks):
-            await self._checkpoint()
-            await fut
+        try:
+            for fut in asyncio.as_completed(tasks):
+                await self._checkpoint()
+                await fut
+        except CrawlCancelled:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
 
 def filters_from_form(
