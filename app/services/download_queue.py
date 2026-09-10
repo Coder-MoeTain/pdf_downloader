@@ -22,7 +22,7 @@ class DownloadJob:
     kind: Literal["oa", "resume"] = "oa"
     search_id: int | None = None
     user_id: int | None = None
-    limit: int = 100
+    limit: int = 0
 
 
 def oa_download_active() -> bool:
@@ -35,11 +35,11 @@ def enqueue_oa_download(*, search_id: int | None, user_id: int | None) -> bool:
     global _running
     if _running or oa_download_active():
         return False
-    _queue.put_nowait(DownloadJob(kind="oa", search_id=search_id, user_id=user_id))
+    _queue.put_nowait(DownloadJob(kind="oa", search_id=search_id, user_id=user_id, limit=0))
     return True
 
 
-def enqueue_resume_downloads(*, user_id: int | None, limit: int = 100) -> bool:
+def enqueue_resume_downloads(*, user_id: int | None, limit: int = 0) -> bool:
     """Queue a resume of stuck DOWNLOADING papers. Returns False when busy."""
     if _running or oa_download_active():
         return False
@@ -50,7 +50,9 @@ def enqueue_resume_downloads(*, user_id: int | None, limit: int = 100) -> bool:
 def _run_batch_sync(job: DownloadJob) -> dict[str, int]:
     if job.kind == "resume":
         return asyncio.run(resume_downloading_papers(user_id=job.user_id, limit=job.limit))
-    return asyncio.run(download_open_access_papers(search_id=job.search_id, user_id=job.user_id))
+    return asyncio.run(
+        download_open_access_papers(search_id=job.search_id, user_id=job.user_id, limit=job.limit)
+    )
 
 
 async def _worker_loop() -> None:

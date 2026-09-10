@@ -15,6 +15,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
+def resolve_download_limit(limit: int | None = None, *, fallback: int = 0) -> int | None:
+    """Return a positive PDF download cap, or None when unlimited (0 / unset)."""
+    value = fallback if limit is None else int(limit)
+    if value <= 0:
+        return None
+    return value
+
+
 class EnvSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=str(ROOT_DIR / ".env"),
@@ -121,7 +129,7 @@ class AppConfig(BaseModel):
     fulltext_dir: Path = Path("data/fulltext")
     min_pdf_size_bytes: int = 2048
     max_file_size_bytes: int = 150 * 1024 * 1024
-    download_limit: int = 100
+    download_limit: int = 0
     max_filename_length: int = 120
     prefer_https: bool = True
     check_robots_txt: bool = True
@@ -221,7 +229,7 @@ def load_config(config_path: str | Path | None = None) -> AppConfig:
         fulltext_dir=Path(app.get("fulltext_dir", "data/fulltext")),
         min_pdf_size_bytes=int(app.get("min_pdf_size_bytes", 2048)),
         max_file_size_bytes=parse_size(app.get("max_file_size")),
-        download_limit=int(app.get("download_limit", 100)),
+        download_limit=int(app.get("download_limit", 0)),
         max_filename_length=int(app.get("max_filename_length", 120)),
         prefer_https=bool(app.get("prefer_https", True)),
         check_robots_txt=bool(app.get("check_robots_txt", True)),

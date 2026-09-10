@@ -404,8 +404,10 @@ def _print_stats() -> None:
 
 
 async def _download_pending(download_limit: int | None, max_file_size: str | None) -> None:
+    from app.config import resolve_download_limit
+
     cfg = get_runtime_config()
-    limit = download_limit or cfg.download_limit
+    cap = resolve_download_limit(download_limit, fallback=cfg.download_limit)
     max_size = parse_size(max_file_size, cfg.max_file_size_bytes) if max_file_size else cfg.max_file_size_bytes
     async with AsyncHttpClient(cfg) as client:
         downloader = DownloadService(client, cfg)
@@ -414,8 +416,9 @@ async def _download_pending(download_limit: int | None, max_file_size: str | Non
                 select(Paper)
                 .options(selectinload(Paper.authors).selectinload(PaperAuthor.author), selectinload(Paper.downloads))
                 .where(Paper.status.in_(["OA_AVAILABLE", "FOUND"]))
-                .limit(limit)
             )
+            if cap is not None:
+                stmt = stmt.limit(cap)
             papers = session.scalars(stmt).unique().all()
             count = 0
             for paper in papers:

@@ -164,7 +164,12 @@ class SearchService:
             search_id = 0
             persisted: list[tuple[int, PaperRecord]] = []
             downloader = DownloadService(client, self.config)
-            download_limit = filters.download_limit or self.config.download_limit
+            from app.config import resolve_download_limit
+
+            download_cap = resolve_download_limit(
+                filters.download_limit,
+                fallback=self.config.download_limit,
+            )
             max_size = filters.max_file_size or self.config.max_file_size_bytes
             to_download: list[tuple[int, PaperRecord]] = []
             with session_scope() as session:
@@ -189,7 +194,8 @@ class SearchService:
                 ]
                 if filters.open_access_only:
                     to_download = [item for item in to_download if item[1].open_access]
-                to_download = to_download[:download_limit]
+                if download_cap is not None:
+                    to_download = to_download[:download_cap]
                 if not (filters.download and to_download):
                     complete_search_query(session, search_row.id)
 
@@ -484,7 +490,7 @@ def filters_from_cli(
         min_citations=min_citations,
         sort=sort_mode,
         download=not no_download,
-        download_limit=download_limit or cfg.download_limit,
+        download_limit=cfg.download_limit if download_limit is None else download_limit,
         max_file_size=size,
         topic_name=topic_name,
     )

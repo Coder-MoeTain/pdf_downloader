@@ -96,6 +96,9 @@ def seed_default_settings() -> None:
         for key, value, group, secret in defaults:
             if key not in existing:
                 set_setting(session, key, value, group=group, secret=secret)
+        # Legacy installs seeded download_limit=100; 0 means unlimited.
+        if existing.get("download_limit") == "100":
+            set_setting(session, "download_limit", 0, group="search")
 
 
 def seed_academic_sources() -> None:
@@ -338,7 +341,7 @@ def save_search_settings(data: dict[str, Any]) -> None:
         return value
 
     with settings_session() as session:
-        set_setting(session, "download_limit", _int("download_limit", 1, 1000), group="search")
+        set_setting(session, "download_limit", _int("download_limit", 0, 100000), group="search")
         set_setting(session, "default_max_results", _int("default_max_results", 1, 500), group="search")
         raw_size = str(data.get("max_file_size") or "").strip() or "150MB"
         try:

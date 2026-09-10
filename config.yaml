@@ -9,7 +9,7 @@ app:
   fulltext_dir: data/fulltext
   min_pdf_size_bytes: 2048
   max_file_size: 150MB
-  download_limit: 100
+  download_limit: 0
   max_filename_length: 120
   prefer_https: true
   check_robots_txt: true

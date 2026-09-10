@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 from sqlalchemy.orm import Session
 
-from app.config import AppConfig, get_runtime_config
+from app.config import AppConfig, get_runtime_config, resolve_download_limit
 from app.database.models import Download, Paper
 from app.database.repository import find_downloaded_by_sha256, upsert_download
 from app.models.paper import PaperRecord, PaperStatus
@@ -819,7 +819,7 @@ async def download_open_access_papers(
     from sqlalchemy.orm import selectinload
 
     cfg = get_runtime_config()
-    cap = limit or cfg.download_limit
+    cap = resolve_download_limit(limit, fallback=cfg.download_limit)
     stats = {"attempted": 0, "downloaded": 0, "failed": 0, "skipped": 0}
     async with AsyncHttpClient(cfg) as client:
         downloader = DownloadService(client, cfg)
@@ -836,7 +836,9 @@ async def download_open_access_papers(
                 stmt = stmt.join(SearchResult, SearchResult.paper_id == Paper.id).where(
                     SearchResult.search_query_id == search_id
                 )
-            papers = session.scalars(stmt.limit(cap)).unique().all()
+            if cap is not None:
+                stmt = stmt.limit(cap)
+            papers = session.scalars(stmt).unique().all()
             jobs = [(paper.id, paper_to_record(paper)) for paper in papers]
             ready = [(paper_id, record) for paper_id, record in jobs if record.pdf_url]
             stats["skipped"] += len(jobs) - len(ready)
@@ -864,7 +866,7 @@ async def download_open_access_papers(
 
 async def resume_downloading_papers(
     *,
-    limit: int = 100,
+    limit: int | None = None,
     topic_slug: str = "library",
     user_id: int | None = None,
     statuses: tuple[str, ...] = (PaperStatus.DOWNLOADING.value,),
@@ -877,26 +879,24 @@ async def resume_downloading_papers(
     from sqlalchemy.orm import selectinload
 
     cfg = get_runtime_config()
-    cap = max(1, min(int(limit or 100), 500))
+    cap = resolve_download_limit(limit, fallback=cfg.download_limit)
     stats = {"attempted": 0, "downloaded": 0, "failed": 0, "skipped": 0}
     async with AsyncHttpClient(cfg) as client:
         downloader = DownloadService(client, cfg)
         with session_scope() as session:
-            papers = (
-                session.scalars(
-                    select(Paper)
-                    .join(Download, Download.paper_id == Paper.id)
-                    .options(
-                        selectinload(Paper.authors).selectinload(PaperAuthor.author),
-                        selectinload(Paper.downloads),
-                    )
-                    .where(Download.status.in_(list(statuses)))
-                    .order_by(Download.id.desc())
-                    .limit(cap)
+            stmt = (
+                select(Paper)
+                .join(Download, Download.paper_id == Paper.id)
+                .options(
+                    selectinload(Paper.authors).selectinload(PaperAuthor.author),
+                    selectinload(Paper.downloads),
                 )
-                .unique()
-                .all()
+                .where(Download.status.in_(list(statuses)))
+                .order_by(Download.id.desc())
             )
+            if cap is not None:
+                stmt = stmt.limit(cap)
+            papers = session.scalars(stmt).unique().all()
             jobs = [(paper.id, paper_to_record(paper)) for paper in papers]
             ready = [(paper_id, record) for paper_id, record in jobs if record.pdf_url]
             stats["skipped"] += len(jobs) - len(ready)

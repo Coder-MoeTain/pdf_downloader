@@ -1323,7 +1323,7 @@ async def downloads_resume(request: Request):
         message = "A PDF download is already running. Stop it first, or wait for it to finish."
         level = "warning"
         ok = False
-    elif enqueue_resume_downloads(user_id=user_id, limit=100):
+    elif enqueue_resume_downloads(user_id=user_id, limit=0):
         message = "Resuming stuck downloads. Watch the live log on this page."
         level = "info"
         ok = True
@@ -1901,7 +1901,7 @@ def settings_delete_papers_without_pdf(request: Request, confirm: str = Form("")
 
 @app.post("/settings/search")
 def settings_save_search(
-    download_limit: int = Form(100),
+    download_limit: int = Form(0),
     default_max_results: int = Form(50),
     max_file_size: str = Form("150MB"),
     max_concurrent_requests: int = Form(5),

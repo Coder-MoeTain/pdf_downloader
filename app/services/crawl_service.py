@@ -97,7 +97,12 @@ class CrawlService:
 
             oa = OpenAccessService(client, self.config)
             downloader = DownloadService(client, self.config)
-            download_limit = filters.download_limit or self.config.download_limit
+            from app.config import resolve_download_limit
+
+            download_cap = resolve_download_limit(
+                filters.download_limit,
+                fallback=self.config.download_limit,
+            )
             max_size = filters.max_file_size or self.config.max_file_size_bytes
             downloaded_count = 0
             cursor: str | None = None
@@ -195,7 +200,7 @@ class CrawlService:
                             stats.new_papers += 1
                             if (
                                 filters.download
-                                and downloaded_count < download_limit
+                                and (download_cap is None or downloaded_count < download_cap)
                                 and has_downloadable_pdf(paper)
                             ):
                                 to_download.append((db_paper.id, paper))
