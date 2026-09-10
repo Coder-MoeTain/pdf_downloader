@@ -49,3 +49,29 @@ def test_library_facets_are_cached(tmp_db):
         second = library_facets(session)
     assert first["visible_total"] == second["visible_total"] == 1
     assert first["categories"][0]["name"] == "Cybersecurity"
+
+
+def test_dashboard_stats_are_cached(tmp_db):
+    from app.database.repository import dashboard_stats
+    from fastapi.testclient import TestClient
+    from app.web import app
+
+    with session_scope() as session:
+        save_paper(
+            session,
+            PaperRecord(
+                title="Dash paper",
+                doi="10.1000/dash",
+                publication_year=2024,
+                status=PaperStatus.OA_AVAILABLE,
+                open_access=True,
+            ),
+        )
+        invalidate_library_facets_cache()
+        first = dashboard_stats(session)
+        second = dashboard_stats(session)
+    assert first["total"] == second["total"] == 1
+    client = TestClient(app)
+    page = client.get("/")
+    assert page.status_code == 200
+    assert "Dash paper" in page.text or "Papers in library" in page.text

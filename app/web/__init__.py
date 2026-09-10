@@ -50,6 +50,7 @@ from app.database.repository import (
     count_search_jobs,
     crawl_job_is_scheduled,
     crawl_job_keyword,
+    dashboard_stats,
     delete_library_paper,
     download_user_options,
     downloadable_clause,
@@ -540,68 +541,42 @@ def _ctx(request: Request, **extra):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
-    visible = visible_paper_clauses()
-    with session_scope() as session:
-        stored_total = session.scalar(select(func.count(Paper.id))) or 0
-        total = session.scalar(select(func.count(Paper.id)).where(*visible)) or 0
-        oa = session.scalar(select(func.count(Paper.id)).where(Paper.open_access.is_(True), *visible)) or 0
-        downloadable = session.scalar(select(func.count(Paper.id)).where(downloadable_clause(), *visible)) or 0
-        downloaded = downloadable
-        paywalled = session.scalar(select(func.count(Paper.id)).where(Paper.status == "PAYWALLED")) or 0
-        failed = session.scalar(select(func.count(Download.id)).where(Download.status == "FAILED")) or 0
-        searches = session.scalar(select(func.count(SearchQuery.id))) or 0
-        no_year = session.scalar(
-            select(func.count(Paper.id)).where(Paper.publication_year.is_(None), *visible)
-        ) or 0
-        years = session.execute(
-            select(Paper.publication_year, func.count(Paper.id))
-            .where(Paper.publication_year.is_not(None), *visible)
-            .group_by(Paper.publication_year)
-            .order_by(Paper.publication_year)
-        ).all()
-        publishers = session.execute(
-            select(Paper.publisher, func.count(Paper.id))
-            .where(Paper.publisher.is_not(None), Paper.publisher != "", *visible)
-            .group_by(Paper.publisher)
-            .order_by(func.count(Paper.id).desc())
-            .limit(6)
-        ).all()
-        journals = session.execute(
-            select(Paper.journal, func.count(Paper.id))
-            .where(Paper.journal.is_not(None), Paper.journal != "", *visible)
-            .group_by(Paper.journal)
-            .order_by(func.count(Paper.id).desc())
-            .limit(6)
-        ).all()
-        authors = session.execute(
-            select(Author.name, func.count(PaperAuthor.id))
-            .join(PaperAuthor, PaperAuthor.author_id == Author.id)
-            .join(Paper, Paper.id == PaperAuthor.paper_id)
-            .where(*visible)
-            .group_by(Author.name)
-            .order_by(func.count(PaperAuthor.id).desc())
-            .limit(6)
-        ).all()
-        status_rows = session.execute(
-            select(Paper.status, func.count(Paper.id)).where(*visible).group_by(Paper.status)
-        ).all()
-        top_cited = session.scalars(
-            select(Paper)
-            .where(Paper.citation_count.is_not(None), *visible)
-            .order_by(Paper.citation_count.desc())
-            .limit(6)
-        ).all()
-        recent = session.scalars(select(SearchQuery).order_by(SearchQuery.created_at.desc()).limit(6)).all()
-        topics = session.execute(
-            select(SearchQuery.original_query, func.count(SearchQuery.id))
-            .group_by(SearchQuery.original_query)
-            .order_by(func.count(SearchQuery.id).desc())
-            .limit(6)
-        ).all()
+    def _load() -> dict:
+        with session_scope() as session:
+            return dashboard_stats(session)
 
+    try:
+        stats = retry_on_sqlite_lock(_load)
+    except OperationalError:
+        stats = {
+            "stored_total": 0,
+            "total": 0,
+            "downloadable": 0,
+            "paywalled": 0,
+            "oa": 0,
+            "failed": 0,
+            "searches": 0,
+            "no_year": 0,
+            "status_counts": {},
+            "years": [],
+            "publishers": [],
+            "journals": [],
+            "authors": [],
+            "top_cited": [],
+            "recent": [],
+            "topics": [],
+        }
+
+    total = int(stats["total"])
+    stored_total = int(stats["stored_total"])
+    downloadable = int(stats["downloadable"])
+    paywalled = int(stats["paywalled"])
+    oa = int(stats["oa"])
+    failed = int(stats["failed"])
+    searches = int(stats["searches"])
     year_counts = [
-        {"year": year, "yy": f"{year % 100:02d}", "count": count}
-        for year, count in years
+        {"year": row["year"], "yy": f"{int(row['year']) % 100:02d}", "count": row["count"]}
+        for row in stats["years"]
     ]
     year_max = max((row["count"] for row in year_counts), default=0)
     year_chart = year_counts[-16:]
@@ -614,7 +589,7 @@ def dashboard(request: Request):
             "pct": share(count, total),
             **status_meta(code),
         }
-        for code, count in status_rows
+        for code, count in (stats.get("status_counts") or {}).items()
         if code
     ]
     statuses.sort(key=lambda row: (-row["count"], row["label"]))
@@ -649,6 +624,7 @@ def dashboard(request: Request):
             "hint": "OA metadata / link",
         },
     ]
+    recent = stats["recent"]
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -658,15 +634,24 @@ def dashboard(request: Request):
             kpis=kpis,
             year_chart=year_chart,
             years=year_counts,
-            no_year=no_year,
+            no_year=int(stats["no_year"]),
             statuses=statuses,
-            publishers=[{"name": name, "count": count, "pct": share(count, total)} for name, count in publishers],
-            journals=[{"name": name, "count": count, "pct": share(count, total)} for name, count in journals],
-            authors=[{"name": name, "count": count, "pct": share(count, total)} for name, count in authors],
-            top_cited=top_cited,
+            publishers=[
+                {"name": row["name"], "count": row["count"], "pct": share(row["count"], total)}
+                for row in stats["publishers"]
+            ],
+            journals=[
+                {"name": row["name"], "count": row["count"], "pct": share(row["count"], total)}
+                for row in stats["journals"]
+            ],
+            authors=[
+                {"name": row["name"], "count": row["count"], "pct": share(row["count"], total)}
+                for row in stats["authors"]
+            ],
+            top_cited=stats["top_cited"],
             recent=recent,
             latest_search=recent[0] if recent else None,
-            topics=[{"name": name, "count": count} for name, count in topics],
+            topics=stats["topics"],
             searches=searches,
             downloadable=downloadable,
             failed=failed,
@@ -1016,47 +1001,79 @@ def library_page(
     year = year if year and year > 0 else 0
     user_id = user if user and user > 0 else 0
     latest_search = None
-    with session_scope() as session:
-        latest_search = session.scalar(select(SearchQuery).order_by(SearchQuery.id.desc()).limit(1))
-        use_latest = bool(latest) and latest_search is not None
-        pager = pagination_spec(max(page, 1), 1, per_page)
-        query_kwargs = dict(
-            q=q,
-            status=status,
-            downloadable=downloadable,
-            open_access=open_access,
-            min_rating=min_rating,
-            category=category,
-            year=year or None,
-            source=source,
-            journal=journal,
-            user_id=user_id or None,
-            sort=sort,
-            latest_search_id=latest_search.id if use_latest else None,
-            limit=per_page,
-        )
-        papers, total = query_library(session, offset=0, **query_kwargs)
-        pager = pagination_spec(max(page, 1), total, per_page)
-        if pager["page"] > 1:
-            papers, total = query_library(
-                session, offset=(pager["page"] - 1) * per_page, **query_kwargs
+    papers = []
+    total = 0
+    oa_pending = 0
+    user_options = []
+    use_latest = False
+    pager = pagination_spec(max(page, 1), 1, per_page)
+
+    def _load_library() -> None:
+        nonlocal latest_search, papers, total, oa_pending, user_options, use_latest, pager
+        with session_scope() as session:
+            latest_search = session.scalar(select(SearchQuery).order_by(SearchQuery.id.desc()).limit(1))
+            use_latest = bool(latest) and latest_search is not None
+            pager = pagination_spec(max(page, 1), 1, per_page)
+            query_kwargs = dict(
+                q=q,
+                status=status,
+                downloadable=downloadable,
+                open_access=open_access,
+                min_rating=min_rating,
+                category=category,
+                year=year or None,
+                source=source,
+                journal=journal,
+                user_id=user_id or None,
+                sort=sort,
+                latest_search_id=latest_search.id if use_latest else None,
+                limit=per_page,
             )
-        oa_where = [
-            Paper.pdf_url.is_not(None),
-            Paper.status.in_(["OA_AVAILABLE", "FOUND", "FAILED"]),
-        ]
-        oa_stmt = select(func.count(Paper.id)).where(*oa_where)
-        if use_latest:
-            oa_stmt = (
-                select(func.count(Paper.id))
-                .join(SearchResult, SearchResult.paper_id == Paper.id)
-                .where(SearchResult.search_query_id == latest_search.id, *oa_where)
-            )
-        oa_pending = session.scalar(oa_stmt) or 0
-        user_options = download_user_options(session, include_id=user_id or None)
-    # Facets are cached; use a short separate session so list queries stay brief under crawl load.
-    with session_scope() as session:
-        facets = library_facets(session)
+            papers, total = query_library(session, offset=0, **query_kwargs)
+            pager = pagination_spec(max(page, 1), total, per_page)
+            if pager["page"] > 1:
+                papers, total = query_library(
+                    session, offset=(pager["page"] - 1) * per_page, **query_kwargs
+                )
+            oa_where = [
+                Paper.pdf_url.is_not(None),
+                Paper.status.in_(["OA_AVAILABLE", "FOUND", "FAILED"]),
+            ]
+            oa_stmt = select(func.count(Paper.id)).where(*oa_where)
+            if use_latest:
+                oa_stmt = (
+                    select(func.count(Paper.id))
+                    .join(SearchResult, SearchResult.paper_id == Paper.id)
+                    .where(SearchResult.search_query_id == latest_search.id, *oa_where)
+                )
+            oa_pending = session.scalar(oa_stmt) or 0
+            user_options = download_user_options(session, include_id=user_id or None)
+
+    try:
+        retry_on_sqlite_lock(_load_library)
+    except OperationalError:
+        papers, total, oa_pending, user_options = [], 0, 0, []
+        pager = pagination_spec(1, 0, per_page)
+
+    def _load_facets() -> dict:
+        with session_scope() as session:
+            return library_facets(session)
+
+    try:
+        facets = retry_on_sqlite_lock(_load_facets)
+    except OperationalError:
+        facets = {
+            "categories": [],
+            "years": [],
+            "sources": [],
+            "journals": [],
+            "status_counts": {},
+            "visible_total": 0,
+            "downloadable": 0,
+            "downloaded": 0,
+            "open_access": 0,
+            "paywalled": 0,
+        }
     if category and not any(item["name"] == category for item in facets["categories"]):
         peak = facets["categories"][0]["count"] if facets["categories"] else total or 1
         facets["categories"].insert(

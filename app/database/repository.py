@@ -17,16 +17,21 @@ from app.utils.filename import normalize_title
 from app.utils.time import utc_now
 
 _FACETS_TTL_SECONDS = 45.0
+_DASHBOARD_TTL_SECONDS = 30.0
 _facets_cache: dict | None = None
 _facets_cache_at: float = 0.0
+_dashboard_cache: dict | None = None
+_dashboard_cache_at: float = 0.0
 _facets_lock = threading.Lock()
 
 
 def invalidate_library_facets_cache() -> None:
-    global _facets_cache, _facets_cache_at
+    global _facets_cache, _facets_cache_at, _dashboard_cache, _dashboard_cache_at
     with _facets_lock:
         _facets_cache = None
         _facets_cache_at = 0.0
+        _dashboard_cache = None
+        _dashboard_cache_at = 0.0
 
 
 def _join(values: list[str] | None) -> str | None:
@@ -727,6 +732,121 @@ def library_facets(session: Session, *, force: bool = False) -> dict:
     with _facets_lock:
         _facets_cache = payload
         _facets_cache_at = time.monotonic()
+    return deepcopy(payload)
+
+
+def dashboard_stats(session: Session, *, force: bool = False) -> dict:
+    """Cached dashboard aggregates so the home page stays responsive during crawls."""
+    global _dashboard_cache, _dashboard_cache_at
+    now = time.monotonic()
+    with _facets_lock:
+        if (
+            not force
+            and _dashboard_cache is not None
+            and (now - _dashboard_cache_at) < _DASHBOARD_TTL_SECONDS
+        ):
+            return deepcopy(_dashboard_cache)
+
+    facets = library_facets(session)
+    visible = visible_paper_clauses()
+    stored_total = session.scalar(select(func.count(Paper.id))) or 0
+    oa = session.scalar(select(func.count(Paper.id)).where(Paper.open_access.is_(True), *visible)) or 0
+    failed = session.scalar(select(func.count(Download.id)).where(Download.status == "FAILED")) or 0
+    searches = session.scalar(select(func.count(SearchQuery.id))) or 0
+    no_year = session.scalar(
+        select(func.count(Paper.id)).where(Paper.publication_year.is_(None), *visible)
+    ) or 0
+    years = session.execute(
+        select(Paper.publication_year, func.count(Paper.id))
+        .where(Paper.publication_year.is_not(None), *visible)
+        .group_by(Paper.publication_year)
+        .order_by(Paper.publication_year)
+    ).all()
+    publishers = session.execute(
+        select(Paper.publisher, func.count(Paper.id))
+        .where(Paper.publisher.is_not(None), Paper.publisher != "", *visible)
+        .group_by(Paper.publisher)
+        .order_by(func.count(Paper.id).desc())
+        .limit(6)
+    ).all()
+    journals = session.execute(
+        select(Paper.journal, func.count(Paper.id))
+        .where(Paper.journal.is_not(None), Paper.journal != "", *visible)
+        .group_by(Paper.journal)
+        .order_by(func.count(Paper.id).desc())
+        .limit(6)
+    ).all()
+    authors = session.execute(
+        select(Author.name, func.count(PaperAuthor.id))
+        .select_from(PaperAuthor)
+        .join(Author, Author.id == PaperAuthor.author_id)
+        .join(Paper, Paper.id == PaperAuthor.paper_id)
+        .where(*visible)
+        .group_by(Author.name)
+        .order_by(func.count(PaperAuthor.id).desc())
+        .limit(6)
+    ).all()
+    top_cited_rows = session.execute(
+        select(
+            Paper.title,
+            Paper.doi,
+            Paper.publication_year,
+            Paper.journal,
+            Paper.citation_count,
+        )
+        .where(Paper.citation_count.is_not(None), *visible)
+        .order_by(Paper.citation_count.desc())
+        .limit(6)
+    ).all()
+    recent_rows = session.execute(
+        select(SearchQuery.original_query, SearchQuery.status, SearchQuery.created_at)
+        .order_by(SearchQuery.created_at.desc())
+        .limit(6)
+    ).all()
+    topics = session.execute(
+        select(SearchQuery.original_query, func.count(SearchQuery.id))
+        .group_by(SearchQuery.original_query)
+        .order_by(func.count(SearchQuery.id).desc())
+        .limit(6)
+    ).all()
+
+    payload = {
+        "stored_total": stored_total,
+        "total": int(facets.get("visible_total") or 0),
+        "downloadable": int(facets.get("downloadable") or 0),
+        "paywalled": int(facets.get("paywalled") or 0),
+        "oa": oa,
+        "failed": failed,
+        "searches": searches,
+        "no_year": no_year,
+        "status_counts": dict(facets.get("status_counts") or {}),
+        "years": [{"year": year, "count": count} for year, count in years],
+        "publishers": [{"name": name, "count": count} for name, count in publishers],
+        "journals": [{"name": name, "count": count} for name, count in journals],
+        "authors": [{"name": name, "count": count} for name, count in authors],
+        "top_cited": [
+            {
+                "title": title,
+                "doi": doi,
+                "publication_year": year,
+                "journal": journal,
+                "citation_count": cites,
+            }
+            for title, doi, year, journal, cites in top_cited_rows
+        ],
+        "recent": [
+            {
+                "original_query": query,
+                "status": status,
+                "created_at": created_at,
+            }
+            for query, status, created_at in recent_rows
+        ],
+        "topics": [{"name": name, "count": count} for name, count in topics],
+    }
+    with _facets_lock:
+        _dashboard_cache = payload
+        _dashboard_cache_at = time.monotonic()
     return deepcopy(payload)
 
 
