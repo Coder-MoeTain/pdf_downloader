@@ -5,10 +5,6 @@
 <h1 align="center">Cyber Scholar</h1>
 
 <p align="center">
-  <strong>Myanmar Space Agency</strong>
-</p>
-
-<p align="center">
   Search trusted academic APIs, collect paper metadata, and download only legally available open-access PDFs.
 </p>
 
@@ -26,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/banner.png" alt="Cyber Scholar — Myanmar Space Agency research dashboard" width="100%">
+  <img src="docs/images/banner.png" alt="Cyber Scholar research dashboard" width="100%">
 </p>
 
 <p align="center">
@@ -330,7 +326,7 @@ Sources already pending or running are skipped so jobs do not pile up.
 
 ### Dashboard UI
 
-- **Cyber Scholar** branding with logo, favicon, and **Myanmar Space Agency** subtitle
+- **Cyber Scholar** branding with logo and favicon
 - Redesigned **Dashboard** — KPI cards with icons, quick actions, publications-by-year chart, access mix, and recent searches
 - **Light / dark theme** — sun/moon toggle in the header (and on the login page); preference saved in the browser and applied before first paint to avoid flash
 - **Settings** sidebar navigation with icons for each section
@@ -431,7 +427,7 @@ Unit tests cover DOI/title normalization, deduplication, ranking, merge, filenam
 
 ## License
 
-[MIT](LICENSE) © Cyber Scholar / Myanmar Space Agency contributors
+[MIT](LICENSE) © Cyber Scholar contributors
 
 ---
 
@@ -440,5 +436,5 @@ Unit tests cover DOI/title normalization, deduplication, ranking, merge, filenam
 </p>
 
 <p align="center">
-  <strong>Made with ❤️ by <a href="https://github.com/Coder-MoeTain">Coder-MoeTain</a> · Myanmar Space Agency</strong>
+  <strong>Made with ❤️ by <a href="https://github.com/Coder-MoeTain">Coder-MoeTain</a></strong>
 </p>
