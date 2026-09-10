@@ -2429,6 +2429,14 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
   -webkit-backdrop-filter: blur(10px);
   z-index: 1;
 }
+.page-library .lib-col-num { width: 3.25rem; text-align: right; }
+.page-library .lib-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
 .page-library .lib-col-source { width: 9.5rem; }
 .page-library .lib-col-user { width: 8.5rem; }
 .page-library .lib-col-date { width: 8.5rem; }

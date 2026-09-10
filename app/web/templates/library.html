@@ -144,6 +144,7 @@
   <table class="table align-middle mb-0 lib-table">
     <thead>
       <tr>
+        <th class="lib-col-num" scope="col">#</th>
         <th>Paper</th>
         <th class="lib-col-source">Source</th>
         <th class="lib-col-user">Downloaded by</th>
@@ -164,6 +165,7 @@
         "categories": paper_categories(p),
       } %}
       <tr>
+        <td class="lib-num">{{ pager.start + loop.index0 }}</td>
         <td>
           <div class="paper-title" title="{{ p.title }}">{{ p.title }}</div>
         </td>
@@ -212,7 +214,7 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="5" class="p-0">
+      <tr><td colspan="6" class="p-0">
         {% if search_running %}
           {{ empty_state("Search in progress", "Results will appear here automatically. Keep this page open.") }}
         {% elif latest %}
