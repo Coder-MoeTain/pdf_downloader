@@ -8,7 +8,7 @@ import time
 from collections import Counter
 from copy import deepcopy
 
-from sqlalchemy import and_, delete, exists, func, or_, select
+from sqlalchemy import and_, case, delete, exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database.models import Author, CrawlJob, Download, Paper, PaperAuthor, PaperFulltext, Provider, SearchJob, SearchQuery, SearchResult, User
@@ -552,8 +552,25 @@ def apply_library_text_search(stmt, query: str):
 
 
 def apply_library_sort(stmt, sort: str, *, latest: bool = False):
-    if latest and sort in ("", "relevance"):
+    if latest and sort in ("", "relevance", "recent"):
         return stmt.order_by(SearchResult.rank, Paper.id.desc())
+    if sort == "recent":
+        last_dl = (
+            select(
+                Download.paper_id.label("paper_id"),
+                func.max(Download.downloaded_at).label("last_downloaded_at"),
+            )
+            .group_by(Download.paper_id)
+            .subquery()
+        )
+        stmt = stmt.outerjoin(last_dl, last_dl.c.paper_id == Paper.id)
+        # CASE keeps undownloaded papers after downloaded ones (SQLite-friendly).
+        return stmt.order_by(
+            case((last_dl.c.last_downloaded_at.is_(None), 1), else_=0),
+            last_dl.c.last_downloaded_at.desc(),
+            Paper.created_at.desc(),
+            Paper.id.desc(),
+        )
     if sort == "newest":
         return stmt.order_by(Paper.publication_year.desc(), Paper.id.desc())
     if sort == "oldest":
@@ -603,7 +620,7 @@ def query_library(
     source: str = "",
     journal: str = "",
     user_id: int | None = None,
-    sort: str = "relevance",
+    sort: str = "recent",
     latest_search_id: int | None = None,
     offset: int = 0,
     limit: int = 25,

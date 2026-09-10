@@ -138,11 +138,12 @@ def active_page(path: str) -> str:
 
 PAGE_SIZES = (10, 25, 50)
 DEFAULT_PAGE_SIZE = 25
-DEFAULT_SORT = "relevance"
+DEFAULT_SORT = "recent"
 SORT_OPTIONS = (
+    ("recent", "Recently downloaded"),
     ("relevance", "Relevance"),
-    ("newest", "Newest"),
-    ("oldest", "Oldest"),
+    ("newest", "Newest year"),
+    ("oldest", "Oldest year"),
     ("citations", "Citations"),
     ("rating", "Your rating"),
 )

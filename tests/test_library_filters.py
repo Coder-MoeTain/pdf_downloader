@@ -313,14 +313,68 @@ def test_library_pagination_controls(tmp_db):
     assert "Showing" in first.text
     assert "1–10" in first.text
     assert "of <strong>12</strong>" in first.text or "of 12" in first.text
-    assert "Paged paper 00" in first.text
-    assert "Paged paper 11" not in first.text
+    # Default sort is recently downloaded / recently added → highest id first.
+    assert "Paged paper 11" in first.text
+    assert "Paged paper 00" not in first.text
     assert 'aria-label="Library pages"' in first.text
     second = client.get("/library?per_page=10&page=2")
     assert second.status_code == 200
-    assert "Paged paper 11" in second.text
-    assert "Paged paper 00" not in second.text
+    assert "Paged paper 00" in second.text
+    assert "Paged paper 11" not in second.text
     assert "Page 2 of 2" in second.text
+
+
+def test_library_shows_latest_downloaded_first(tmp_db):
+    from datetime import timedelta
+    import re
+
+    from app.database.models import Download
+    from app.database.repository import query_library, upsert_download
+    from app.utils.time import utc_now
+
+    now = utc_now()
+    with session_scope() as session:
+        older = save_paper(
+            session,
+            PaperRecord(title="Older download", doi="10.1000/old-dl", status=PaperStatus.DOWNLOADED),
+        )
+        newer = save_paper(
+            session,
+            PaperRecord(title="Newer download", doi="10.1000/new-dl", status=PaperStatus.DOWNLOADED),
+        )
+        save_paper(
+            session,
+            PaperRecord(title="Metadata only", doi="10.1000/meta-only", status=PaperStatus.FOUND),
+        )
+        upsert_download(
+            session,
+            older.id,
+            pdf_url="https://example.com/old.pdf",
+            status=PaperStatus.DOWNLOADED.value,
+            local_path="/tmp/old.pdf",
+        )
+        upsert_download(
+            session,
+            newer.id,
+            pdf_url="https://example.com/new.pdf",
+            status=PaperStatus.DOWNLOADED.value,
+            local_path="/tmp/new.pdf",
+        )
+        older_row = session.scalar(select(Download).where(Download.paper_id == older.id))
+        newer_row = session.scalar(select(Download).where(Download.paper_id == newer.id))
+        older_row.downloaded_at = now - timedelta(days=2)
+        newer_row.downloaded_at = now - timedelta(hours=1)
+
+    with session_scope() as session:
+        papers, _total = query_library(session, sort="recent", limit=10)
+        assert [p.title for p in papers] == ["Newer download", "Older download", "Metadata only"]
+
+    client = TestClient(app)
+    page = client.get("/library")
+    assert page.status_code == 200
+    titles = re.findall(r'<div class="paper-title"[^>]*>([^<]+)</div>', page.text)
+    assert titles == ["Newer download", "Older download", "Metadata only"]
+
 
 
 def test_downloads_pagination_and_search(tmp_db):
