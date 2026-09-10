@@ -102,6 +102,21 @@
       </div>
     </form>
 
+    <form method="post" action="/settings/delete-papers-without-pdf" class="card danger-zone mt-4" data-busy="Deleting…">
+      <div class="card-body">
+        <div class="reset-row">
+          <div>
+            <h2 class="danger-title">Delete papers without PDF on server</h2>
+            <p class="paper-meta mb-0">Permanently removes library records that do not have a real PDF file saved on this server (metadata-only and missing-file claims). Papers with a PDF on disk are kept.</p>
+          </div>
+          <div class="reset-actions">
+            <input class="form-control" id="delete_without_pdf_confirm" name="confirm" autocomplete="off" placeholder="Type DELETE" aria-label="Type DELETE to confirm" required>
+            <button class="btn btn-outline-danger" type="submit">Delete</button>
+          </div>
+        </div>
+      </div>
+    </form>
+
     <form method="post" action="/settings/reset" class="card danger-zone mt-4" data-busy="Resetting…">
       <div class="card-body">
         <div class="reset-row">

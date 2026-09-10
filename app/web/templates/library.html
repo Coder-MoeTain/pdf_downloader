@@ -205,8 +205,8 @@
           {% else %}
           <span class="text-muted small">No legal PDF</span>
           {% endif %}
-          {% if is_admin %}
-          <form method="post" action="/papers/{{ p.id }}/delete" class="d-inline" data-confirm="Delete this paper from the library?">
+          {% if is_admin and not can_preview(p) %}
+          <form method="post" action="/papers/{{ p.id }}/delete" class="d-inline" data-confirm="Delete this paper? No PDF file exists on the server for this record.">
             <input type="hidden" name="next" value="{{ library_href(filters, page=pager.page) }}">
             <button class="btn btn-sm btn-outline-danger paper-action-btn" type="submit">Delete</button>
           </form>

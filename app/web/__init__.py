@@ -118,7 +118,7 @@ from app.services.search_queue import (
 )
 from app.services.search_service import SearchService, filters_from_cli
 from app.services.library_reset import reset_library_repository
-from app.services.missing_pdf_cleanup import cleanup_missing_pdf_records
+from app.services.missing_pdf_cleanup import cleanup_missing_pdf_records, delete_papers_without_local_pdf
 from app.services.system_health import collect_system_health
 from app.services.usage import activity_payload, drop_presence, record_usage, touch_presence
 from app.utils.git_update import GitUpdateError, git_pull, git_status
@@ -1841,6 +1841,35 @@ def settings_cleanup_missing_pdfs(request: Request, confirm: str = Form("")):
         (
             f"Removed {stats.downloads_cleared} download record(s) whose PDF file is missing, "
             f"and updated {stats.papers_updated} paper(s) so they can be downloaded again."
+        ),
+    )
+
+
+@app.post("/settings/delete-papers-without-pdf")
+def settings_delete_papers_without_pdf(request: Request, confirm: str = Form("")):
+    if not user_is_admin(request):
+        return RedirectResponse("/", status_code=302)
+    if confirm.strip().upper() != "DELETE":
+        return _settings_redirect(
+            "workspace",
+            "Delete cancelled — type DELETE in the confirmation box.",
+            "warning",
+        )
+    try:
+        stats = delete_papers_without_local_pdf()
+    except Exception as exc:
+        return _settings_redirect("workspace", f"Delete failed: {exc}", "danger")
+    record_usage(request, "cleanup", f"{stats.papers_deleted} papers without local PDF")
+    if not stats.papers_deleted:
+        return _settings_redirect(
+            "workspace",
+            "No papers deleted — every library record already has a PDF file on this server.",
+        )
+    return _settings_redirect(
+        "workspace",
+        (
+            f"Deleted {stats.papers_deleted} paper record(s) that did not have a PDF file "
+            f"on this server. Papers with saved PDFs were kept."
         ),
     )
 
