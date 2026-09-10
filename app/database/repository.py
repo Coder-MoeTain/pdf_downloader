@@ -16,20 +16,20 @@ from app.models.paper import AuthorRecord, PaperRecord, PaperStatus
 from app.utils.filename import normalize_title
 from app.utils.time import utc_now
 
-_FACETS_TTL_SECONDS = 45.0
+_FACETS_TTL_SECONDS = 120.0
 _DASHBOARD_TTL_SECONDS = 30.0
-_facets_cache: dict | None = None
-_facets_cache_at: float = 0.0
+_facets_cache: dict[str, dict] = {}
+_facets_cache_at: dict[str, float] = {}
 _dashboard_cache: dict | None = None
 _dashboard_cache_at: float = 0.0
 _facets_lock = threading.Lock()
 
 
 def invalidate_library_facets_cache() -> None:
-    global _facets_cache, _facets_cache_at, _dashboard_cache, _dashboard_cache_at
+    global _dashboard_cache, _dashboard_cache_at
     with _facets_lock:
-        _facets_cache = None
-        _facets_cache_at = 0.0
+        _facets_cache.clear()
+        _facets_cache_at.clear()
         _dashboard_cache = None
         _dashboard_cache_at = 0.0
 
@@ -534,13 +534,13 @@ def apply_library_text_search(stmt, query: str):
     if not text:
         return stmt
     like = f"%{text}%"
+    # Title / DOI / journal / authors first; skip abstract ILIKE (full-table text scan).
     return (
         stmt.outerjoin(PaperAuthor)
         .outerjoin(Author)
         .where(
             or_(
                 Paper.title.ilike(like),
-                Paper.abstract.ilike(like),
                 Paper.keywords.ilike(like),
                 Paper.research_fields.ilike(like),
                 Paper.journal.ilike(like),
@@ -623,6 +623,7 @@ def query_library(
     count_stmt = select(func.count(func.distinct(Paper.id)))
     stmt = select(Paper).options(
         selectinload(Paper.downloads).selectinload(Download.downloaded_by),
+        # Authors are only needed for Detail/Abstract dialogs — keep one selectinload.
         selectinload(Paper.authors).selectinload(PaperAuthor.author),
     )
     if latest_search_id:
@@ -644,17 +645,19 @@ def query_library(
     return papers, total
 
 
-def library_facets(session: Session, *, force: bool = False) -> dict:
-    """Distinct category / year / source / journal values for library filters."""
-    global _facets_cache, _facets_cache_at
+def library_facets(session: Session, *, force: bool = False, light: bool = False) -> dict:
+    """Distinct category / year / source / journal values for library filters.
+
+    light=True skips expensive browse facets (categories/sources/journals) used only
+    by unused UI controls — enough for Library KPIs + year filter.
+    """
     now = time.monotonic()
+    cache_key = "light" if light else "full"
     with _facets_lock:
-        if (
-            not force
-            and _facets_cache is not None
-            and (now - _facets_cache_at) < _FACETS_TTL_SECONDS
-        ):
-            return deepcopy(_facets_cache)
+        cached = _facets_cache.get(cache_key)
+        cached_at = _facets_cache_at.get(cache_key, 0.0)
+        if not force and cached is not None and (now - cached_at) < _FACETS_TTL_SECONDS:
+            return deepcopy(cached)
 
     visible = visible_paper_clauses()
     years = [
@@ -666,47 +669,6 @@ def library_facets(session: Session, *, force: bool = False) -> dict:
             .order_by(Paper.publication_year.desc())
         ).all()
     ]
-    source_rows = session.execute(
-        select(Paper.source, func.count(Paper.id))
-        .where(Paper.source.is_not(None), Paper.source != "", *visible)
-        .group_by(Paper.source)
-        .order_by(func.count(Paper.id).desc())
-    ).all()
-    journal_rows = session.execute(
-        select(Paper.journal, func.count(Paper.id))
-        .where(Paper.journal.is_not(None), Paper.journal != "", *visible)
-        .group_by(Paper.journal)
-        .order_by(func.count(Paper.id).desc())
-        .limit(50)
-    ).all()
-    tag_counts: Counter[str] = Counter()
-    # Only scan rows that actually have tags — full-library scans freeze the UI
-    # while crawls are writing (100k+ papers).
-    tag_stmt = (
-        select(Paper.research_fields, Paper.keywords)
-        .where(
-            *visible,
-            or_(
-                and_(Paper.research_fields.is_not(None), Paper.research_fields != ""),
-                and_(Paper.keywords.is_not(None), Paper.keywords != ""),
-            ),
-        )
-        .limit(8_000)
-    )
-    for fields, keywords in session.execute(tag_stmt).all():
-        for tag in split_tags(fields) + split_tags(keywords):
-            if len(tag) >= 2:
-                tag_counts[tag] += 1
-    ranked = tag_counts.most_common(36)
-    peak = ranked[0][1] if ranked else 0
-    categories = [
-        {
-            "name": name,
-            "count": count,
-            "pct": round((count / peak) * 100, 1) if peak else 0,
-        }
-        for name, count in ranked
-    ]
     status_rows = session.execute(
         select(Paper.status, func.count(Paper.id)).where(*visible).group_by(Paper.status)
     ).all()
@@ -717,11 +679,60 @@ def library_facets(session: Session, *, force: bool = False) -> dict:
     paywalled = session.scalar(
         select(func.count(Paper.id)).where(Paper.status == PaperStatus.PAYWALLED.value)
     ) or 0
+
+    categories: list[dict] = []
+    sources: list[dict] = []
+    journals: list[dict] = []
+    if not light:
+        source_rows = session.execute(
+            select(Paper.source, func.count(Paper.id))
+            .where(Paper.source.is_not(None), Paper.source != "", *visible)
+            .group_by(Paper.source)
+            .order_by(func.count(Paper.id).desc())
+        ).all()
+        journal_rows = session.execute(
+            select(Paper.journal, func.count(Paper.id))
+            .where(Paper.journal.is_not(None), Paper.journal != "", *visible)
+            .group_by(Paper.journal)
+            .order_by(func.count(Paper.id).desc())
+            .limit(50)
+        ).all()
+        tag_counts: Counter[str] = Counter()
+        # Only scan rows that actually have tags — full-library scans freeze the UI
+        # while crawls are writing (100k+ papers).
+        tag_stmt = (
+            select(Paper.research_fields, Paper.keywords)
+            .where(
+                *visible,
+                or_(
+                    and_(Paper.research_fields.is_not(None), Paper.research_fields != ""),
+                    and_(Paper.keywords.is_not(None), Paper.keywords != ""),
+                ),
+            )
+            .limit(8_000)
+        )
+        for fields, keywords in session.execute(tag_stmt).all():
+            for tag in split_tags(fields) + split_tags(keywords):
+                if len(tag) >= 2:
+                    tag_counts[tag] += 1
+        ranked = tag_counts.most_common(36)
+        peak = ranked[0][1] if ranked else 0
+        categories = [
+            {
+                "name": name,
+                "count": count,
+                "pct": round((count / peak) * 100, 1) if peak else 0,
+            }
+            for name, count in ranked
+        ]
+        sources = [{"slug": slug, "count": count} for slug, count in source_rows]
+        journals = [{"name": name, "count": count} for name, count in journal_rows]
+
     payload = {
         "categories": categories,
         "years": years,
-        "sources": [{"slug": slug, "count": count} for slug, count in source_rows],
-        "journals": [{"name": name, "count": count} for name, count in journal_rows],
+        "sources": sources,
+        "journals": journals,
         "status_counts": status_counts,
         "visible_total": visible_total,
         "downloadable": downloadable,
@@ -730,8 +741,8 @@ def library_facets(session: Session, *, force: bool = False) -> dict:
         "paywalled": paywalled,
     }
     with _facets_lock:
-        _facets_cache = payload
-        _facets_cache_at = time.monotonic()
+        _facets_cache[cache_key] = payload
+        _facets_cache_at[cache_key] = time.monotonic()
     return deepcopy(payload)
 
 

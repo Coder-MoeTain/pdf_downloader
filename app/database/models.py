@@ -54,6 +54,10 @@ class Paper(Base):
         Index("ix_papers_pmid", "pmid"),
         Index("ix_papers_arxiv", "arxiv_id"),
         Index("ix_papers_norm_title", "normalized_title"),
+        Index("ix_papers_status", "status"),
+        Index("ix_papers_year", "publication_year"),
+        Index("ix_papers_source", "source"),
+        Index("ix_papers_relevance_id", "relevance_score", "id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -183,7 +187,10 @@ class SearchResult(Base):
 
 class Download(Base):
     __tablename__ = "downloads"
-    __table_args__ = (Index("ix_downloads_sha256", "sha256"),)
+    __table_args__ = (
+        Index("ix_downloads_sha256", "sha256"),
+        Index("ix_downloads_paper_status", "paper_id", "status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id"), nullable=False)

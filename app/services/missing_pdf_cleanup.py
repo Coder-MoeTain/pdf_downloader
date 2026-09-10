@@ -54,12 +54,13 @@ def resolve_claimed_pdf_path(path_value: str | None, library_root: Path) -> Path
 
 def claimed_pdf_exists(path: Path | None, *, min_size: int) -> bool:
     """True when path is a readable PDF of at least min_size bytes."""
-    if path is None or not path.is_file():
+    if path is None:
         return False
     try:
-        if path.stat().st_size < min_size:
+        if not path.is_file() or path.stat().st_size < min_size:
             return False
-        return path.read_bytes()[:5] == b"%PDF-"
+        with path.open("rb") as handle:
+            return handle.read(5) == b"%PDF-"
     except OSError:
         return False
 

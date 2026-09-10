@@ -451,7 +451,7 @@ class DownloadService:
         if existing is None or not existing.local_path:
             return False
         other = Path(existing.local_path)
-        if not other.exists() or other.read_bytes()[:5] != b"%PDF-":
+        if not pdf_header_ok(other):
             return False
         other = other.resolve()
         dest_resolved = dest.resolve() if dest.exists() else dest
@@ -482,9 +482,33 @@ def _sha256_file(path: Path) -> str:
     return hasher.hexdigest()
 
 
+def pdf_header_ok(path: Path, *, min_size: int | None = None) -> bool:
+    """True when path is a readable PDF; only reads the first 5 bytes."""
+    try:
+        if not path.is_file():
+            return False
+        size = path.stat().st_size
+        if min_size is not None and size < min_size:
+            return False
+        with path.open("rb") as handle:
+            return handle.read(5) == b"%PDF-"
+    except OSError:
+        return False
+
+
+def has_claimed_local_pdf(paper: Paper) -> bool:
+    """True when DB records a saved PDF path (no disk I/O — for list UI)."""
+    claimed = {PaperStatus.DOWNLOADED.value, PaperStatus.DUPLICATE.value}
+    for row in paper.downloads or []:
+        if row.status in claimed and row.local_path and str(row.local_path).strip():
+            return True
+    return False
+
+
 def existing_pdf_path(paper: Paper, library_root: Path | None = None) -> Path | None:
     """Return a stored PDF path if it exists inside the library directory."""
     root = (library_root or get_runtime_config().resolve_path(get_runtime_config().library_dir)).resolve()
+    min_size = int(get_runtime_config().min_pdf_size_bytes)
     rows = sorted(paper.downloads or [], key=lambda item: item.id, reverse=True)
     for row in rows:
         if not row.local_path:
@@ -496,9 +520,8 @@ def existing_pdf_path(paper: Paper, library_root: Path | None = None) -> Path | 
             path = path.resolve()
         if not str(path).startswith(str(root)):
             continue
-        if path.exists() and path.stat().st_size >= get_runtime_config().min_pdf_size_bytes:
-            if path.read_bytes()[:5] == b"%PDF-":
-                return path
+        if pdf_header_ok(path, min_size=min_size):
+            return path
     return None
 
 
@@ -514,14 +537,19 @@ def safe_library_pdf(path_value: str | None, library_root: Path | None = None) -
         path = path.resolve()
     if not str(path).startswith(str(root)):
         return None
-    if path.exists() and path.read_bytes()[:5] == b"%PDF-":
+    if pdf_header_ok(path):
         return path
     return None
 
 
 def pdf_button_state(paper: Paper, library_root: Path | None = None) -> str:
-    """UI state: download, paywalled, or unavailable."""
-    if existing_pdf_path(paper, library_root):
+    """UI state: download, paywalled, or unavailable.
+
+    Trusts DB download claims for list responsiveness; preview/download routes
+    still verify the file on disk.
+    """
+    del library_root  # kept for call-site compatibility
+    if has_claimed_local_pdf(paper):
         return "download"
     if paper.status == PaperStatus.PAYWALLED.value:
         return "paywalled"

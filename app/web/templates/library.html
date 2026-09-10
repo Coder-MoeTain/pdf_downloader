@@ -193,7 +193,8 @@
                   aria-haspopup="dialog">Abstract</button>
           <template class="paper-abstract-text">{{ p.abstract }}</template>
           {% endif %}
-          {% if can_preview(p) %}
+          {% set on_server = can_preview(p) %}
+          {% if on_server %}
           <button class="btn btn-sm btn-outline-primary preview-btn paper-action-btn" type="button"
                   data-preview-url="/papers/{{ p.id }}/preview"
                   data-preview-title="{{ p.title|e }}">Preview</button>
@@ -205,7 +206,7 @@
           {% else %}
           <span class="text-muted small">No legal PDF</span>
           {% endif %}
-          {% if is_admin and not can_preview(p) %}
+          {% if is_admin and not on_server %}
           <form method="post" action="/papers/{{ p.id }}/delete" class="d-inline" data-confirm="Delete this paper? No PDF file exists on the server for this record.">
             <input type="hidden" name="next" value="{{ library_href(filters, page=pager.page) }}">
             <button class="btn btn-sm btn-outline-danger paper-action-btn" type="submit">Delete</button>

@@ -51,6 +51,27 @@ def test_library_facets_are_cached(tmp_db):
     assert first["categories"][0]["name"] == "Cybersecurity"
 
 
+def test_library_facets_light_skips_category_scan(tmp_db):
+    with session_scope() as session:
+        save_paper(
+            session,
+            PaperRecord(
+                title="Light facet paper",
+                doi="10.1000/light-facet",
+                research_fields=["Cybersecurity"],
+                publication_year=2024,
+                status=PaperStatus.OA_AVAILABLE,
+            ),
+        )
+        invalidate_library_facets_cache()
+        light = library_facets(session, light=True)
+        full = library_facets(session, light=False)
+    assert light["visible_total"] == full["visible_total"] == 1
+    assert light["years"] == [2024]
+    assert light["categories"] == []
+    assert full["categories"][0]["name"] == "Cybersecurity"
+
+
 def test_dashboard_stats_are_cached(tmp_db):
     from app.database.repository import dashboard_stats
     from fastapi.testclient import TestClient

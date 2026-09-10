@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
@@ -89,6 +90,7 @@ from app.services.download_service import (
     DownloadError,
     ensure_local_pdf,
     existing_pdf_path,
+    has_claimed_local_pdf,
     pdf_button_state,
     safe_library_pdf,
     stop_downloads,
@@ -165,7 +167,8 @@ WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(WEB_DIR / "templates"))
 templates.env.globals["pdf_button_state"] = pdf_button_state
 templates.env.globals["status_meta"] = status_meta
-templates.env.globals["can_preview"] = lambda paper: existing_pdf_path(paper) is not None
+templates.env.globals["can_preview"] = has_claimed_local_pdf
+templates.env.globals["has_claimed_local_pdf"] = has_claimed_local_pdf
 templates.env.globals["library_href"] = library_href
 templates.env.globals["downloads_href"] = downloads_href
 templates.env.globals["reports_href"] = reports_href
@@ -1013,7 +1016,7 @@ def library_page(
         with session_scope() as session:
             latest_search = session.scalar(select(SearchQuery).order_by(SearchQuery.id.desc()).limit(1))
             use_latest = bool(latest) and latest_search is not None
-            pager = pagination_spec(max(page, 1), 1, per_page)
+            requested_page = max(page, 1)
             query_kwargs = dict(
                 q=q,
                 status=status,
@@ -1029,11 +1032,18 @@ def library_page(
                 latest_search_id=latest_search.id if use_latest else None,
                 limit=per_page,
             )
-            papers, total = query_library(session, offset=0, **query_kwargs)
-            pager = pagination_spec(max(page, 1), total, per_page)
-            if pager["page"] > 1:
+            papers, total = query_library(
+                session,
+                offset=(requested_page - 1) * per_page,
+                **query_kwargs,
+            )
+            pager = pagination_spec(requested_page, total, per_page)
+            # Rare: requested page past the end — refetch the clamped page only.
+            if pager["page"] != requested_page and pager["page"] >= 1:
                 papers, total = query_library(
-                    session, offset=(pager["page"] - 1) * per_page, **query_kwargs
+                    session,
+                    offset=(pager["page"] - 1) * per_page,
+                    **query_kwargs,
                 )
             oa_where = [
                 Paper.pdf_url.is_not(None),
@@ -1047,7 +1057,11 @@ def library_page(
                     .where(SearchResult.search_query_id == latest_search.id, *oa_where)
                 )
             oa_pending = session.scalar(oa_stmt) or 0
-            user_options = download_user_options(session, include_id=user_id or None)
+            # User filter UI is unused on the library page; skip the join unless filtering.
+            if user_id:
+                user_options = download_user_options(session, include_id=user_id)
+            else:
+                user_options = []
 
     try:
         retry_on_sqlite_lock(_load_library)
@@ -1057,7 +1071,7 @@ def library_page(
 
     def _load_facets() -> dict:
         with session_scope() as session:
-            return library_facets(session)
+            return library_facets(session, light=True)
 
     try:
         facets = retry_on_sqlite_lock(_load_facets)
@@ -1606,7 +1620,16 @@ def sources_page(
     )
 
 
+_SOURCE_ROWS_TTL = 300.0
+_source_rows_cache: list[dict] | None = None
+_source_rows_cache_at = 0.0
+
+
 def _source_rows() -> list[dict]:
+    global _source_rows_cache, _source_rows_cache_at
+    now = time.monotonic()
+    if _source_rows_cache is not None and (now - _source_rows_cache_at) < _SOURCE_ROWS_TTL:
+        return _source_rows_cache
     seed_academic_sources()
     searchable = {cls.name for cls in PROVIDER_CLASSES}
     sources = []
@@ -1614,6 +1637,8 @@ def _source_rows() -> list[dict]:
         item = source_to_dict(row)
         item["searchable"] = row.slug in searchable
         sources.append(item)
+    _source_rows_cache = sources
+    _source_rows_cache_at = now
     return sources
 
 

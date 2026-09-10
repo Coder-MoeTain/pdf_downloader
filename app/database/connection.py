@@ -130,6 +130,17 @@ def _ensure_columns(engine: Engine) -> None:
             if "last_seen_at" not in user_names:
                 conn.execute(text("ALTER TABLE users ADD COLUMN last_seen_at DATETIME"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_downloads_sha256 ON downloads (sha256)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_papers_status ON papers (status)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_papers_year ON papers (publication_year)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_papers_source ON papers (source)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_papers_relevance_id ON papers (relevance_score, id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_downloads_paper_status ON downloads (paper_id, status)"))
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_downloads_paper_local "
+                "ON downloads (paper_id) WHERE local_path IS NOT NULL AND local_path != ''"
+            )
+        )
         download_rows = conn.execute(text("PRAGMA table_info(downloads)")).all()
         download_names = {row[1] for row in download_rows}
         if "downloaded_by_user_id" not in download_names:
