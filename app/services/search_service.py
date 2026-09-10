@@ -16,6 +16,7 @@ from app.database.repository import (
     complete_search_query,
     create_search_query,
     find_existing_paper,
+    invalidate_library_facets_cache,
     paper_to_record,
     save_paper,
     upsert_download,
@@ -187,6 +188,7 @@ class SearchService:
                 if not (filters.download and to_download):
                     complete_search_query(session, search_row.id)
 
+            invalidate_library_facets_cache()
             if filters.download and to_download:
                 console.print()
                 total_pdfs = len(to_download)

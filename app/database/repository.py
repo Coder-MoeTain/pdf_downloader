@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from collections import Counter
+from copy import deepcopy
 
 from sqlalchemy import and_, delete, exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -12,6 +15,18 @@ from app.database.models import Author, CrawlJob, Download, Paper, PaperAuthor, 
 from app.models.paper import AuthorRecord, PaperRecord, PaperStatus
 from app.utils.filename import normalize_title
 from app.utils.time import utc_now
+
+_FACETS_TTL_SECONDS = 45.0
+_facets_cache: dict | None = None
+_facets_cache_at: float = 0.0
+_facets_lock = threading.Lock()
+
+
+def invalidate_library_facets_cache() -> None:
+    global _facets_cache, _facets_cache_at
+    with _facets_lock:
+        _facets_cache = None
+        _facets_cache_at = 0.0
 
 
 def _join(values: list[str] | None) -> str | None:
@@ -172,6 +187,58 @@ def find_existing_paper(session: Session, record: PaperRecord) -> Paper | None:
         if found:
             return found
     return None
+
+
+def filter_new_paper_records(session: Session, records: list[PaperRecord]) -> list[PaperRecord]:
+    """Return records not already in the library, using a few bulk lookups."""
+    if not records:
+        return []
+
+    dois = {str(r.doi).strip() for r in records if r.doi}
+    pmids = {str(r.pmid).strip() for r in records if r.pmid}
+    arxiv_ids = {str(r.arxiv_id).strip() for r in records if r.arxiv_id}
+    openalex_ids = {str(r.openalex_id).strip() for r in records if r.openalex_id}
+    titles = {normalize_title(r.title) for r in records if r.title}
+    titles.discard("")
+
+    existing_dois: set[str] = set()
+    existing_pmids: set[str] = set()
+    existing_arxiv: set[str] = set()
+    existing_openalex: set[str] = set()
+    existing_titles: set[str] = set()
+
+    if dois:
+        existing_dois = set(session.scalars(select(Paper.doi).where(Paper.doi.in_(dois))).all())
+    if pmids:
+        existing_pmids = set(session.scalars(select(Paper.pmid).where(Paper.pmid.in_(pmids))).all())
+    if arxiv_ids:
+        existing_arxiv = set(
+            session.scalars(select(Paper.arxiv_id).where(Paper.arxiv_id.in_(arxiv_ids))).all()
+        )
+    if openalex_ids:
+        existing_openalex = set(
+            session.scalars(select(Paper.openalex_id).where(Paper.openalex_id.in_(openalex_ids))).all()
+        )
+    if titles:
+        existing_titles = set(
+            session.scalars(select(Paper.normalized_title).where(Paper.normalized_title.in_(titles))).all()
+        )
+
+    fresh: list[PaperRecord] = []
+    for record in records:
+        if record.doi and str(record.doi).strip() in existing_dois:
+            continue
+        if record.pmid and str(record.pmid).strip() in existing_pmids:
+            continue
+        if record.arxiv_id and str(record.arxiv_id).strip() in existing_arxiv:
+            continue
+        if record.openalex_id and str(record.openalex_id).strip() in existing_openalex:
+            continue
+        norm = normalize_title(record.title)
+        if norm and norm in existing_titles:
+            continue
+        fresh.append(record)
+    return fresh
 
 
 def create_search_query(
@@ -572,8 +639,18 @@ def query_library(
     return papers, total
 
 
-def library_facets(session: Session) -> dict:
+def library_facets(session: Session, *, force: bool = False) -> dict:
     """Distinct category / year / source / journal values for library filters."""
+    global _facets_cache, _facets_cache_at
+    now = time.monotonic()
+    with _facets_lock:
+        if (
+            not force
+            and _facets_cache is not None
+            and (now - _facets_cache_at) < _FACETS_TTL_SECONDS
+        ):
+            return deepcopy(_facets_cache)
+
     visible = visible_paper_clauses()
     years = [
         year
@@ -598,7 +675,20 @@ def library_facets(session: Session) -> dict:
         .limit(50)
     ).all()
     tag_counts: Counter[str] = Counter()
-    for fields, keywords in session.execute(select(Paper.research_fields, Paper.keywords).where(*visible)).all():
+    # Only scan rows that actually have tags — full-library scans freeze the UI
+    # while crawls are writing (100k+ papers).
+    tag_stmt = (
+        select(Paper.research_fields, Paper.keywords)
+        .where(
+            *visible,
+            or_(
+                and_(Paper.research_fields.is_not(None), Paper.research_fields != ""),
+                and_(Paper.keywords.is_not(None), Paper.keywords != ""),
+            ),
+        )
+        .limit(8_000)
+    )
+    for fields, keywords in session.execute(tag_stmt).all():
         for tag in split_tags(fields) + split_tags(keywords):
             if len(tag) >= 2:
                 tag_counts[tag] += 1
@@ -622,7 +712,7 @@ def library_facets(session: Session) -> dict:
     paywalled = session.scalar(
         select(func.count(Paper.id)).where(Paper.status == PaperStatus.PAYWALLED.value)
     ) or 0
-    return {
+    payload = {
         "categories": categories,
         "years": years,
         "sources": [{"slug": slug, "count": count} for slug, count in source_rows],
@@ -634,6 +724,10 @@ def library_facets(session: Session) -> dict:
         "open_access": open_access,
         "paywalled": paywalled,
     }
+    with _facets_lock:
+        _facets_cache = payload
+        _facets_cache_at = time.monotonic()
+    return deepcopy(payload)
 
 
 def set_paper_rating(session: Session, paper_id: int, rating: int) -> Paper | None:

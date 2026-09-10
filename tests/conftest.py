@@ -10,6 +10,7 @@ from app.config import load_config
 @pytest.fixture
 def tmp_db(tmp_path, monkeypatch):
     from app.auth import invalidate_user_count_cache
+    from app.database.repository import invalidate_library_facets_cache
 
     db_path = tmp_path / "research.db"
     monkeypatch.setenv("DATABASE_PATH", str(db_path))
@@ -24,9 +25,11 @@ def tmp_db(tmp_path, monkeypatch):
     reset_engine()
     reset_settings_engine()
     invalidate_user_count_cache()
+    invalidate_library_facets_cache()
     init_db(f"sqlite:///{db_path.as_posix()}")
     yield db_path
     reset_engine()
     reset_settings_engine()
     invalidate_user_count_cache()
+    invalidate_library_facets_cache()
     load_config.cache_clear()

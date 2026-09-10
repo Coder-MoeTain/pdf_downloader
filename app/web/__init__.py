@@ -1053,8 +1053,10 @@ def library_page(
                 .where(SearchResult.search_query_id == latest_search.id, *oa_where)
             )
         oa_pending = session.scalar(oa_stmt) or 0
-        facets = library_facets(session)
         user_options = download_user_options(session, include_id=user_id or None)
+    # Facets are cached; use a short separate session so list queries stay brief under crawl load.
+    with session_scope() as session:
+        facets = library_facets(session)
     if category and not any(item["name"] == category for item in facets["categories"]):
         peak = facets["categories"][0]["count"] if facets["categories"] else total or 1
         facets["categories"].insert(

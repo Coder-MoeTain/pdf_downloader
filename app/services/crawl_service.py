@@ -8,7 +8,7 @@ from rich.console import Console
 
 from app.config import AppConfig, get_runtime_config
 from app.database.connection import init_db, session_scope
-from app.database.repository import find_existing_paper, save_paper, upsert_download
+from app.database.repository import filter_new_paper_records, invalidate_library_facets_cache, save_paper, upsert_download
 from app.models.crawl import CrawlFilters, CrawlStats
 from app.models.paper import PaperRecord, PaperStatus
 from app.providers import build_providers
@@ -122,14 +122,12 @@ class CrawlService:
                 )
 
                 page_new: list[PaperRecord] = []
-                for record in page.records:
-                    await self._checkpoint()
-                    if filters.skip_existing:
-                        with session_scope() as session:
-                            if find_existing_paper(session, record):
-                                stats.skipped_existing += 1
-                                continue
-                    page_new.append(record)
+                if filters.skip_existing and page.records:
+                    with session_scope() as session:
+                        page_new = filter_new_paper_records(session, page.records)
+                    stats.skipped_existing += len(page.records) - len(page_new)
+                else:
+                    page_new = list(page.records)
 
                 if not page_new and page.records:
                     self._progress.log(
@@ -198,6 +196,7 @@ class CrawlService:
                                 and has_downloadable_pdf(paper)
                             ):
                                 to_download.append((db_paper.id, paper))
+                    invalidate_library_facets_cache()
 
                     if to_download:
                         # Do not call start_batch/finish_batch on crawl progress —
