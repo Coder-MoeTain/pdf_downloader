@@ -391,6 +391,20 @@ a.stat-card:hover {
   border-color: var(--accent);
 }
 
+[data-bs-theme="dark"] .topic-chip {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--ink-soft);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+[data-bs-theme="dark"] .topic-chip:hover {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 [data-bs-theme="dark"] .btn-primary {
   box-shadow: 0 8px 22px rgba(31, 111, 139, 0.35);
 }
