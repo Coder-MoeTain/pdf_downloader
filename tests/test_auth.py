@@ -184,6 +184,23 @@ def test_local_admin_login_logout_and_user_settings(tmp_db):
     assert client.get("/account").status_code == 200
 
 
+def test_library_and_downloads_keep_login_session(tmp_db):
+    """Filter query params named `user` must not overwrite the session identity in templates."""
+    client = TestClient(app)
+    login = client.post(
+        "/login",
+        data={"email": "sess@lab.test", "password": "secret123", "name": "Session User", "next": "/library"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 303
+    for path in ("/library", "/downloads", "/reports"):
+        page = client.get(path)
+        assert page.status_code == 200
+        assert "Session User" in page.text
+        assert "Log out" in page.text
+        assert ">Log in<" not in page.text
+
+
 def test_seed_admin_creates_default_account(tmp_db):
     from app.auth import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD, authenticate_local, seed_admin_account
 

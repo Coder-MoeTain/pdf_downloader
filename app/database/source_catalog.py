@@ -614,6 +614,10 @@ BUILTIN_SOURCES: list[dict[str, object]] = [
     },
 ]
 
+from app.database.batch_sources import catalog_rows_from_batch
+
+BUILTIN_SOURCES.extend(catalog_rows_from_batch())
+
 SOURCE_KEY_FIELDS: dict[str, str] = {
     "semantic_scholar": "semantic_scholar_api_key",
     "core": "core_api_key",

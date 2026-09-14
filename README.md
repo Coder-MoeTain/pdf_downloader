@@ -158,11 +158,25 @@ Providers share a common `ResearchProvider` interface (`search`, `get_paper`, `f
 | WHO IRIS | No | WHO institutional repository |
 | CERN CDS | No | CERN repository; public files when listed |
 | NDL Search | No | National Diet Library (Japan) article index |
+| MDPI | No | Open-access journals (Crossref DOI prefix) |
+| Frontiers | No | Open-access journals (Crossref DOI prefix) |
+| Hindawi | No | Open-access journals (Crossref DOI prefix) |
+| BMC | No | BioMed Central OA journals (Crossref DOI prefix) |
+| Copernicus Publications | No | Geoscience OA journals (Crossref DOI prefix) |
+| Preprints.org | No | Multidisciplinary preprints (Crossref DOI prefix) |
+| SocArXiv / PsyArXiv / engrXiv / +9 OSF servers | No | Discipline preprints via Crossref |
+| Wellcome / Gates Open Research | No | F1000-platform OA journals (Crossref) |
+| Scientific Reports / Nature Communications | No | Nature Portfolio OA titles (Crossref) |
+| IEEE Access / Optics Express | No | OA journals (Crossref container) |
+| ACM / Wiley / SAGE / T&F / Cambridge / Oxford | No | Publisher metadata via Crossref DOI prefix |
+| APS / AIP / IOP / ACS / RSC / AGU / Royal Society | No | Society publishers via Crossref DOI prefix |
+| BMJ / NEJM / JAMA / Annual Reviews / MIT Press | No | Publisher metadata via Crossref DOI prefix |
+| SPIE / AIAA / ASCE / ASME / De Gruyter | No | Engineering & scholarly publishers via Crossref |
 | Unpaywall | Email required | OA PDF discovery, not a search index |
 
-ResearchGate, Google Scholar, and Academia.edu have no public search APIs and prohibit automated access, so they are not connectors. Papers that also appear on those sites are still found through Crossref, OpenAlex, Unpaywall, and CORE when a DOI or repository copy exists.
+The catalog has **100** search connectors. ResearchGate, Google Scholar, and Academia.edu have no public search APIs and prohibit automated access, so they are not connectors. Papers that also appear on those sites are still found through Crossref, OpenAlex, Unpaywall, and CORE when a DOI or repository copy exists.
 
-MDPI, Frontiers, ACM, Wiley, Nature, institutional repositories, NIST, and government reports are covered when they appear in Crossref / OpenAlex / Unpaywall OA metadata. PLOS has a dedicated connector. The app never scrapes publisher HTML.
+Dedicated Crossref-filter connectors cover MDPI, Frontiers, ACM, Wiley, Nature Communications, and major society publishers. The app never scrapes publisher HTML.
 
 ## Installation
 

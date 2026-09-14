@@ -341,12 +341,25 @@ def test_free_sources_are_registered():
     assert NEW_SOURCE_SLUGS <= names
     assert len(FREE_SOURCE_SLUGS) == 20
     assert len(NEW_SOURCE_SLUGS) == 20
+    from app.database.batch_sources import BATCH_CROSSREF_SOURCES
     from app.database.source_catalog import BUILTIN_SOURCES
 
     catalog = {str(item["slug"]) for item in BUILTIN_SOURCES}
+    batch = {str(item["slug"]) for item in BATCH_CROSSREF_SOURCES}
     assert FREE_SOURCE_SLUGS <= catalog
     assert NEW_SOURCE_SLUGS <= catalog
+    assert batch <= catalog
+    assert batch <= names
+    assert len(batch) == 47
+    assert len(catalog) == 100
     assert catalog == names
+
+
+def test_batch_crossref_sources_have_filter():
+    from app.database.batch_sources import BATCH_CROSSREF_SOURCES
+
+    for item in BATCH_CROSSREF_SOURCES:
+        assert item.get("prefix") or item.get("container"), item["slug"]
 
 
 def test_openaire_parse_oa_pdf():

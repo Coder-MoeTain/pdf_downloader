@@ -38,6 +38,7 @@ from app.providers.free import (
     WorldbankProvider,
     ZenodoProvider,
 )
+from app.providers.batch_providers import BATCH_PROVIDER_CLASSES
 from app.providers.more import (
     CernProvider,
     ChemrxivProvider,
@@ -121,6 +122,7 @@ PROVIDER_CLASSES: list[type[ResearchProvider]] = [
     WhoProvider,
     CernProvider,
     NdlProvider,
+    *BATCH_PROVIDER_CLASSES,
 ]
 
 

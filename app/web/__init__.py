@@ -517,6 +517,7 @@ def _request_user_id(request: Request) -> int | None:
 
 def _ctx(request: Request, **extra):
     cfg = get_runtime_config()
+    session_user = current_user(request)
     payload = {
         "request": request,
         "app_name": cfg.name,
@@ -530,14 +531,18 @@ def _ctx(request: Request, **extra):
         "timezone_abbrev": timezone_abbrev(cfg.timezone),
         "timezone_offset": timezone_offset_label(cfg.timezone),
         "show_paywalled": cfg.show_paywalled,
-        "user": current_user(request),
+        "user": session_user,
         "is_admin": user_is_admin(request),
         "auth_enabled": True,
         "auth_required": auth_required(),
         "google_ready": google_login_enabled(),
-        "role": user_role(current_user(request)) if current_user(request) else ("admin" if not auth_required() else "user"),
+        "role": user_role(session_user) if session_user else ("admin" if not auth_required() else "user"),
     }
     payload.update(extra)
+    # Never let page kwargs (e.g. filter user ids) overwrite the session identity.
+    payload["user"] = session_user
+    payload["is_admin"] = user_is_admin(request)
+    payload["role"] = user_role(session_user) if session_user else ("admin" if not auth_required() else "user")
     payload["page"] = active_page(request.url.path)
     return payload
 
@@ -1179,7 +1184,7 @@ def library_page(
             year=year,
             source=source,
             journal=journal,
-            user=user_id,
+            filter_user=user_id,
             user_label=user_label,
             user_options=user_options,
             sort=sort,
@@ -1481,7 +1486,7 @@ def reports_page(
             pager=pager,
             q=q,
             status=status,
-            user=filter_user_id,
+            filter_user=filter_user_id,
             user_options=user_options,
             status_chips=status_chips,
             filters=filters_state,
@@ -1562,7 +1567,7 @@ def downloads_page(
             status_chips=ordered_status_counts(counts),
             status=status,
             q=q,
-            user=user_id,
+            filter_user=user_id,
             user_label=user_label,
             user_options=user_options,
             per_page=per_page,
