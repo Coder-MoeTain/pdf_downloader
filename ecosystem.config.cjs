@@ -34,9 +34,8 @@ module.exports = {
       watch: false,
       max_restarts: 10,
       min_uptime: "10s",
-      // Concurrent PDF downloads + LMS cover render can spike RSS; 1G caused
-      // brief PM2 kill/restarts that looked like the site "crashing".
-      max_memory_restart: "2G",
+      // Do not set max_memory_restart: PM2 checks every ~30s and was killing this
+      // Python app in a loop (RSS often exceeds 1G with downloads / libraries).
       kill_timeout: 8000,
       env: {
         PYTHONUNBUFFERED: "1",

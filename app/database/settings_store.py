@@ -71,6 +71,7 @@ def _mysql_url(host: str, port: int, user: str, password: str, database: str | N
 
 
 def _ensure_mysql_database(host: str, port: int, user: str, password: str, database: str) -> None:
+    """Best-effort create when the app user has CREATE privilege. Safe to skip on denial."""
     engine = create_engine(_mysql_url(host, port, user, password, None), echo=False, future=True, pool_pre_ping=True)
     try:
         with engine.connect() as conn:
@@ -83,6 +84,19 @@ def _ensure_mysql_database(host: str, port: int, user: str, password: str, datab
             conn.commit()
     finally:
         engine.dispose()
+
+
+def _connect_mysql(host: str, port: int, user: str, password: str, database: str) -> Engine:
+    engine = create_engine(
+        _mysql_url(host, port, user, password, database),
+        echo=False,
+        future=True,
+        pool_pre_ping=True,
+        pool_recycle=280,
+    )
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+    return engine
 
 
 def _sqlite_url() -> str:
@@ -98,33 +112,35 @@ def _try_mysql() -> Engine | None:
     if not host:
         return None
     database = (cfg.mysql_database or "research_collector").strip()
+    last_error: Exception | None = None
+    # Prefer a direct connection — many app users can use the DB but cannot CREATE it.
     try:
-        _ensure_mysql_database(host, cfg.mysql_port, cfg.mysql_user, cfg.mysql_password, database)
-        engine = create_engine(
-            _mysql_url(host, cfg.mysql_port, cfg.mysql_user, cfg.mysql_password, database),
-            echo=False,
-            future=True,
-            pool_pre_ping=True,
-            pool_recycle=280,
-        )
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        _status.update(
-            {
-                "backend": "mysql",
-                "connected": True,
-                "label": "MySQL / MariaDB",
-                "host": f"{host}:{cfg.mysql_port}",
-                "database": database,
-                "error": "",
-            }
-        )
-        logger.info("Settings store connected to MySQL %s/%s", host, database)
-        return engine
+        engine = _connect_mysql(host, cfg.mysql_port, cfg.mysql_user, cfg.mysql_password, database)
     except Exception as exc:
-        logger.warning("MySQL settings store unavailable (%s); falling back to SQLite", exc)
-        _status["error"] = str(exc)
+        last_error = exc
+        try:
+            _ensure_mysql_database(host, cfg.mysql_port, cfg.mysql_user, cfg.mysql_password, database)
+            engine = _connect_mysql(host, cfg.mysql_port, cfg.mysql_user, cfg.mysql_password, database)
+            last_error = None
+        except Exception as create_exc:
+            last_error = create_exc
+            engine = None
+    if engine is None:
+        logger.warning("MySQL settings store unavailable (%s); falling back to SQLite", last_error)
+        _status["error"] = str(last_error or "MySQL unavailable")
         return None
+    _status.update(
+        {
+            "backend": "mysql",
+            "connected": True,
+            "label": "MySQL / MariaDB",
+            "host": f"{host}:{cfg.mysql_port}",
+            "database": database,
+            "error": "",
+        }
+    )
+    logger.info("Settings store connected to MySQL %s/%s", host, database)
+    return engine
 
 
 def get_settings_engine() -> Engine:
