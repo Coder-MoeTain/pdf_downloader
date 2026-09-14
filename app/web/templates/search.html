@@ -29,11 +29,32 @@
           <input class="form-control form-control-lg" id="query" name="query" required autocomplete="off"
                  placeholder="e.g. reinforcement learning for intrusion detection"
                  value="{{ job.query if job.query else '' }}">
-          <div class="chip-row mt-2">
+          <div class="chip-row mt-2" aria-label="Hot research keywords 2026">
             {% for topic in topics %}
             <button class="topic-chip" type="button" data-query="{{ topic.query }}">{{ topic.name }}</button>
             {% else %}
-            {% for example in ["web application security", "reinforcement learning penetration testing", "satellite cybersecurity", "machine learning IDS"] %}
+            {% for example in [
+              "Agentic AI & Autonomous AI Systems",
+              "Explainable AI (XAI)",
+              "Federated Learning",
+              "Synthetic Data Generation",
+              "Multimodal Foundation Models",
+              "AI-Driven Cyber Threat Detection",
+              "Autonomous Penetration Testing",
+              "Post-Quantum Cryptography (PQC)",
+              "AI Security & Adversarial Machine Learning",
+              "Zero Trust Architecture",
+              "Satellite Cybersecurity",
+              "AI-Based Earth Observation",
+              "Synthetic Aperture Radar (SAR)",
+              "Hyperspectral Imaging & AI",
+              "Space Situational Awareness (SSA)",
+              "Edge AI for Satellites and IoT",
+              "Neuromorphic Computing",
+              "Photonic Computing",
+              "In-Memory Computing",
+              "RISC-V & Secure AI Hardware"
+            ] %}
             <button class="topic-chip" type="button" data-query="{{ example }}">{{ example }}</button>
             {% endfor %}
             {% endfor %}

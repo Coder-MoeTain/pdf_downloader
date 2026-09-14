@@ -702,7 +702,7 @@ def search_page(request: Request):
             job=job_progress or tracker.snapshot(),
             active_job_id=focus_job.id if focus_job else None,
             search_queue=queue,
-            topics=cfg.topics[:6],
+            topics=cfg.topics,
         ),
     )
 
