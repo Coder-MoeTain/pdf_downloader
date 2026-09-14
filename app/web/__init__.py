@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 
@@ -1249,8 +1250,18 @@ def library_delete_paper(request: Request, paper_id: int, next: str = Form("")):
 
 @app.get("/papers/{paper_id}/pdf")
 async def download_paper_pdf(request: Request, paper_id: int):
+    """Fetch or serve a PDF without blocking uvicorn's event loop.
+
+    `ensure_local_pdf` does sync SQLite + disk I/O; running it on the main loop
+    freezes every other page for the duration of the download.
+    """
+    user_id = _request_user_id(request)
+
+    def _fetch() -> Path:
+        return asyncio.run(ensure_local_pdf(paper_id, topic_slug="library", user_id=user_id))
+
     try:
-        path = await ensure_local_pdf(paper_id, topic_slug="library", user_id=_request_user_id(request))
+        path = await asyncio.to_thread(_fetch)
         record_usage(request, "download", path.name)
     except DownloadError as exc:
         _search_message["text"] = str(exc)

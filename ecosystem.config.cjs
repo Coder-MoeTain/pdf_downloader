@@ -34,7 +34,9 @@ module.exports = {
       watch: false,
       max_restarts: 10,
       min_uptime: "10s",
-      max_memory_restart: "1G",
+      // Concurrent PDF downloads + LMS cover render can spike RSS; 1G caused
+      // brief PM2 kill/restarts that looked like the site "crashing".
+      max_memory_restart: "2G",
       kill_timeout: 8000,
       env: {
         PYTHONUNBUFFERED: "1",
