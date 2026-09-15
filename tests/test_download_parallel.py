@@ -35,10 +35,7 @@ async def test_download_papers_parallel_respects_concurrency(monkeypatch):
 
     monkeypatch.setattr(provider, "download_paper", fake_download)
 
-    jobs = [
-        (index, PaperRecord(title=f"Paper {index}", source_provider="test"))
-        for index in range(1, 6)
-    ]
+    jobs = [(index, PaperRecord(title=f"Paper {index}", source_provider="test")) for index in range(1, 6)]
     results = await download_papers_parallel(
         provider,
         jobs,

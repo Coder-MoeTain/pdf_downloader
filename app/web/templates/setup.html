@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <script>
+  (function () {
+    var key = "cs-theme";
+    var stored = localStorage.getItem(key);
+    var theme = stored === "dark" || stored === "light"
+      ? stored
+      : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    document.documentElement.setAttribute("data-bs-theme", theme);
+  })();
+  </script>
+  <title>First-run setup · {{ app_name }}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css?v={{ version }}">
+  <link rel="stylesheet" href="/static/theme.css?v={{ version }}">
+</head>
+<body class="login-page">
+{% from "_macros.html" import theme_toggle %}
+{{ theme_toggle("theme-toggle login-theme-toggle") }}
+<a class="skip-link" href="#login-main">Skip to setup</a>
+<div class="login-shell">
+  <aside class="login-brand">
+    <img class="login-hero" src="/static/login-hero.png" alt="A quiet university library reading room">
+    <div class="login-brand-inner">
+      <div class="login-logo">
+        {% from "_macros.html" import brand_mark %}
+        {{ brand_mark(36) }}
+        <span class="brand-copy">
+          <span class="brand-text">{{ app_name }}</span>
+          <span class="brand-sub">{{ app_subtitle }}</span>
+        </span>
+      </div>
+      <p class="login-brand-kicker">{{ app_subtitle }}</p>
+      <h1 class="login-brand-title">Secure first-run setup.</h1>
+      <p class="login-brand-copy">No one is an administrator until you create the first account with the one-time token from the server log.</p>
+      <ul class="login-points">
+        <li>Token is logged at startup only</li>
+        <li>First account becomes admin</li>
+        <li>No default password</li>
+      </ul>
+    </div>
+  </aside>
+  <main id="login-main" class="login-panel">
+    <div class="login-panel-inner">
+      {% if flash and flash.text %}
+      <div class="alert alert-{{ flash.level or 'info' }} alert-dismissible fade show login-alert" role="status">
+        {{ flash.text }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button>
+      </div>
+      {% endif %}
+      <p class="login-eyebrow">First-time setup</p>
+      <h2 class="login-heading">Create the administrator</h2>
+      <p class="login-lead">Paste the one-time bootstrap token from the application log, then choose an email and password. You can also run <code>python main.py create-admin</code>.</p>
+
+      <form method="post" action="/setup" class="login-form" data-busy="Creating account…">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="next" value="{{ next_url }}">
+        <label class="login-field">
+          <span>Bootstrap token</span>
+          <input id="bootstrap_token" name="bootstrap_token" type="password" autocomplete="off" required>
+          <small>Copied from the server log. It is never shown on this page.</small>
+        </label>
+        <label class="login-field">
+          <span>Display name</span>
+          <input id="name" name="name" autocomplete="name" placeholder="Your name">
+        </label>
+        <label class="login-field">
+          <span>Email</span>
+          <input id="email" name="email" type="email" autocomplete="username" placeholder="you@example.com" required>
+        </label>
+        <label class="login-field">
+          <span>Password</span>
+          <input id="password" name="password" type="password" autocomplete="new-password" minlength="{{ password_min }}" required>
+          <small>At least {{ password_min }} characters. Do not reuse a known default.</small>
+        </label>
+        <button class="btn-login" type="submit">Create administrator</button>
+      </form>
+      <p class="login-foot">Official APIs only · open-access PDFs · times in {{ timezone_abbrev }}</p>
+    </div>
+  </main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/app.js?v={{ version }}"></script>
+</body>
+</html>

@@ -1,6 +1,38 @@
 (function () {
   var THEME_KEY = "cs-theme";
 
+  function csrfToken() {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute("content") || "" : "";
+  }
+
+  document.querySelectorAll("form").forEach(function (form) {
+    var method = (form.getAttribute("method") || "get").toLowerCase();
+    if (method !== "post" && method !== "put" && method !== "patch" && method !== "delete") return;
+    if (form.querySelector('input[name="csrf_token"]')) return;
+    var token = csrfToken();
+    if (!token) return;
+    var input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "csrf_token";
+    input.value = token;
+    form.appendChild(input);
+  });
+
+  var originalFetch = window.fetch;
+  window.fetch = function (input, init) {
+    init = init || {};
+    var method = String((init.method || (typeof input === "object" && input && input.method) || "GET")).toUpperCase();
+    if (method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE") {
+      var headers = new Headers(init.headers || (typeof input === "object" && input && input.headers) || {});
+      if (!headers.has("X-CSRF-Token") && !headers.has("x-csrf-token")) {
+        headers.set("X-CSRF-Token", csrfToken());
+      }
+      init.headers = headers;
+    }
+    return originalFetch.call(this, input, init);
+  };
+
   function resolveTheme() {
     var stored = localStorage.getItem(THEME_KEY);
     if (stored === "dark" || stored === "light") return stored;
@@ -238,6 +270,121 @@
     if (typeof paperDetailDialog.showModal === "function") {
       paperDetailDialog.showModal();
     }
+    if (detail.paper_id) {
+      loadPaperWorkspace(detail.paper_id);
+    }
+  }
+
+  function csrfHeader() {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute("content") || "" : "";
+  }
+
+  function loadPaperWorkspace(paperId) {
+    if (!paperDetailBody) return;
+    fetch("/api/papers/" + encodeURIComponent(paperId) + "/workspace", {
+      credentials: "same-origin",
+      headers: { Accept: "application/json", "X-CSRF-Token": csrfHeader() },
+    })
+      .then(function (response) {
+        return response.json();
+      })
+      .then(function (payload) {
+        if (!payload || !payload.ok || !paperDetailBody) return;
+        paperDetailBody.insertAdjacentHTML("beforeend", renderPaperWorkspace(payload));
+      })
+      .catch(function () {});
+  }
+
+  function renderPaperWorkspace(payload) {
+    var statuses = ["unread", "reading", "reviewed", "cited", "archived"];
+    var statusOptions = statuses
+      .map(function (status) {
+        return (
+          '<option value="' +
+          status +
+          '"' +
+          (payload.reading_status === status ? " selected" : "") +
+          ">" +
+          status.charAt(0).toUpperCase() +
+          status.slice(1) +
+          "</option>"
+        );
+      })
+      .join("");
+    var collections = (payload.collections || [])
+      .map(function (item) {
+        return (
+          '<option value="' +
+          item.id +
+          '"' +
+          (item.selected ? " selected" : "") +
+          ">" +
+          escapeHtml(item.name) +
+          "</option>"
+        );
+      })
+      .join("");
+    var related = (payload.related || [])
+      .map(function (item) {
+        return (
+          '<li><a href="/library?q=' +
+          encodeURIComponent(item.title) +
+          '">' +
+          escapeHtml(item.title) +
+          "</a></li>"
+        );
+      })
+      .join("");
+    return (
+      '<form method="post" action="/papers/' +
+      payload.paper_id +
+      '/reading-status" class="paper-workspace mt-3">' +
+      '<input type="hidden" name="csrf_token" value="' +
+      escapeHtml(csrfToken()) +
+      '">' +
+      '<input type="hidden" name="next" value="/library">' +
+      '<label class="form-label" for="readingStatus">Reading status</label>' +
+      '<div class="d-flex gap-2">' +
+      '<select class="form-select form-select-sm" id="readingStatus" name="reading_status">' +
+      statusOptions +
+      "</select>" +
+      '<button class="btn btn-sm btn-outline-primary" type="submit">Save</button></div></form>' +
+      '<form method="post" action="/papers/' +
+      payload.paper_id +
+      '/notes" class="mt-3">' +
+      '<input type="hidden" name="csrf_token" value="' +
+      escapeHtml(csrfToken()) +
+      '">' +
+      '<input type="hidden" name="next" value="/library">' +
+      '<label class="form-label" for="paperNotes">Private notes</label>' +
+      '<textarea class="form-control" id="paperNotes" name="notes" rows="3">' +
+      escapeHtml(payload.notes || "") +
+      "</textarea>" +
+      '<label class="form-label mt-2" for="paperTags">Tags</label>' +
+      '<input class="form-control" id="paperTags" name="tags" value="' +
+      escapeHtml(payload.tags || "") +
+      '">' +
+      '<button class="btn btn-sm btn-primary mt-2" type="submit">Save notes</button></form>' +
+      (collections
+        ? '<form method="post" action="/papers/' +
+          payload.paper_id +
+          '/collections" class="mt-3">' +
+          '<input type="hidden" name="csrf_token" value="' +
+          escapeHtml(csrfToken()) +
+          '">' +
+          '<input type="hidden" name="next" value="/library">' +
+          '<label class="form-label" for="paperCollection">Add to collection</label>' +
+          '<div class="d-flex gap-2"><select class="form-select form-select-sm" id="paperCollection" name="collection_id">' +
+          collections +
+          '</select><button class="btn btn-sm btn-outline-primary" type="submit">Add</button></div></form>'
+        : "") +
+      (related
+        ? '<div class="mt-3"><div class="paper-detail-label">Related papers</div><ul class="paper-related">' +
+          related +
+          "</ul></div>"
+        : "")
+    );
   }
 
   document.addEventListener("click", function (event) {

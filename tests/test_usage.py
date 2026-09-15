@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from app.services import usage
 from app.web import app
+from tests.conftest import TEST_ADMIN_EMAIL, TEST_ADMIN_NAME, login_admin
 
 
 def test_usage_events_and_online_presence(tmp_db):
@@ -24,18 +25,12 @@ def test_usage_events_and_online_presence(tmp_db):
 
 def test_settings_activity_shows_online_user_and_login(tmp_db):
     usage.reset_presence()
-    client = TestClient(app)
-    signed = client.post(
-        "/login",
-        data={"email": "admin@localhost", "password": "Admin@123", "name": "Administrator"},
-        follow_redirects=False,
-    )
-    assert signed.status_code == 303
+    client = login_admin(TestClient(app))
     page = client.get("/settings?section=activity")
     assert page.status_code == 200
     assert "Online" in page.text
     assert "Recent activity" in page.text
-    assert "Administrator" in page.text or "admin@localhost" in page.text
+    assert TEST_ADMIN_NAME in page.text or TEST_ADMIN_EMAIL in page.text
     assert "Signed in" in page.text
     payload = client.get("/api/activity").json()
     assert payload["online_count"] >= 1

@@ -42,9 +42,9 @@ class Author(Base):
     name: Mapped[str] = mapped_column(String(512), nullable=False)
     normalized_name: Mapped[str] = mapped_column(String(512), index=True)
     affiliations: Mapped[str | None] = mapped_column(Text, nullable=True)
-    orcid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    orcid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
-    papers: Mapped[list["PaperAuthor"]] = relationship(back_populates="author")
+    papers: Mapped[list[PaperAuthor]] = relationship(back_populates="author")
 
 
 class Paper(Base):
@@ -94,8 +94,23 @@ class Paper(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
-    authors: Mapped[list["PaperAuthor"]] = relationship(back_populates="paper", cascade="all, delete-orphan")
-    downloads: Mapped[list["Download"]] = relationship(back_populates="paper", cascade="all, delete-orphan")
+    authors: Mapped[list[PaperAuthor]] = relationship(back_populates="paper", cascade="all, delete-orphan")
+    downloads: Mapped[list[Download]] = relationship(back_populates="paper", cascade="all, delete-orphan")
+    identifiers: Mapped[list[PaperIdentifier]] = relationship(back_populates="paper", cascade="all, delete-orphan")
+
+
+class PaperIdentifier(Base):
+    __tablename__ = "paper_identifiers"
+    __table_args__ = (UniqueConstraint("scheme", "normalized_value", name="uq_paper_identifier"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id"), nullable=False, index=True)
+    scheme: Mapped[str] = mapped_column(String(32), nullable=False)
+    value: Mapped[str] = mapped_column(String(512), nullable=False)
+    normalized_value: Mapped[str] = mapped_column(String(512), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+    paper: Mapped[Paper] = relationship(back_populates="identifiers")
 
 
 class PaperAuthor(Base):
@@ -123,8 +138,8 @@ class SearchQuery(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    user: Mapped["User | None"] = relationship()
-    results: Mapped[list["SearchResult"]] = relationship(back_populates="search", cascade="all, delete-orphan")
+    user: Mapped[User | None] = relationship()
+    results: Mapped[list[SearchResult]] = relationship(back_populates="search", cascade="all, delete-orphan")
 
 
 class SearchJob(Base):
@@ -145,7 +160,7 @@ class SearchJob(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    user: Mapped["User | None"] = relationship()
+    user: Mapped[User | None] = relationship()
     search_query: Mapped[SearchQuery | None] = relationship()
 
 
@@ -168,7 +183,7 @@ class CrawlJob(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    user: Mapped["User | None"] = relationship()
+    user: Mapped[User | None] = relationship()
 
 
 class SearchResult(Base):
@@ -205,7 +220,7 @@ class Download(Base):
     downloaded_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     paper: Mapped[Paper] = relationship(back_populates="downloads")
-    downloaded_by: Mapped["User | None"] = relationship()
+    downloaded_by: Mapped[User | None] = relationship()
 
 
 class LmsExport(Base):
@@ -250,7 +265,24 @@ class UsageEvent(Base):
     ip: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
-    user: Mapped["User | None"] = relationship()
+    user: Mapped[User | None] = relationship()
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    __table_args__ = (Index("ix_audit_logs_created", "created_at"), Index("ix_audit_logs_action", "action"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(64), default="")
+    target_id: Mapped[str] = mapped_column(String(128), default="")
+    ip: Mapped[str] = mapped_column(String(64), default="")
+    result: Mapped[str] = mapped_column(String(32), default="success")
+    metadata_json: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+    actor: Mapped[User | None] = relationship()
 
 
 class PaperFulltext(Base):
@@ -284,5 +316,64 @@ class CfpCall(Base):
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     categories: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(32), default="wikicfp")
+    deadline_source: Mapped[str] = mapped_column(String(64), default="wikicfp")
+    deadline_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    deadline_confidence: Mapped[str] = mapped_column(String(16), default="estimated")
+    official_website: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class UserPaper(Base):
+    """Per-user library metadata. Never store private notes globally on Paper."""
+
+    __tablename__ = "user_papers"
+    __table_args__ = (UniqueConstraint("user_id", "paper_id", name="uq_user_paper"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id"), nullable=False, index=True)
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reading_status: Mapped[str] = mapped_column(String(16), default="unread")
+    bookmarked: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+
+class Collection(Base):
+    __tablename__ = "collections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    slug: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+    papers: Mapped[list[CollectionPaper]] = relationship(back_populates="collection", cascade="all, delete-orphan")
+
+
+class CollectionPaper(Base):
+    __tablename__ = "collection_papers"
+    __table_args__ = (UniqueConstraint("collection_id", "paper_id", name="uq_collection_paper"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    collection_id: Mapped[int] = mapped_column(ForeignKey("collections.id"), nullable=False)
+    paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id"), nullable=False)
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+    collection: Mapped[Collection] = relationship(back_populates="papers")
+
+
+class SavedSearch(Base):
+    __tablename__ = "saved_searches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    filters_json: Mapped[str] = mapped_column(Text, default="{}")
+    alert_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

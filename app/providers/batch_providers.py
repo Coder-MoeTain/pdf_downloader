@@ -23,6 +23,4 @@ def _build_provider(spec: dict[str, object]) -> type[_CrossrefFilterProvider]:
     return type(_class_name(str(spec["slug"])), (_CrossrefFilterProvider,), attrs)
 
 
-BATCH_PROVIDER_CLASSES: list[type[_CrossrefFilterProvider]] = [
-    _build_provider(spec) for spec in BATCH_CROSSREF_SOURCES
-]
+BATCH_PROVIDER_CLASSES: list[type[_CrossrefFilterProvider]] = [_build_provider(spec) for spec in BATCH_CROSSREF_SOURCES]

@@ -1,13 +1,14 @@
+import httpx
+import pytest
+
 from app.config import parse_size
 from app.utils.http import HttpError, http_error_detail, parse_json_response
 from app.utils.security import is_safe_url
-import httpx
-import pytest
 
 
 def test_parse_size():
     assert parse_size("50MB") == 50 * 1024 * 1024
-    assert parse_size("2GB") == 2 * 1024 ** 3
+    assert parse_size("2GB") == 2 * 1024**3
     assert parse_size(100) == 100
 
 

@@ -91,7 +91,9 @@ class DoajProvider(ResearchProvider):
             keywords=[k.get("term") or k if isinstance(k, str) else k.get("term") for k in (bib.get("keywords") or [])],
             open_access=True,
             license="; ".join(
-                (lic.get("title") or lic.get("type") or "") for lic in (bib.get("license") or []) if isinstance(lic, dict)
+                (lic.get("title") or lic.get("type") or "")
+                for lic in (bib.get("license") or [])
+                if isinstance(lic, dict)
             )
             or None,
             source_provider=self.name,
@@ -550,7 +552,8 @@ class NasaNtrsProvider(ResearchProvider):
             abstract=item.get("abstract"),
             authors=authors,
             publication_year=year,
-            publication_date=str((pub0 or {}).get("publicationDate") or item.get("distributionDate") or "")[:10] or None,
+            publication_date=str((pub0 or {}).get("publicationDate") or item.get("distributionDate") or "")[:10]
+            or None,
             journal=None if conference else (pub0.get("publicationName") or None),
             conference=conference,
             publisher=(item.get("center") or {}).get("name") or "NASA",

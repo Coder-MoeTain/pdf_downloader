@@ -102,6 +102,7 @@ def test_crawler_page_renders_for_admin(tmp_db):
             role="admin",
         )
     client = TestClient(app, follow_redirects=False)
+    client.get("/login")
     login = client.post(
         "/login",
         data={"email": "crawler@test.local", "password": "password1", "next": "/crawler"},
@@ -119,12 +120,12 @@ def test_crawler_page_renders_for_admin(tmp_db):
 
 def test_crawl_multi_source_enqueue(tmp_db):
     from fastapi.testclient import TestClient
+    from sqlalchemy import func, select
 
     from app.auth import create_local_user
     from app.database.connection import session_scope
     from app.database.models import CrawlJob
     from app.web import app
-    from sqlalchemy import func, select
 
     with session_scope() as session:
         create_local_user(
@@ -135,6 +136,7 @@ def test_crawl_multi_source_enqueue(tmp_db):
             role="admin",
         )
     client = TestClient(app, follow_redirects=False)
+    client.get("/login")
     login = client.post(
         "/login",
         data={"email": "multi-crawl@test.local", "password": "password1", "next": "/crawler"},
@@ -175,6 +177,7 @@ def test_crawl_submit_requires_selection(tmp_db):
             role="admin",
         )
     client = TestClient(app, follow_redirects=True)
+    client.get("/login")
     client.post(
         "/login",
         data={"email": "empty-crawl@test.local", "password": "password1", "next": "/crawler"},
@@ -185,9 +188,9 @@ def test_crawl_submit_requires_selection(tmp_db):
 
 
 def test_enqueue_registers_crawl_progress(tmp_db):
+    from app.models.crawl import CrawlFilters
     from app.services.crawl_queue import enqueue_crawl
     from app.services.progress import crawl_job_registry
-    from app.models.crawl import CrawlFilters
 
     crawl_job_registry.clear_all()
     job_id = enqueue_crawl(user_id=None, filters=CrawlFilters(source="openalex"))
@@ -201,7 +204,7 @@ def test_enqueue_registers_crawl_progress(tmp_db):
 
 def test_crawl_progress_snapshot_db_fallback(tmp_db):
     from app.database.connection import session_scope
-    from app.database.repository import enqueue_crawl_job, crawl_queue_position
+    from app.database.repository import crawl_queue_position, enqueue_crawl_job
     from app.services.crawl_queue import crawl_progress_snapshot, db_crawl_progress_snapshot
 
     with session_scope() as session:
@@ -238,6 +241,7 @@ def test_crawl_progress_api_with_pending_job(tmp_db):
         )
         job_id = job.id
     client = TestClient(app)
+    client.get("/login")
     login = client.post(
         "/login",
         data={"email": "crawl-api@test.local", "password": "password1", "next": "/crawler"},

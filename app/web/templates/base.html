@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="csrf-token" content="{{ csrf_token }}">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <script>
@@ -90,6 +91,7 @@
             <span class="role-badge role-{{ user.role }}">{{ user.role }}</span>
           </a>
           <form method="post" action="/logout" class="nav-logout-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="nav-link nav-signout" type="submit">Log out</button>
           </form>
         </div>
@@ -161,7 +163,13 @@
           <button class="cite-format-tab is-active" type="button" role="tab" aria-selected="true" data-cite-format="apa">APA</button>
           <button class="cite-format-tab" type="button" role="tab" aria-selected="false" data-cite-format="mla">MLA</button>
           <button class="cite-format-tab" type="button" role="tab" aria-selected="false" data-cite-format="chicago">Chicago</button>
+          <button class="cite-format-tab" type="button" role="tab" aria-selected="false" data-cite-format="ieee">IEEE</button>
+          <button class="cite-format-tab" type="button" role="tab" aria-selected="false" data-cite-format="harvard">Harvard</button>
+          <button class="cite-format-tab" type="button" role="tab" aria-selected="false" data-cite-format="vancouver">Vancouver</button>
           <button class="cite-format-tab" type="button" role="tab" aria-selected="false" data-cite-format="bibtex">BibTeX</button>
+          <button class="cite-format-tab" type="button" role="tab" aria-selected="false" data-cite-format="ris">RIS</button>
+          <button class="cite-format-tab" type="button" role="tab" aria-selected="false" data-cite-format="csl_json">CSL-JSON</button>
+          <button class="cite-format-tab" type="button" role="tab" aria-selected="false" data-cite-format="endnote">EndNote</button>
         </div>
         <pre class="cite-text" id="citePreviewText"></pre>
         <button class="btn btn-sm btn-primary cite-copy-btn" type="button" id="citeCopyBtn">Copy citation</button>

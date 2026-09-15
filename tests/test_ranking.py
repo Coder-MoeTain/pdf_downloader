@@ -1,6 +1,6 @@
 from app.models.paper import PaperRecord
 from app.models.search import SearchFilters, SortMode
-from app.services.ranking_service import rank_papers, score_paper, text_relevance
+from app.services.ranking_service import rank_papers, text_relevance
 
 
 def test_title_relevance_higher_for_close_match():
@@ -13,7 +13,12 @@ def test_title_relevance_higher_for_close_match():
 def test_score_range_and_sort():
     query = "reinforcement learning penetration testing"
     papers = [
-        PaperRecord(title="Reinforcement learning for autonomous penetration testing", abstract="RL pentest", publication_year=2025, citation_count=10),
+        PaperRecord(
+            title="Reinforcement learning for autonomous penetration testing",
+            abstract="RL pentest",
+            publication_year=2025,
+            citation_count=10,
+        ),
         PaperRecord(title="Unrelated astronomy paper", abstract="stars", publication_year=1999, citation_count=5000),
     ]
     filters = SearchFilters(query=query, sort=SortMode.RELEVANCE)

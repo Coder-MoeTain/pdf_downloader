@@ -73,8 +73,9 @@ def test_library_facets_light_skips_category_scan(tmp_db):
 
 
 def test_dashboard_stats_are_cached(tmp_db):
-    from app.database.repository import dashboard_stats
     from fastapi.testclient import TestClient
+
+    from app.database.repository import dashboard_stats
     from app.web import app
 
     with session_scope() as session:
@@ -92,7 +93,9 @@ def test_dashboard_stats_are_cached(tmp_db):
         first = dashboard_stats(session)
         second = dashboard_stats(session)
     assert first["total"] == second["total"] == 1
-    client = TestClient(app)
+    from tests.conftest import login_admin
+
+    client = login_admin(TestClient(app))
     page = client.get("/")
     assert page.status_code == 200
     assert "Dash paper" in page.text or "Papers in library" in page.text

@@ -11,7 +11,6 @@ import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -30,6 +29,7 @@ class EnvSettings(BaseSettings):
         extra="ignore",
     )
 
+    app_env: str = "development"
     contact_email: str = "you@example.com"
     unpaywall_email: str = ""
     semantic_scholar_api_key: str = ""
@@ -47,18 +47,26 @@ class EnvSettings(BaseSettings):
     database_path: str = "data/research.db"
     mysql_host: str = ""
     mysql_port: int = 3306
-    mysql_user: str = "root"
+    mysql_user: str = ""
     mysql_password: str = ""
     mysql_database: str = "research_collector"
     settings_sqlite_path: str = "data/settings.db"
     google_client_id: str = ""
     google_client_secret: str = ""
     google_admin_emails: str = ""
-    session_secret: str = "change-me-in-production-please-use-a-long-random-string"
+    session_secret: str = ""
+    allowed_hosts: str = "localhost,127.0.0.1"
+    trusted_proxy_ips: str = "127.0.0.1"
+    https_redirect: bool = False
+    app_host: str = "127.0.0.1"
+    app_port: int = 8000
+    session_max_age: int = 60 * 60 * 12
+    login_max_attempts: int = 5
+    login_window_seconds: int = 900
     admin_email: str = ""
     admin_password: str = ""
     admin_name: str = ""
-    lms_sync_enabled: bool = True
+    lms_sync_enabled: bool = False
     lms_root: str = ""
     lms_category: str = "Research Papers"
     lms_db_host: str = ""
@@ -121,7 +129,7 @@ class TopicConfig(BaseModel):
 class AppConfig(BaseModel):
     name: str = "Cyber Scholar"
     subtitle: str = "Myanmar Space Agency"
-    version: str = "1.2.0"
+    version: str = "2.0.0"
     user_agent: str = "CyberScholar/1.2 (academic research; mailto:{email})"
     library_dir: Path = Path("research_library")
     exports_dir: Path = Path("exports")
@@ -265,3 +273,133 @@ def get_runtime_config() -> AppConfig:
         return apply_runtime_overlay(cfg)
     except Exception:
         return cfg
+
+
+WEAK_SESSION_SECRETS = {
+    "",
+    "change-me-in-production-please-use-a-long-random-string",
+    "secret",
+    "changeme",
+    "please-change-me",
+}
+
+_EPHEMERAL_SESSION_SECRET = ""
+
+
+def app_env() -> str:
+    raw = (os.environ.get("APP_ENV") or "").strip().lower()
+    if not raw:
+        try:
+            raw = (load_config().env.app_env or "development").strip().lower()
+        except Exception:
+            raw = "development"
+    if raw in {"prod", "production"}:
+        return "production"
+    if raw in {"test", "testing"}:
+        return "testing"
+    return "development"
+
+
+def is_strong_secret(value: str | None, *, min_bytes: int = 32) -> bool:
+    text = (value or "").strip()
+    if not text or text.lower() in WEAK_SESSION_SECRETS:
+        return False
+    return len(text.encode("utf-8")) >= min_bytes
+
+
+def parse_host_list(value: str | None, *, fallback: tuple[str, ...] = ()) -> list[str]:
+    parts = [item.strip() for item in str(value or "").split(",") if item.strip()]
+    return parts or list(fallback)
+
+
+def allowed_hosts() -> list[str]:
+    raw = os.environ.get("ALLOWED_HOSTS")
+    if raw is None:
+        try:
+            raw = load_config().env.allowed_hosts
+        except Exception:
+            raw = "localhost,127.0.0.1"
+    hosts = parse_host_list(raw, fallback=("localhost", "127.0.0.1"))
+    if app_env() == "testing" and "testserver" not in hosts:
+        hosts.append("testserver")
+    return hosts
+
+
+def trusted_proxy_ips() -> list[str]:
+    raw = os.environ.get("TRUSTED_PROXY_IPS")
+    if raw is None:
+        try:
+            raw = load_config().env.trusted_proxy_ips
+        except Exception:
+            raw = "127.0.0.1"
+    return parse_host_list(raw, fallback=("127.0.0.1",))
+
+
+def cookie_secure(request: Any | None = None) -> bool:
+    if app_env() == "production":
+        return True
+    if request is not None:
+        host = (getattr(getattr(request, "url", None), "hostname", None) or "").lower()
+        if host in {"localhost", "127.0.0.1", "testserver"}:
+            return False
+    return False
+
+
+def https_assumed(request: Any | None = None) -> bool:
+    if request is not None and str(getattr(getattr(request, "url", None), "scheme", "")) == "https":
+        return True
+    flag = os.environ.get("HTTPS_REDIRECT", "")
+    try:
+        configured = load_config().env.https_redirect
+    except Exception:
+        configured = False
+    return app_env() == "production" and (configured or flag.lower() in {"1", "true", "yes"})
+
+
+def session_secret_value() -> str:
+    """Return the signing secret. Development may use a process-ephemeral value."""
+    global _EPHEMERAL_SESSION_SECRET
+    try:
+        configured = (load_config().env.session_secret or "").strip()
+    except Exception:
+        configured = (os.environ.get("SESSION_SECRET") or "").strip()
+    if is_strong_secret(configured):
+        return configured
+    env = app_env()
+    if env == "production":
+        raise RuntimeError(
+            "SESSION_SECRET is missing or too weak for production. "
+            'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
+        )
+    if not _EPHEMERAL_SESSION_SECRET:
+        import secrets as _secrets
+
+        _EPHEMERAL_SESSION_SECRET = _secrets.token_urlsafe(48)
+    return _EPHEMERAL_SESSION_SECRET
+
+
+def validate_startup_config(cfg: AppConfig | None = None) -> None:
+    """Fail fast on dangerous production configuration."""
+    from app.exceptions import ConfigurationError
+
+    cfg = cfg or load_config()
+    env = app_env()
+    secret = (cfg.env.session_secret or os.environ.get("SESSION_SECRET") or "").strip()
+    hosts = allowed_hosts()
+    proxies = trusted_proxy_ips()
+    if env == "production":
+        if not is_strong_secret(secret):
+            raise ConfigurationError(
+                "SESSION_SECRET is required in production and must be at least 32 bytes of entropy. "
+                'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
+            )
+        if not hosts or "*" in hosts or "0.0.0.0" in hosts:
+            raise ConfigurationError("ALLOWED_HOSTS must be an explicit hostname list in production.")
+        if not proxies or "*" in proxies:
+            raise ConfigurationError("TRUSTED_PROXY_IPS must not be '*' in production. Example: 127.0.0.1")
+    if env not in {"development", "testing", "production"}:
+        raise ConfigurationError(f"Invalid APP_ENV: {env}")
+    if cfg.env.max_concurrent_requests < 1 or cfg.env.max_concurrent_downloads < 1:
+        raise ConfigurationError("Concurrency limits must be >= 1.")
+    if cfg.env.max_redirects < 0 or cfg.env.max_redirects > 20:
+        raise ConfigurationError("MAX_REDIRECTS must be between 0 and 20.")

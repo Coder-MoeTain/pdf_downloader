@@ -18,6 +18,7 @@ from app.database.repository import (
 )
 from app.web import app
 from app.web.ui import reports_href
+from tests.conftest import patch_web
 
 
 def test_complete_search_job_stores_download_stats(tmp_db):
@@ -125,12 +126,9 @@ def test_reports_page_lists_search_and_crawl(tmp_db, monkeypatch):
         "role": "admin",
         "is_admin": True,
     }
-    monkeypatch.setattr("app.web.auth_required", lambda: True)
-    monkeypatch.setattr("app.auth.auth_required", lambda: True)
-    monkeypatch.setattr("app.web.current_user", lambda _request: payload)
-    monkeypatch.setattr("app.auth.current_user", lambda _request: payload)
-    monkeypatch.setattr("app.web.user_is_admin", lambda _request: True)
-    monkeypatch.setattr("app.auth.user_is_admin", lambda _request: True)
+    patch_web(monkeypatch, "auth_required", lambda: True)
+    patch_web(monkeypatch, "current_user", lambda _request: payload)
+    patch_web(monkeypatch, "user_is_admin", lambda _request: True)
 
     client = TestClient(app)
     search_resp = client.get("/reports")

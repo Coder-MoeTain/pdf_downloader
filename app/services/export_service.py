@@ -14,7 +14,6 @@ from app.models.search import SearchStats
 from app.utils.filename import slugify
 from app.utils.time import configured_timezone, format_local, now_local, utc_now
 
-
 EXPORT_COLUMNS = [
     "Rank",
     "Title",

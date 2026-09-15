@@ -5,11 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from app.config import load_config
 from app.database.connection import session_scope
-from app.database.models import Download, Paper
+from app.database.models import Download
 from app.database.repository import fulltext_search, save_fulltext
 from app.utils.filename import safe_join
 from app.utils.logger import get_logger

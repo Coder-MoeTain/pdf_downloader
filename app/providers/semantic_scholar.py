@@ -127,9 +127,7 @@ class SemanticScholarProvider(ResearchProvider):
         if not item or item.get("error"):
             return None
         authors = [
-            AuthorRecord(name=a.get("name"), affiliations=[])
-            for a in (item.get("authors") or [])
-            if a.get("name")
+            AuthorRecord(name=a.get("name"), affiliations=[]) for a in (item.get("authors") or []) if a.get("name")
         ]
         ext = item.get("externalIds") or {}
         journal_info = item.get("journal") or {}

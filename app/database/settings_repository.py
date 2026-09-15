@@ -12,7 +12,12 @@ from sqlalchemy.orm import Session
 from app.config import AppConfig, ProviderConfig, load_config
 from app.database.settings_models import AcademicSource, AppSetting
 from app.database.settings_store import settings_session
-from app.database.source_catalog import BUILTIN_SOURCES, DEFAULT_ENABLED_SOURCE_SLUGS, SOURCE_KEY_FIELDS
+from app.database.source_catalog import (
+    BUILTIN_SOURCES,
+    DEFAULT_ENABLED_SOURCE_SLUGS,
+    SOURCE_KEY_FIELDS,
+    source_profile,
+)
 from app.utils.time import clear_timezone_cache, format_local, normalize_timezone, set_active_timezone, utc_now
 
 SLUG_RE = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
@@ -45,7 +50,9 @@ def get_setting(session: Session, key: str) -> str | None:
     return None if row is None else row.value
 
 
-def set_setting(session: Session, key: str, value: object | None, *, group: str = "general", secret: bool = False) -> AppSetting:
+def set_setting(
+    session: Session, key: str, value: object | None, *, group: str = "general", secret: bool = False
+) -> AppSetting:
     row = session.get(AppSetting, key)
     if row is None:
         row = AppSetting(key=key, group_name=group, is_secret=secret)
@@ -197,7 +204,9 @@ def _clean_url(value: str | None) -> str | None:
 def _clean_slug(value: str) -> str:
     slug = (value or "").strip().lower().replace("-", "_").replace(" ", "_")
     if not SLUG_RE.match(slug):
-        raise SettingsError("Source id must be 2–63 characters: start with a letter, then letters, numbers, or underscores.")
+        raise SettingsError(
+            "Source id must be 2–63 characters: start with a letter, then letters, numbers, or underscores."
+        )
     return slug
 
 
@@ -538,6 +547,7 @@ def source_to_dict(row: AcademicSource, *, include_secret: bool = False) -> dict
         "kind": "Built-in" if row.builtin else "Custom",
         "updated_at": format_local(row.updated_at) if row.updated_at else "",
     }
+    payload.update(source_profile(row.slug, api_base_url=row.api_base_url or ""))
     if include_secret:
         payload["api_key"] = row.api_key or ""
     return payload

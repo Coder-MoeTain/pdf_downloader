@@ -31,9 +31,13 @@ class OpenAccessService:
 
         if paper.doi and not _usable_pdf(paper.pdf_url):
             unpaywall = await self._unpaywall(paper.doi)
-            if unpaywall:
+            if unpaywall is None:
+                paper.extra["oa_lookup"] = "failed"
+            else:
                 pdf, license_, is_oa = unpaywall
                 paper.metadata_sources["open_access"] = "unpaywall"
+                paper.extra["oa_lookup"] = "ok"
+                paper.extra["unpaywall_is_oa"] = is_oa
                 if pdf:
                     paper.pdf_url = pdf
                     paper.metadata_sources["pdf_url"] = "unpaywall"
@@ -53,16 +57,26 @@ class OpenAccessService:
             paper.status = PaperStatus.OA_AVAILABLE
             return paper
 
-        if paper.open_access is False or (paper.doi and paper.open_access is not True):
-            paper.status = PaperStatus.PAYWALLED
-            paper.open_access = False
-            return paper
+        from app.services.oa_status import has_restricted_access_evidence
 
+        lookup = paper.extra.get("oa_lookup")
+        if lookup == "failed":
+            paper.status = PaperStatus.OA_UNKNOWN
+            return paper
+        if lookup == "ok" and paper.open_access is False:
+            paper.status = PaperStatus.NO_OA_COPY_FOUND
+            return paper
         if paper.open_access is True and not paper.pdf_url:
             paper.status = PaperStatus.NO_PDF
             return paper
-
-        paper.status = PaperStatus.NO_PDF if not paper.doi else PaperStatus.PAYWALLED
+        if has_restricted_access_evidence(paper):
+            paper.status = PaperStatus.PAYWALLED
+            paper.open_access = False
+            return paper
+        if paper.doi and lookup != "ok":
+            paper.status = PaperStatus.OA_UNKNOWN
+            return paper
+        paper.status = PaperStatus.NO_PDF
         return paper
 
     async def alternate_pdf_url(self, paper: PaperRecord, *, exclude: str | None = None) -> str | None:

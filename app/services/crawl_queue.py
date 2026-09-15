@@ -176,9 +176,7 @@ def crawl_progress_snapshot(job_id: int) -> dict[str, Any] | None:
 def _run_crawl_sync(filters: CrawlFilters, user_id: int | None, progress) -> Any:
     """Execute a crawl on a worker thread with its own event loop."""
     try:
-        return asyncio.run(
-            CrawlService(progress=progress).run(filters, user_id=user_id, skip_progress_start=True)
-        )
+        return asyncio.run(CrawlService(progress=progress).run(filters, user_id=user_id, skip_progress_start=True))
     except CrawlCancelled:
         # Ensure the cancel flag stays set for any late observers.
         progress.request_cancel("Stopping crawl…")
@@ -282,13 +280,14 @@ async def _run_job(job_id: int) -> None:
         raise
     except Exception as exc:
         logger.exception("Crawl job %s failed", job_id)
+        error_message = str(exc)
         prog = crawl_job_registry.get(job_id)
         if prog:
-            prog.finish_crawl(error=str(exc))
+            prog.finish_crawl(error=error_message)
 
         def _fail() -> None:
             with session_scope() as session:
-                complete_crawl_job(session, job_id, status="failed", error_message=str(exc))
+                complete_crawl_job(session, job_id, status="failed", error_message=error_message)
 
         await asyncio.to_thread(_fail)
     finally:

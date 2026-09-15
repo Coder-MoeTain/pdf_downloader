@@ -12,8 +12,8 @@ from app.database.repository import (
     queue_position,
     search_jobs_grouped_by_user,
 )
-from app.services.search_queue import cancel_search
 from app.database.source_catalog import DEFAULT_ENABLED_SOURCE_SLUGS
+from app.services.search_queue import cancel_search
 
 
 def _create_user(session, email: str) -> User:
@@ -32,8 +32,8 @@ def test_enqueue_and_claim_per_user(tmp_db):
     with session_scope() as session:
         alice = _create_user(session, "alice@test.local")
         bob = _create_user(session, "bob@test.local")
-        j1 = enqueue_search_job(session, user_id=alice.id, query="topic A", filters={"query": "topic A"})
-        j2 = enqueue_search_job(session, user_id=bob.id, query="topic B", filters={"query": "topic B"})
+        enqueue_search_job(session, user_id=alice.id, query="topic A", filters={"query": "topic A"})
+        enqueue_search_job(session, user_id=bob.id, query="topic B", filters={"query": "topic B"})
         j3 = enqueue_search_job(session, user_id=alice.id, query="topic C", filters={"query": "topic C"})
 
     with session_scope() as session:
@@ -122,7 +122,7 @@ def test_cancel_running_search_updates_job_and_progress(tmp_db):
 
     with session_scope() as session:
         user = _create_user(session, "runner@test.local")
-        job = enqueue_search_job(session, user_id=user.id, query="running stop", filters={"query": "running stop"})
+        enqueue_search_job(session, user_id=user.id, query="running stop", filters={"query": "running stop"})
         claimed = claim_next_search_job(session)
         assert claimed is not None
         job_id = claimed.id
@@ -234,6 +234,7 @@ def test_search_page_shows_stop_and_cancels_pending(tmp_db):
         job = enqueue_search_job(session, user_id=user.id, query="pending stop", filters={"query": "pending stop"})
         job_id = job.id
     client = TestClient(app, follow_redirects=False)
+    client.get("/login")
     login = client.post(
         "/login",
         data={"email": "stopper@test.local", "password": "password1", "next": "/search"},
@@ -259,11 +260,12 @@ def test_stop_running_job_json(tmp_db):
 
     with session_scope() as session:
         user = create_local_user(session, email="jsonstop@test.local", password="password1", name="Json")
-        job = enqueue_search_job(session, user_id=user.id, query="json stop", filters={"query": "json stop"})
+        enqueue_search_job(session, user_id=user.id, query="json stop", filters={"query": "json stop"})
         claimed = claim_next_search_job(session)
         assert claimed is not None
         job_id = claimed.id
     client = TestClient(app)
+    client.get("/login")
     login = client.post(
         "/login",
         data={"email": "jsonstop@test.local", "password": "password1", "next": "/search"},
@@ -338,6 +340,7 @@ def test_search_progress_api_with_pending_job(tmp_db):
         job = enqueue_search_job(session, user_id=user.id, query="api pending", filters={"query": "api pending"})
         job_id = job.id
     client = TestClient(app)
+    client.get("/login")
     login = client.post(
         "/login",
         data={"email": "api@test.local", "password": "password1", "next": "/search"},

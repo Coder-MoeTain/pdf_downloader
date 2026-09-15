@@ -11,17 +11,16 @@ from app.database.repository import list_upcoming_cfps, upsert_cfp_call
 from app.services.cfp_service import (
     cover_image_url_for,
     display_image_url,
+    external_id_from_url,
     extract_deadline_from_html,
     extract_og_image,
     extract_website_from_html,
-    external_id_from_url,
     is_generic_cfp_image,
     parse_cfp_date,
     parse_rss_items,
     strip_html,
 )
 from app.web import app
-
 
 SAMPLE_RSS = """<?xml version="1.0"?>
 <rss version="2.0">
@@ -71,14 +70,11 @@ def test_extract_deadline_and_og_image():
     assert extract_og_image(html) == "https://example.com/poster.png"
     assert extract_deadline_from_html(html) == datetime(2026, 10, 20)
     assert extract_website_from_html(html) == "https://conf.example.org/2026"
-    assert extract_website_from_html("Link: <a href=\"http://www.wikicfp.com/x\">x</a>") is None
+    assert extract_website_from_html('Link: <a href="http://www.wikicfp.com/x">x</a>') is None
 
 
 def test_external_id_from_url():
-    assert (
-        external_id_from_url("http://www.wikicfp.com/cfp/servlet/event.showcfp?eventid=99")
-        == "wikicfp:99"
-    )
+    assert external_id_from_url("http://www.wikicfp.com/cfp/servlet/event.showcfp?eventid=99") == "wikicfp:99"
 
 
 def test_cover_image_for_generic_favicons():
@@ -97,8 +93,7 @@ def test_cover_image_for_generic_favicons():
         categories="satellite",
     ).startswith("https://images.unsplash.com/")
     assert (
-        display_image_url("https://cdn.example/poster.jpg", external_id="wikicfp:9")
-        == "https://cdn.example/poster.jpg"
+        display_image_url("https://cdn.example/poster.jpg", external_id="wikicfp:9") == "https://cdn.example/poster.jpg"
     )
 
 
@@ -177,7 +172,9 @@ def test_cfp_page_renders_upcoming(tmp_db):
                 "deadline": now + timedelta(days=180),
             },
         )
-    client = TestClient(app)
+    from tests.conftest import login_admin
+
+    client = login_admin(TestClient(app))
     page = client.get("/cfp")
     assert page.status_code == 200
     assert "Call for papers" in page.text

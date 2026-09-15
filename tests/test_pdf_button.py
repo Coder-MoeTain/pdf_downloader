@@ -20,9 +20,7 @@ def test_pdf_button_unavailable():
 
 def test_pdf_button_trusts_claimed_local_path_without_disk():
     paper = Paper(title="Saved", status="DOWNLOADED", pdf_url=None)
-    paper.downloads = [
-        Download(status=PaperStatus.DOWNLOADED.value, local_path="/library/missing-but-claimed.pdf")
-    ]
+    paper.downloads = [Download(status=PaperStatus.DOWNLOADED.value, local_path="/library/missing-but-claimed.pdf")]
     assert has_claimed_local_pdf(paper) is True
     assert pdf_button_state(paper) == "download"
 

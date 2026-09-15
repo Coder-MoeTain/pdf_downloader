@@ -36,7 +36,9 @@ def test_pm2_restart_success(monkeypatch):
     def fake_run(*args, **kwargs):
         calls.append(list(args))
         if args[:2] == ("restart", "researchpaper"):
-            return CompletedProcess(args, 0, stdout="[PM2] Applying action restartProcessId on app [researchpaper]", stderr="")
+            return CompletedProcess(
+                args, 0, stdout="[PM2] Applying action restartProcessId on app [researchpaper]", stderr=""
+            )
         payload = [{"name": "researchpaper", "monit": {}, "pm2_env": {"status": "online", "pm_uptime": 0}}]
         return CompletedProcess(args, 0, stdout=json.dumps(payload), stderr="")
 

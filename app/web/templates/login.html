@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="csrf-token" content="{{ csrf_token }}">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <script>
@@ -14,7 +15,7 @@
     document.documentElement.setAttribute("data-bs-theme", theme);
   })();
   </script>
-  <title>{% if allow_register %}Create admin · {{ app_name }}{% else %}Log in · {{ app_name }}{% endif %}</title>
+  <title>Log in · {{ app_name }}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/logo.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -58,9 +59,9 @@
         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button>
       </div>
       {% endif %}
-      <p class="login-eyebrow">{% if allow_register %}First-time setup{% else %}Welcome back{% endif %}</p>
-      <h2 class="login-heading">{% if allow_register %}Create the admin account{% else %}Sign in to continue{% endif %}</h2>
-      <p class="login-lead">{% if allow_register %}This account can manage sources, settings, and other people. You can also sign in with Gmail.{% else %}Use your Gmail account or the email and password for this workspace.{% endif %}</p>
+      <p class="login-eyebrow">Welcome back</p>
+      <h2 class="login-heading">Sign in to continue</h2>
+      <p class="login-lead">Use your Gmail account or the email and password for this workspace.</p>
 
       <a class="btn-gmail" href="/auth/google?next={{ next_url|urlencode }}">
         <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
@@ -78,23 +79,18 @@
       <div class="login-split"><span>or use email</span></div>
 
       <form method="post" action="/login" class="login-form" data-busy="Signing in…">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="next" value="{{ next_url }}">
-        {% if allow_register %}
-        <label class="login-field">
-          <span>Display name</span>
-          <input id="name" name="name" autocomplete="name" placeholder="Your name">
-        </label>
-        {% endif %}
         <label class="login-field">
           <span>Email</span>
           <input id="email" name="email" type="email" autocomplete="username" placeholder="you@gmail.com" required>
         </label>
         <label class="login-field">
           <span>Password</span>
-          <input id="password" name="password" type="password" autocomplete="{{ 'new-password' if allow_register else 'current-password' }}" minlength="{{ password_min }}" required>
+          <input id="password" name="password" type="password" autocomplete="current-password" minlength="{{ password_min }}" required>
           <small>At least {{ password_min }} characters</small>
         </label>
-        <button class="btn-login" type="submit">{% if allow_register %}Create admin account{% else %}Log in with email{% endif %}</button>
+        <button class="btn-login" type="submit">Log in with email</button>
       </form>
       <p class="login-foot">Official APIs only · open-access PDFs · times in {{ timezone_abbrev }}</p>
     </div>

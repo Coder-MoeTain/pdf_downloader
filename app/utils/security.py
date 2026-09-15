@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import ipaddress
 import re
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
 from app.config import get_runtime_config
+from app.security.ssrf import is_safe_url as _is_safe_url
 from app.utils.logger import get_logger
 
 logger = get_logger("app.security")
@@ -19,33 +19,9 @@ CONTENT_TYPE_PDF = re.compile(r"application/(pdf|octet-stream)", re.I)
 _robots_cache: dict[str, RobotFileParser] = {}
 
 
-def is_safe_url(url: str | None, *, prefer_https: bool = True) -> bool:
-    if not url or not isinstance(url, str):
-        return False
-    parsed = urlparse(url.strip())
-    if parsed.scheme not in ALLOWED_SCHEMES:
-        return False
-    if prefer_https and parsed.scheme != "https":
-        # Allow http only for known academic endpoints such as arXiv export.
-        host = (parsed.hostname or "").lower()
-        if host not in {"export.arxiv.org", "arxiv.org", "dx.doi.org"}:
-            if parsed.scheme == "http" and host.endswith(".arxiv.org"):
-                return True
-            if parsed.scheme == "http":
-                logger.info("Rejecting non-HTTPS URL: %s", url)
-                return False
-    host = parsed.hostname
-    if not host:
-        return False
-    try:
-        ip = ipaddress.ip_address(host)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-            return False
-    except ValueError:
-        pass
-    if host.lower() in {"localhost"}:
-        return False
-    return True
+def is_safe_url(url: str | None, *, prefer_https: bool = True, resolve_dns: bool = False) -> bool:
+    """Hostname/scheme check. DNS resolution is performed by the HTTP client before fetch."""
+    return _is_safe_url(url, prefer_https=prefer_https, resolve_dns=resolve_dns)
 
 
 def looks_like_pdf(content_type: str | None, first_bytes: bytes, min_size: int, total_size: int) -> bool:
@@ -55,7 +31,11 @@ def looks_like_pdf(content_type: str | None, first_bytes: bytes, min_size: int, 
         return False
     if content_type:
         mime = content_type.split(";")[0].strip()
-        if mime and not CONTENT_TYPE_PDF.search(mime) and mime not in {"binary/octet-stream", "application/octet-stream"}:
+        if (
+            mime
+            and not CONTENT_TYPE_PDF.search(mime)
+            and mime not in {"binary/octet-stream", "application/octet-stream"}
+        ):
             # Some repositories send application/force-download; magic bytes already checked.
             if "html" in mime.lower() or "json" in mime.lower() or "text/" in mime.lower():
                 return False

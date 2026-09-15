@@ -21,6 +21,7 @@ DEFAULT_ENABLED_SOURCE_SLUGS: frozenset[str] = frozenset(
         "openaire",
         "hal",
         "zenodo",
+        "dblp",
         "plos",
         "eric",
         "osti",
@@ -613,7 +614,7 @@ BUILTIN_SOURCES: list[dict[str, object]] = [
     },
 ]
 
-from app.database.batch_sources import catalog_rows_from_batch
+from app.database.batch_sources import catalog_rows_from_batch  # noqa: E402
 
 BUILTIN_SOURCES.extend(catalog_rows_from_batch())
 
@@ -655,3 +656,71 @@ SECRET_SETTING_KEYS = {
     "ncbi_api_key",
     "nasa_ads_token",
 }
+
+_OA_REPOS = {
+    "arxiv",
+    "doaj",
+    "zenodo",
+    "hal",
+    "osf",
+    "biorxiv",
+    "medrxiv",
+    "chemrxiv",
+    "techrxiv",
+    "eartharxiv",
+    "plos",
+    "peerj",
+    "elife",
+    "f1000research",
+    "scielo",
+    "core",
+    "europe_pmc",
+    "pmc",
+}
+_CROSSREF_UPSTREAM_HINTS = {"crossref.org", "api.crossref.org"}
+
+
+def source_profile(slug: str, *, api_base_url: str = "") -> dict[str, object]:
+    """Classify a catalog row without implying 100 independent APIs."""
+    key = (slug or "").strip().lower()
+    api = (api_base_url or "").lower()
+    from app.database.batch_sources import BATCH_CROSSREF_SOURCES
+
+    batch_slugs = {str(item["slug"]) for item in BATCH_CROSSREF_SOURCES}
+    if key == "crossref":
+        kind = "independent_api"
+        upstream = "crossref"
+    elif key in batch_slugs or any(hint in api for hint in _CROSSREF_UPSTREAM_HINTS):
+        kind = "crossref_profile"
+        upstream = "crossref"
+    elif key in _OA_REPOS:
+        kind = "oa_repository"
+        upstream = key
+    else:
+        kind = "independent_api"
+        upstream = key
+    metadata_only = kind == "crossref_profile" and key not in {
+        "mdpi",
+        "frontiers",
+        "plos",
+        "elife",
+        "peerj",
+        "copernicus",
+        "hindawi",
+        "bmc",
+    }
+    return {
+        "provider_type": kind,
+        "upstream": upstream,
+        "metadata_only": metadata_only,
+        "supports_pdf": not metadata_only,
+        "supports_browse": key in {"openalex", "crossref", "arxiv", "pubmed", "europe_pmc", "semantic_scholar"},
+        "requires_key": key in {"ieee", "springer", "elsevier", "core", "nasa_ads", "semantic_scholar"},
+        "open_access_source": key in _OA_REPOS or kind == "oa_repository",
+        "provider_type_label": {
+            "independent_api": "Independent API",
+            "crossref_profile": "Crossref-backed profile",
+            "oa_repository": "Open-access repository",
+            "publisher_profile": "Publisher metadata profile",
+        }.get(kind, kind),
+    }

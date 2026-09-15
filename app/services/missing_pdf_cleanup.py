@@ -10,7 +10,17 @@ from sqlalchemy.orm import selectinload
 
 from app.config import AppConfig, get_runtime_config
 from app.database.connection import session_scope
-from app.database.models import Download, LmsExport, Paper, PaperAuthor, PaperFulltext, SearchResult
+from app.database.models import (
+    CollectionPaper,
+    Download,
+    LmsExport,
+    Paper,
+    PaperAuthor,
+    PaperFulltext,
+    PaperIdentifier,
+    SearchResult,
+    UserPaper,
+)
 from app.database.repository import downloadable_clause, invalidate_library_facets_cache
 from app.models.paper import PaperStatus
 from app.utils.logger import get_logger
@@ -90,7 +100,9 @@ def cleanup_missing_pdf_records(config: AppConfig | None = None) -> MissingPdfCl
                     (Paper.status.in_(tuple(CLAIMED_STATUSES)))
                     | (Paper.id.in_(select(Download.paper_id).where(Download.status.in_(tuple(CLAIMED_STATUSES)))))
                 )
-            ).unique().all()
+            )
+            .unique()
+            .all()
         )
         orphan_download_ids: list[int] = []
         papers_to_fix: list[Paper] = []
@@ -130,11 +142,7 @@ def cleanup_missing_pdf_records(config: AppConfig | None = None) -> MissingPdfCl
 
 
 def _paper_has_local_pdf(paper: Paper, library_root: Path, *, min_size: int) -> bool:
-    claimed_rows = [
-        row
-        for row in (paper.downloads or [])
-        if row.status in CLAIMED_STATUSES and row.local_path
-    ]
+    claimed_rows = [row for row in (paper.downloads or []) if row.status in CLAIMED_STATUSES and row.local_path]
     return any(
         claimed_pdf_exists(
             resolve_claimed_pdf_path(row.local_path, library_root),
@@ -154,18 +162,12 @@ def delete_papers_without_local_pdf(config: AppConfig | None = None) -> DeleteWi
     with session_scope() as session:
         no_claim_ids = list(session.scalars(select(Paper.id).where(~downloadable_clause())).all())
         claimed_papers = list(
-            session.scalars(
-                select(Paper)
-                .options(selectinload(Paper.downloads))
-                .where(downloadable_clause())
-            )
+            session.scalars(select(Paper).options(selectinload(Paper.downloads)).where(downloadable_clause()))
             .unique()
             .all()
         )
         ghost_ids = [
-            paper.id
-            for paper in claimed_papers
-            if not _paper_has_local_pdf(paper, library_root, min_size=min_size)
+            paper.id for paper in claimed_papers if not _paper_has_local_pdf(paper, library_root, min_size=min_size)
         ]
         delete_ids = sorted(set(no_claim_ids) | set(ghost_ids))
         if not delete_ids:
@@ -175,6 +177,9 @@ def delete_papers_without_local_pdf(config: AppConfig | None = None) -> DeleteWi
             chunk = delete_ids[start : start + _DELETE_CHUNK]
             session.execute(delete(SearchResult).where(SearchResult.paper_id.in_(chunk)))
             session.execute(delete(PaperFulltext).where(PaperFulltext.paper_id.in_(chunk)))
+            session.execute(delete(PaperIdentifier).where(PaperIdentifier.paper_id.in_(chunk)))
+            session.execute(delete(UserPaper).where(UserPaper.paper_id.in_(chunk)))
+            session.execute(delete(CollectionPaper).where(CollectionPaper.paper_id.in_(chunk)))
             session.execute(delete(LmsExport).where(LmsExport.paper_id.in_(chunk)))
             session.execute(delete(Download).where(Download.paper_id.in_(chunk)))
             session.execute(delete(PaperAuthor).where(PaperAuthor.paper_id.in_(chunk)))

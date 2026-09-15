@@ -18,6 +18,8 @@ STATUS_META: dict[str, dict[str, str]] = {
     "OA_AVAILABLE": {"label": "Open access", "tone": "info"},
     "DOWNLOADING": {"label": "Downloading", "tone": "primary"},
     "PAYWALLED": {"label": "Paywalled", "tone": "warning"},
+    "OA_UNKNOWN": {"label": "OA unknown", "tone": "secondary"},
+    "NO_OA_COPY_FOUND": {"label": "No OA copy", "tone": "secondary"},
     "FAILED": {"label": "Failed", "tone": "danger"},
     "SKIPPED": {"label": "Skipped", "tone": "secondary"},
     "NO_PDF": {"label": "No PDF", "tone": "secondary"},
@@ -35,11 +37,7 @@ def status_meta(code: str | None) -> dict[str, str]:
 def paper_authors_line(paper, limit: int | None = 6) -> str:
     """Comma-separated author names for library and abstract preview."""
     links = sorted(getattr(paper, "authors", None) or [], key=lambda item: item.position or 0)
-    names = [
-        link.author.name
-        for link in links
-        if getattr(link, "author", None) and link.author.name
-    ]
+    names = [link.author.name for link in links if getattr(link, "author", None) and link.author.name]
     if not names:
         return ""
     if limit is not None and len(names) > limit:
@@ -460,9 +458,7 @@ def source_matches(item: dict, q: str = "", status: str = "") -> bool:
     needle = (q or "").strip().lower()
     if not needle:
         return True
-    hay = " ".join(
-        str(item.get(key) or "") for key in ("display_name", "slug", "kind", "description")
-    ).lower()
+    hay = " ".join(str(item.get(key) or "") for key in ("display_name", "slug", "kind", "description")).lower()
     return needle in hay
 
 

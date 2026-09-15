@@ -103,10 +103,40 @@
         </div>
       </div>
       </fieldset>
-      <div class="card-footer settings-footer d-flex justify-content-end">
+      <div class="card-footer settings-footer d-flex flex-wrap justify-content-between gap-2">
+        <button class="btn btn-outline-secondary" type="submit" form="saveSearchForm">Save this search</button>
         <button class="btn btn-primary btn-lg" type="submit">Run search</button>
       </div>
     </form>
+    <form method="post" action="/search/save" id="saveSearchForm" class="d-none"></form>
+    <script>
+      (function () {
+        var searchForm = document.querySelector("form.search-form");
+        var saveForm = document.getElementById("saveSearchForm");
+        if (!searchForm || !saveForm) return;
+        saveForm.addEventListener("submit", function () {
+          saveForm.innerHTML = "";
+          Array.prototype.forEach.call(searchForm.elements, function (el) {
+            if (!el.name || el.type === "submit") return;
+            var input = document.createElement("input");
+            input.type = "hidden";
+            input.name = el.name === "query" ? "query" : el.name;
+            if (el.type === "checkbox") {
+              if (!el.checked) return;
+              input.value = el.value || "1";
+            } else {
+              input.value = el.value;
+            }
+            saveForm.appendChild(input);
+          });
+          var name = document.createElement("input");
+          name.type = "hidden";
+          name.name = "name";
+          name.value = (searchForm.querySelector("#query") || {}).value || "Saved search";
+          saveForm.appendChild(name);
+        });
+      })();
+    </script>
   </div>
 
   <div class="col-lg-5">
@@ -201,6 +231,26 @@
         {% endif %}
       </div>
     </div>
+
+    {% if saved_searches %}
+    <div class="card mt-4">
+      <div class="card-header">Saved searches</div>
+      <ul class="list-group list-group-flush">
+        {% for row in saved_searches %}
+        <li class="list-group-item d-flex justify-content-between gap-3">
+          <div>
+            <strong>{{ row.name }}</strong>
+            <div class="paper-meta mb-0">{{ row.query }}</div>
+          </div>
+          <form method="post" action="/search">
+            <input type="hidden" name="query" value="{{ row.query }}">
+            <button class="btn btn-sm btn-outline-primary" type="submit">Run</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
 
     {% if recent_searches %}
     <div class="card mt-4">

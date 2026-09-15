@@ -113,9 +113,7 @@ class OpenAlexProvider(ResearchProvider):
             if not name:
                 continue
             inst = [
-                (i.get("display_name") or "")
-                for i in (authorship.get("institutions") or [])
-                if i.get("display_name")
+                (i.get("display_name") or "") for i in (authorship.get("institutions") or []) if i.get("display_name")
             ]
             authors.append(AuthorRecord(name=name, affiliations=inst, orcid=author.get("orcid")))
 

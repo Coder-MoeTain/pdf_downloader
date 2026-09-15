@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.web import app
+from tests.conftest import login_admin, patch_web
 
 
 def _proc(stdout="", stderr="", returncode=0):
@@ -65,8 +66,9 @@ def test_git_pull_blocked_when_dirty(monkeypatch):
 
 
 def test_settings_updates_page_has_git_pull(tmp_db, monkeypatch):
-    monkeypatch.setattr(
-        "app.web.git_status",
+    patch_web(
+        monkeypatch,
+        "git_status",
         lambda: {
             "ok": True,
             "error": "",
@@ -78,7 +80,7 @@ def test_settings_updates_page_has_git_pull(tmp_db, monkeypatch):
             "dirty": False,
         },
     )
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     page = client.get("/settings?section=updates")
     assert page.status_code == 200
     assert "Git pull" in page.text
@@ -96,20 +98,11 @@ def test_non_admin_cannot_git_pull(tmp_db, monkeypatch):
         "is_admin": False,
         "has_password": True,
     }
-    monkeypatch.setattr("app.web.google_login_enabled", lambda: True)
-    monkeypatch.setattr("app.auth.google_login_enabled", lambda: True)
-    monkeypatch.setattr("app.web.auth_required", lambda: True)
-    monkeypatch.setattr("app.auth.auth_required", lambda: True)
-    monkeypatch.setattr("app.web.current_user", lambda _request: user)
-    monkeypatch.setattr("app.auth.current_user", lambda _request: user)
-    monkeypatch.setattr(
-        "app.web.user_is_admin",
-        lambda _request: False,
-    )
-    monkeypatch.setattr(
-        "app.web.user_role",
-        lambda _value: "user",
-    )
+    patch_web(monkeypatch, "google_login_enabled", lambda: True)
+    patch_web(monkeypatch, "auth_required", lambda: True)
+    patch_web(monkeypatch, "current_user", lambda _request: user)
+    patch_web(monkeypatch, "user_is_admin", lambda _request: False)
+    patch_web(monkeypatch, "user_role", lambda _value: "user")
     pulled = False
 
     def boom():
@@ -118,6 +111,7 @@ def test_non_admin_cannot_git_pull(tmp_db, monkeypatch):
         raise AssertionError("must not pull")
 
     monkeypatch.setattr("app.web.git_pull", boom)
+    monkeypatch.setattr("app.web.routes.settings.git_pull", boom, raising=False)
     client = TestClient(app, follow_redirects=False)
     response = client.post("/settings/update")
     assert response.status_code == 302

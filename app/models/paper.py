@@ -4,18 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from app.utils.time import utc_now
 
 
-class PaperStatus(str, Enum):
+class PaperStatus(StrEnum):
     FOUND = "FOUND"
     OA_AVAILABLE = "OA_AVAILABLE"
     DOWNLOADING = "DOWNLOADING"
     DOWNLOADED = "DOWNLOADED"
     PAYWALLED = "PAYWALLED"
+    OA_UNKNOWN = "OA_UNKNOWN"
+    NO_OA_COPY_FOUND = "NO_OA_COPY_FOUND"
     NO_PDF = "NO_PDF"
     FAILED = "FAILED"
     DUPLICATE = "DUPLICATE"

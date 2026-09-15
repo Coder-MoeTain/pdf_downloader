@@ -5,19 +5,16 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import time
-from typing import Any
 
 from rich.console import Console
 
-from app.config import AppConfig, get_runtime_config, load_config, parse_size
+from app.config import AppConfig, get_runtime_config, parse_size
 from app.database.connection import init_db, session_scope
 from app.database.repository import (
     attach_search_result,
     complete_search_query,
     create_search_query,
-    find_existing_paper,
     invalidate_library_facets_cache,
-    paper_to_record,
     save_paper,
     upsert_download,
     upsert_provider,
@@ -34,6 +31,7 @@ from app.services.download_service import (
 )
 from app.services.export_service import ExportService
 from app.services.oa_service import OpenAccessService
+from app.services.oa_status import is_confirmed_oa
 from app.services.progress import ProgressTracker, tracker
 from app.services.query_expansion import expand_query
 from app.services.ranking_service import rank_papers
@@ -143,10 +141,18 @@ class SearchService:
                 percent=52,
             )
             await self._resolve_open_access(oa, unique)
+            if filters.open_access_only:
+                unique = [paper for paper in unique if is_confirmed_oa(paper)]
+                stats.unique_papers = len(unique)
+                stats.relevant_papers = len(unique)
 
             stats.open_access_papers = sum(1 for p in unique if p.status == PaperStatus.OA_AVAILABLE or p.open_access)
             stats.paywalled = sum(1 for p in unique if p.status == PaperStatus.PAYWALLED)
-            stats.no_pdf = sum(1 for p in unique if p.status == PaperStatus.NO_PDF)
+            stats.no_pdf = sum(
+                1
+                for p in unique
+                if p.status in {PaperStatus.NO_PDF, PaperStatus.NO_OA_COPY_FOUND, PaperStatus.OA_UNKNOWN}
+            )
             console.print(f"[green]\\[OA][/] Open access..................{stats.open_access_papers}")
             console.print(f"[yellow]\\[PAYWALL][/].........................{stats.paywalled}")
             console.print(f"[magenta]\\[NO PDF][/]..........................{stats.no_pdf}")
@@ -188,12 +194,10 @@ class SearchService:
                     upsert_download(session, db_paper.id, pdf_url=paper.pdf_url, status=paper.status.value)
                     persisted.append((db_paper.id, paper))
                 to_download = [
-                    item
-                    for item in persisted
-                    if item[1].status == PaperStatus.OA_AVAILABLE and item[1].pdf_url
+                    item for item in persisted if item[1].status == PaperStatus.OA_AVAILABLE and item[1].pdf_url
                 ]
                 if filters.open_access_only:
-                    to_download = [item for item in to_download if item[1].open_access]
+                    to_download = [item for item in to_download if is_confirmed_oa(item[1])]
                 if download_cap is not None:
                     to_download = to_download[:download_cap]
                 if not (filters.download and to_download):
@@ -333,9 +337,23 @@ class SearchService:
         filters: SearchFilters,
         stats: SearchStats,
     ) -> list[PaperRecord]:
+        from app.services.provider_health import provider_health
+        from app.utils.http import HttpError
+
+        health = provider_health()
+        runnable = []
+        for provider in providers:
+            group = getattr(provider, "rate_limit_group", provider.name)
+            if not health.allow(group):
+                stats.skipped += 1
+                stats.provider_counts[provider.display_name] = 0
+                self._progress.provider_finished(provider.display_name, error="temporarily unavailable")
+                continue
+            runnable.append(provider)
+        stats.searched = len(runnable)
         timeout = max(0.1, float(getattr(self.config, "provider_timeout_seconds", 12) or 12))
         slots = max(1, int(getattr(self.config.env, "max_concurrent_requests", 5) or 5))
-        waves = max(1, (len(providers) + slots - 1) // slots)
+        waves = max(1, (len(runnable) + slots - 1) // slots)
         configured_phase = max(timeout, float(getattr(self.config, "provider_phase_seconds", 16) or 16))
         phase_limit = max(configured_phase, timeout * waves + min(timeout, 2.0))
         run_slot = asyncio.Semaphore(slots)
@@ -350,15 +368,13 @@ class SearchService:
                 except TimeoutError:
                     return provider.display_name, TimeoutError(f"timed out after {timeout:.0f}s")
                 except Exception as exc:
-                    # Remote API blocks / rate limits are expected; avoid full stack traces in PM2 logs.
-                    from app.utils.http import HttpError
-
                     if isinstance(exc, HttpError):
                         logger.warning("Provider %s failed: %s", provider.name, exc)
                     else:
                         logger.exception("Provider %s failed", provider.name)
                     return provider.display_name, exc
-        gathered_tasks = [asyncio.create_task(_one(p), name=p.display_name) for p in providers]
+
+        gathered_tasks = [asyncio.create_task(_one(p), name=p.display_name) for p in runnable]
         outcomes: list[tuple[str, list[PaperRecord] | Exception]] = []
         pending = set(gathered_tasks)
         deadline = time.monotonic() + phase_limit
@@ -398,9 +414,15 @@ class SearchService:
                     console.print(f"[red]\\[SEARCH][/] {name:.<28} error: {result}")
                     upsert_provider(session, name.lower().replace(" ", "_"), error=str(result))
                     stats.provider_counts[name] = 0
+                    stats.failed += 1
+                    if isinstance(result, TimeoutError):
+                        stats.timed_out += 1
+                    if "429" in str(result):
+                        stats.rate_limited += 1
                     self._progress.provider_finished(name, error=str(result))
                     continue
                 console.print(f"[green]\\[SEARCH][/] {name:.<28} {len(result)} results")
+                stats.succeeded += 1
                 stats.provider_counts[name] = stats.provider_counts.get(name, 0) + len(result)
                 upsert_provider(session, name.lower().replace(" ", "_"))
                 self._progress.provider_finished(name, count=len(result))

@@ -46,8 +46,8 @@ FREE_SOURCE_SLUGS = {
     "inspire",
     "fatcat",
     "worldbank",
-        "oapen",
-        "econstor",
+    "oapen",
+    "econstor",
 }
 
 NEW_SOURCE_SLUGS = {
@@ -564,9 +564,7 @@ def test_pmc_parse_pdf_and_ids():
 
 def test_peerj_builds_pdf_from_doi():
     provider = PeerjProvider(_Dummy())  # type: ignore[arg-type]
-    paper = provider._after_parse(
-        PaperRecord(title="PeerJ Methods", doi="10.7717/peerj.1234", source_provider="peerj")
-    )
+    paper = provider._after_parse(PaperRecord(title="PeerJ Methods", doi="10.7717/peerj.1234", source_provider="peerj"))
     assert paper.pdf_url == "https://peerj.com/articles/1234.pdf"
 
 
@@ -582,7 +580,11 @@ def test_usgs_parse_pdf_link():
             "publisher": "U.S. Geological Survey",
             "doi": "10.3133/ofr20151076",
             "seriesTitle": {"text": "Open-File Report"},
-            "contributors": {"authors": [{"given": "Faith A.", "family": "Fitzpatrick", "text": "Fitzpatrick, Faith A. fafitzpa@usgs.gov"}]},
+            "contributors": {
+                "authors": [
+                    {"given": "Faith A.", "family": "Fitzpatrick", "text": "Fitzpatrick, Faith A. fafitzpa@usgs.gov"}
+                ]
+            },
             "links": [
                 {
                     "url": "https://pubs.usgs.gov/of/2015/1076/pdf/ofr2015-1076.pdf",

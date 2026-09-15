@@ -52,8 +52,9 @@ def test_sources_page_lists_new_free_providers(tmp_db):
     from fastapi.testclient import TestClient
 
     from app.web import app
+    from tests.conftest import login_admin
 
-    response = TestClient(app).get("/sources?per_page=50")
+    response = login_admin(TestClient(app)).get("/sources?per_page=50")
     assert response.status_code == 200
     for label in ("OpenAIRE", "Zenodo", "PLOS", "EconStor", "INSPIRE-HEP", "bioRxiv"):
         assert label in response.text
@@ -65,8 +66,9 @@ def test_sources_pagination_and_search(tmp_db):
     from fastapi.testclient import TestClient
 
     from app.web import app
+    from tests.conftest import login_admin
 
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     first = client.get("/sources?per_page=10")
     assert first.status_code == 200
     assert "Showing" in first.text
@@ -86,7 +88,6 @@ def test_sources_pagination_and_search(tmp_db):
     missing = client.get("/sources?q=not-a-real-source-xyz")
     assert "Nothing matches this filter" in missing.text
     assert 'href="/sources"' in missing.text or "Show all sources" in missing.text
-
 
 
 def test_academic_source_crud(tmp_db):

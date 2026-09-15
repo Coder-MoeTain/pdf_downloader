@@ -123,7 +123,9 @@ def _disk_rows() -> list[dict[str, Any]]:
 
 def _process_rows(limit: int = 12) -> list[dict[str, Any]]:
     procs: list[dict[str, Any]] = []
-    for proc in psutil.process_iter(["pid", "name", "username", "cpu_percent", "memory_percent", "memory_info", "status"]):
+    for proc in psutil.process_iter(
+        ["pid", "name", "username", "cpu_percent", "memory_percent", "memory_info", "status"]
+    ):
         try:
             info = proc.info
             mem = info.get("memory_info")

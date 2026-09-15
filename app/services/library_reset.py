@@ -11,15 +11,20 @@ from app.config import AppConfig, get_runtime_config
 from app.database.connection import session_scope
 from app.database.models import (
     Author,
+    Collection,
+    CollectionPaper,
     CrawlJob,
     Download,
     LmsExport,
     Paper,
     PaperAuthor,
     PaperFulltext,
+    PaperIdentifier,
+    SavedSearch,
     SearchJob,
     SearchQuery,
     SearchResult,
+    UserPaper,
 )
 from app.services.download_service import safe_library_pdf
 from app.services.progress import crawl_job_registry, download_tracker, job_registry, tracker
@@ -47,9 +52,7 @@ def reset_library_repository(config: AppConfig | None = None) -> LibraryResetSta
         stats.search_queries = session.scalar(select(func.count()).select_from(SearchQuery)) or 0
         stats.crawl_jobs = session.scalar(select(func.count()).select_from(CrawlJob)) or 0
         stats.papers = session.scalar(select(func.count()).select_from(Paper)) or 0
-        local_paths = list(
-            session.scalars(select(Download.local_path).where(Download.local_path.isnot(None))).all()
-        )
+        local_paths = list(session.scalars(select(Download.local_path).where(Download.local_path.isnot(None))).all())
 
         session.execute(delete(SearchJob))
         session.execute(delete(SearchResult))
@@ -58,6 +61,11 @@ def reset_library_repository(config: AppConfig | None = None) -> LibraryResetSta
         session.execute(delete(LmsExport))
         session.execute(delete(Download))
         session.execute(delete(PaperFulltext))
+        session.execute(delete(PaperIdentifier))
+        session.execute(delete(UserPaper))
+        session.execute(delete(CollectionPaper))
+        session.execute(delete(Collection))
+        session.execute(delete(SavedSearch))
         session.execute(delete(PaperAuthor))
         session.execute(delete(Paper))
         session.execute(delete(Author))

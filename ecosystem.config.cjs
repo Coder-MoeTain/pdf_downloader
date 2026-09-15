@@ -6,8 +6,9 @@ const python = existsSync(join(root, "venv", "Scripts", "python.exe"))
   ? join(root, "venv", "Scripts", "python.exe")
   : join(root, "venv", "bin", "python");
 
-const host = process.env.APP_HOST || "0.0.0.0";
+const host = process.env.APP_HOST || "127.0.0.1";
 const port = process.env.APP_PORT || "8000";
+const trustedProxies = process.env.TRUSTED_PROXY_IPS || "127.0.0.1";
 
 module.exports = {
   apps: [
@@ -25,7 +26,7 @@ module.exports = {
         port,
         "--proxy-headers",
         "--forwarded-allow-ips",
-        "*",
+        trustedProxies,
       ],
       interpreter: "none",
       exec_mode: "fork",
@@ -36,7 +37,9 @@ module.exports = {
       min_uptime: "10s",
       // Do not set max_memory_restart: PM2 checks every ~30s and was killing this
       // Python app in a loop (RSS often exceeds 1G with downloads / libraries).
-      kill_timeout: 8000,
+      kill_timeout: 12000,
+      listen_timeout: 8000,
+      shutdown_with_message: true,
       env: {
         PYTHONUNBUFFERED: "1",
       },

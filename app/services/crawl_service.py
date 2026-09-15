@@ -8,7 +8,12 @@ from rich.console import Console
 
 from app.config import AppConfig, get_runtime_config
 from app.database.connection import init_db, session_scope
-from app.database.repository import filter_new_paper_records, invalidate_library_facets_cache, save_paper, upsert_download
+from app.database.repository import (
+    filter_new_paper_records,
+    invalidate_library_facets_cache,
+    save_paper,
+    upsert_download,
+)
 from app.models.crawl import CrawlFilters, CrawlStats
 from app.models.paper import PaperRecord, PaperStatus
 from app.providers import build_providers
@@ -137,9 +142,7 @@ class CrawlService:
                     page_new = list(page.records)
 
                 if not page_new and page.records:
-                    self._progress.log(
-                        f"Page {page_num}: all {len(page.records)} record(s) already in the library"
-                    )
+                    self._progress.log(f"Page {page_num}: all {len(page.records)} record(s) already in the library")
 
                 if page_new:
                     self._progress.set_phase(
@@ -212,8 +215,7 @@ class CrawlService:
                         # those reset kind to "download" and set active=False mid-crawl.
                         self._progress.set_phase(
                             "downloading",
-                            f"Downloading {len(to_download)} open-access PDF"
-                            f"{'s' if len(to_download) != 1 else ''}…",
+                            f"Downloading {len(to_download)} open-access PDF{'s' if len(to_download) != 1 else ''}…",
                             current=0,
                             total=len(to_download),
                             log=True,

@@ -76,10 +76,7 @@ def _ensure_mysql_database(host: str, port: int, user: str, password: str, datab
     try:
         with engine.connect() as conn:
             conn.execute(
-                text(
-                    f"CREATE DATABASE IF NOT EXISTS `{database}` "
-                    "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-                )
+                text(f"CREATE DATABASE IF NOT EXISTS `{database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
             )
             conn.commit()
     finally:
@@ -164,7 +161,7 @@ def get_settings_engine() -> Engine:
                     _sqlite_url(),
                     echo=False,
                     future=True,
-                connect_args={"check_same_thread": False, "timeout": 60},
+                    connect_args={"check_same_thread": False, "timeout": 60},
                 )
                 if not _status.get("error"):
                     _status["error"] = ""

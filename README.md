@@ -349,15 +349,21 @@ Sources already pending or running are skipped so jobs do not pile up.
 - **Search & download progress** — dashboard “Live” card and Downloads progress panel show real-time counts (e.g. `Downloading 14 of 100`) with log output; large PDF batches run in a background worker so other pages stay responsive
 - **Reports** — search and crawler history (who ran it, when, keyword/source, papers found, PDFs downloaded / failed)
 
-Open [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login) to create the first **admin** account (email and password). After that, every visitor must log in. **User** accounts can search and use the library; **admin** accounts also open Sources, Crawler, System health, Settings, and User settings people/roles. Signed-in accounts see **User settings** and **Log out** in the header. Google sign-in is optional when `GOOGLE_CLIENT_ID` is set.
-
-On a server you can seed the default admin instead:
+Open [http://127.0.0.1:8000/setup](http://127.0.0.1:8000/setup) on first run. The server log prints a one-time bootstrap token; enter it with the first administrator’s email, name, and password. There is no default password.
 
 ```bash
-python main.py seed-admin
+python main.py create-admin
 ```
 
-Default login is `admin@localhost` / `Admin@123`. Override with `--email`, `--password`, `--name`, or `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_NAME` in `.env`. Use `--reset-password` if the account already exists.
+Generate a production session secret:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+After the first admin exists, every visitor must log in. **User** accounts can search and use the library; **admin** accounts also open Sources, Crawler, System health, Settings, and user roles. Logout is POST-only.
+
+See [SECURITY.md](SECURITY.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 ## Database
 
@@ -365,7 +371,11 @@ SQLite file: `data/research.db`
 
 Tables: `papers`, `authors`, `paper_authors`, `search_queries`, `search_results`, `downloads`, `providers`, `paper_fulltext`.
 
-Paper status values: `FOUND`, `OA_AVAILABLE`, `DOWNLOADING`, `DOWNLOADED`, `PAYWALLED`, `NO_PDF`, `FAILED`, `DUPLICATE`, `SKIPPED`.
+Paper status values: `FOUND`, `OA_AVAILABLE`, `DOWNLOADING`, `DOWNLOADED`, `PAYWALLED`, `OA_UNKNOWN`, `NO_OA_COPY_FOUND`, `NO_PDF`, `FAILED`, `DUPLICATE`, `SKIPPED`.
+
+`PAYWALLED` is used only when there is evidence of restricted access. A DOI with no open PDF is `NO_OA_COPY_FOUND` or `OA_UNKNOWN`, not automatically paywalled.
+
+Schema changes: `alembic upgrade head`. Backup: `python main.py backup`.
 
 Paywalled works keep DOI, title, and publisher URL for lawful follow-up (library access, author request). They are never downloaded.
 

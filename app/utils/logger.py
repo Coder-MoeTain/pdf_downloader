@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-
-from datetime import datetime, timezone
 
 from app.config import ROOT_DIR, load_config
 from app.utils.time import zone_info
@@ -15,7 +14,7 @@ _CONFIGURED = False
 
 
 def _local_time_tuple(timestamp: float):
-    return datetime.fromtimestamp(timestamp, timezone.utc).astimezone(zone_info()).timetuple()
+    return datetime.fromtimestamp(timestamp, UTC).astimezone(zone_info()).timetuple()
 
 
 def setup_logging(logs_dir: Path | None = None) -> None:
@@ -48,9 +47,7 @@ def setup_logging(logs_dir: Path | None = None) -> None:
     root.addHandler(app_file)
 
     download_logger = logging.getLogger("app.download")
-    download_file = RotatingFileHandler(
-        directory / "download.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8"
-    )
+    download_file = RotatingFileHandler(directory / "download.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8")
     download_file.setLevel(logging.INFO)
     download_file.setFormatter(formatter)
     download_logger.addHandler(download_file)

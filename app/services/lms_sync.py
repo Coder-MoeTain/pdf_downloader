@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import shutil
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -49,10 +49,20 @@ def _mark_lms_skip(reason: str) -> None:
     _lms_skip_reason = reason
     logger.warning("%s — further LMS sync attempts skipped", reason)
 
+
 CATEGORY_RULES: list[tuple[str, re.Pattern[str]]] = [
-    ("Cybersecurity", re.compile(r"\b(security|cyber|intrusion|malware|vulnerability|cryptograph|penetration|ids|ips)\b", re.I)),
-    ("Artificial Intelligence", re.compile(r"\b(artificial intelligence|machine learning|deep learning|neural|llm|reinforcement)\b", re.I)),
-    ("Computer Science", re.compile(r"\b(computer science|algorithm|software|programming|distributed|database)\b", re.I)),
+    (
+        "Cybersecurity",
+        re.compile(r"\b(security|cyber|intrusion|malware|vulnerability|cryptograph|penetration|ids|ips)\b", re.I),
+    ),
+    (
+        "Artificial Intelligence",
+        re.compile(r"\b(artificial intelligence|machine learning|deep learning|neural|llm|reinforcement)\b", re.I),
+    ),
+    (
+        "Computer Science",
+        re.compile(r"\b(computer science|algorithm|software|programming|distributed|database)\b", re.I),
+    ),
     ("Engineering", re.compile(r"\b(engineering|satellite|aerospace|network)\b", re.I)),
     ("Mathematics", re.compile(r"\b(mathematics|statistical|optimization)\b", re.I)),
 ]
@@ -234,11 +244,7 @@ def infer_category(paper: Paper, default_category: str) -> str:
     fields = [part.strip() for part in (paper.research_fields or "").split(";") if part.strip()]
     if fields:
         return fields[0][:MAX_CATEGORY_LEN]
-    haystack = " ".join(
-        part
-        for part in (paper.title, paper.keywords, paper.research_fields, paper.journal)
-        if part
-    )
+    haystack = " ".join(part for part in (paper.title, paper.keywords, paper.research_fields, paper.journal) if part)
     for name, pattern in CATEGORY_RULES:
         if pattern.search(haystack):
             return name
@@ -435,7 +441,7 @@ def _load_papers(paper_ids: list[int] | None) -> list[Paper]:
 
 
 def _safe_stem(title: str, paper_id: int) -> str:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     part = sanitize_component(title, max_length=80, fallback="paper")
     return f"{stamp}-{paper_id}-{part}"
 

@@ -3,19 +3,33 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
-import secrets
 from typing import Any
 
 from fastapi import Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.config import get_runtime_config
+from app.config import get_runtime_config, session_secret_value
 from app.database.models import User
+from app.security.passwords import (
+    PASSWORD_MIN_LENGTH as PASSWORD_MIN_LENGTH,
+)
+from app.security.passwords import (
+    hash_password,
+    needs_rehash,
+    validate_password_policy,
+    verify_password,
+)
 from app.utils.time import utc_now
 
-PUBLIC_PATHS = {"/login", "/auth/google", "/auth/google/callback", "/logout"}
+PUBLIC_PATHS = {
+    "/login",
+    "/setup",
+    "/auth/google",
+    "/auth/google/callback",
+    "/health/live",
+    "/health/ready",
+}
 ADMIN_PREFIXES = (
     "/sources",
     "/settings",
@@ -29,11 +43,6 @@ ADMIN_PREFIXES = (
 )
 ROLE_USER = "user"
 ROLE_ADMIN = "admin"
-PASSWORD_MIN_LENGTH = 8
-DEFAULT_ADMIN_EMAIL = "admin@localhost"
-DEFAULT_ADMIN_PASSWORD = "Admin@123"
-DEFAULT_ADMIN_NAME = "Administrator"
-_PBKDF2_ITERATIONS = 120_000
 
 _oauth = None
 _oauth_key: tuple[str, str] | None = None
@@ -48,16 +57,12 @@ def google_login_enabled() -> bool:
 
 
 def session_secret() -> str:
-    return get_runtime_config().env.session_secret or "change-me-in-production-please-use-a-long-random-string"
+    return session_secret_value()
 
 
 def admin_emails() -> set[str]:
     cfg = get_runtime_config()
-    emails = {
-        part.strip().lower()
-        for part in (cfg.env.google_admin_emails or "").split(",")
-        if part.strip()
-    }
+    emails = {part.strip().lower() for part in (cfg.env.google_admin_emails or "").split(",") if part.strip()}
     contact = (cfg.env.contact_email or "").strip().lower()
     if contact and "@" in contact and "example.com" not in contact:
         emails.add(contact)
@@ -99,8 +104,14 @@ def user_count() -> int:
     return count
 
 
+def setup_required() -> bool:
+    """True until the first administrator account exists."""
+    return user_count() == 0
+
+
 def auth_required() -> bool:
-    return google_login_enabled() or user_count() > 0
+    """Authentication is always required after first-run setup. Never fail open."""
+    return True
 
 
 def normalize_role(value: str | None, *, admin: bool = False) -> str:
@@ -117,13 +128,15 @@ def user_role(user: dict[str, Any] | None) -> str:
 
 def user_is_admin(request: Request) -> bool:
     user = current_user(request)
-    if user:
-        return user_role(user) == ROLE_ADMIN
-    return not auth_required()
+    if not user:
+        return False
+    return user_role(user) == ROLE_ADMIN
 
 
 def is_public_path(path: str) -> bool:
     if path.startswith("/static"):
+        return True
+    if path.startswith("/health/"):
         return True
     return path in PUBLIC_PATHS
 
@@ -135,32 +148,6 @@ def is_admin_path(path: str) -> bool:
 def local_google_id(email: str) -> str:
     digest = hashlib.sha256((email or "").strip().lower().encode("utf-8")).hexdigest()[:40]
     return f"local:{digest}"
-
-
-def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt.encode("utf-8"),
-        _PBKDF2_ITERATIONS,
-    ).hex()
-    return f"pbkdf2_sha256${_PBKDF2_ITERATIONS}${salt}${digest}"
-
-
-def verify_password(password: str, stored: str | None) -> bool:
-    if not stored or stored.count("$") != 3:
-        return False
-    scheme, iter_s, salt, digest = stored.split("$", 3)
-    if scheme != "pbkdf2_sha256" or not iter_s.isdigit():
-        return False
-    check = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt.encode("utf-8"),
-        int(iter_s),
-    ).hex()
-    return hmac.compare_digest(check, digest)
 
 
 def get_oauth():
@@ -202,6 +189,15 @@ def user_to_session(row: User) -> dict[str, Any]:
     }
 
 
+def rotate_session(request: Request, payload: dict[str, Any]) -> None:
+    """Replace the session after login so a pre-login cookie cannot be reused."""
+    from app.security.csrf import rotate_csrf_token
+
+    request.session.clear()
+    request.session["user"] = payload
+    rotate_csrf_token(request)
+
+
 def count_admins(session: Session) -> int:
     return int(
         session.scalar(select(func.count(User.id)).where((User.role == ROLE_ADMIN) | (User.is_admin.is_(True)))) or 0
@@ -223,8 +219,6 @@ def upsert_google_user(
         row = session.scalar(select(User).where(func.lower(User.email) == email))
     admin = is_admin_email(email)
     if row is None:
-        if not admin_emails() and session.scalar(select(func.count(User.id))) == 0:
-            admin = True
         row = User(
             google_id=google_id,
             email=email,
@@ -262,14 +256,11 @@ def create_local_user(
     email = (email or "").strip().lower()
     if not email or "@" not in email:
         raise ValueError("Enter a valid email address.")
-    if len(password or "") < PASSWORD_MIN_LENGTH:
-        raise ValueError(f"Password must be at least {PASSWORD_MIN_LENGTH} characters.")
+    validate_password_policy(password, email=email)
     existing = session.scalar(select(User).where(func.lower(User.email) == email))
     if existing is not None:
         raise ValueError("An account with that email already exists.")
     assigned = normalize_role(role)
-    if session.scalar(select(func.count(User.id))) == 0:
-        assigned = ROLE_ADMIN
     row = User(
         google_id=local_google_id(email),
         email=email,
@@ -292,23 +283,27 @@ def seed_admin_account(
     *,
     reset_password: bool = False,
 ) -> dict[str, Any]:
-    """Create the local admin if missing. Idempotent unless reset_password is set."""
+    """Create an administrator. Email and password are required — no default credentials."""
     from app.database.connection import session_scope
+    from app.security.bootstrap import consume_bootstrap_token
+    from app.security.passwords import PasswordPolicyError
 
-    cfg = get_runtime_config()
-    email = (email or cfg.env.admin_email or DEFAULT_ADMIN_EMAIL).strip().lower()
-    password = password or cfg.env.admin_password or DEFAULT_ADMIN_PASSWORD
-    name = (name or cfg.env.admin_name or DEFAULT_ADMIN_NAME).strip() or DEFAULT_ADMIN_NAME
+    email = (email or "").strip().lower()
+    password = password or ""
+    name = (name or "").strip() or (email.split("@")[0] if email else "")
     if not email or "@" not in email:
         raise ValueError("Enter a valid email address.")
-    if len(password) < PASSWORD_MIN_LENGTH:
-        raise ValueError(f"Password must be at least {PASSWORD_MIN_LENGTH} characters.")
+    try:
+        validate_password_policy(password, email=email)
+    except PasswordPolicyError as exc:
+        raise ValueError(str(exc)) from exc
 
     with session_scope() as session:
         row = session.scalar(select(User).where(func.lower(User.email) == email))
         if row is None:
             row = create_local_user(session, email=email, password=password, name=name, role=ROLE_ADMIN)
             apply_role(row, ROLE_ADMIN)
+            consume_bootstrap_token()
             return {"status": "created", "email": row.email, "name": row.name}
 
         changed = False
@@ -332,6 +327,8 @@ def authenticate_local(session: Session, email: str, password: str) -> User | No
     row = session.scalar(select(User).where(func.lower(User.email) == email))
     if row is None or not verify_password(password, row.password_hash):
         return None
+    if needs_rehash(row.password_hash):
+        row.password_hash = hash_password(password)
     row.last_login_at = utc_now()
     session.flush()
     return row

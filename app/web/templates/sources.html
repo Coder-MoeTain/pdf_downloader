@@ -105,6 +105,8 @@
                 <strong>{{ s.display_name }}</strong>
                 <div class="paper-meta">
                   {{ s.slug }} · {{ s.kind }}
+                  {% if s.provider_type_label %} · {{ s.provider_type_label }}{% endif %}
+                  {% if s.upstream %} · upstream {{ s.upstream }}{% endif %}
                   {% if s.homepage_url %} · <a href="{{ s.homepage_url }}" target="_blank" rel="noopener">site</a>{% endif %}
                   {% if not s.searchable %} · catalog only{% endif %}
                   {% if s.updated_at %} · Updated {{ s.updated_at }}{% endif %}

@@ -19,6 +19,8 @@ class CrossrefProvider(ResearchProvider):
     name = "crossref"
     display_name = "Crossref"
     supports_browse = True
+    upstream = "crossref"
+    rate_group = "crossref"
     BASE = "https://api.crossref.org/works"
 
     def _filter_parts(self, filters: SearchFilters | CrawlFilters) -> list[str]:

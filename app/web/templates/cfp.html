@@ -41,8 +41,16 @@
       <div class="cfp-card-top">
         {% if call.deadline %}
         <span class="cfp-deadline">Due {{ call.deadline|localdt("%b %d, %Y") }}</span>
+        {% if call.deadline_verified %}
+        <span class="status-badge status-success">Verified deadline</span>
+        {% else %}
+        <span class="status-badge status-warning" title="Estimated — verify on official conference website">Estimated deadline</span>
+        {% endif %}
         {% elif call.event_start %}
         <span class="cfp-deadline">Event {{ call.event_start|localdt("%b %d, %Y") }}</span>
+        <span class="status-badge status-secondary">Deadline unknown</span>
+        {% else %}
+        <span class="status-badge status-secondary">Deadline unknown</span>
         {% endif %}
         {% if call.categories %}<span class="cfp-cat">{{ call.categories }}</span>{% endif %}
       </div>
@@ -50,6 +58,9 @@
         <a href="{{ call.website_url or call.url }}" target="_blank" rel="noopener noreferrer">{{ call.title }}</a>
       </h2>
       {% if call.location %}<p class="cfp-location paper-meta mb-1">{{ call.location }}</p>{% endif %}
+      {% if call.deadline and not call.deadline_verified %}
+      <p class="paper-meta mb-1">Estimated — verify on official conference website</p>
+      {% endif %}
       {% if call.summary %}<p class="cfp-summary">{{ call.summary[:280] }}{% if call.summary|length > 280 %}…{% endif %}</p>{% endif %}
       {% if call.website_url %}
       <div class="cfp-actions">

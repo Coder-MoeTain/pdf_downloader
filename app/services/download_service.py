@@ -14,11 +14,6 @@ from app.config import AppConfig, get_runtime_config, resolve_download_limit
 from app.database.models import Download, Paper
 from app.database.repository import find_downloaded_by_sha256, upsert_download
 from app.models.paper import PaperRecord, PaperStatus
-from app.utils.filename import paper_filename, safe_join, slugify
-from app.utils.http import AsyncHttpClient
-from app.utils.logger import get_logger
-from app.utils.pdf_url import is_direct_pdf_url
-from app.utils.security import looks_like_pdf, robots_allowed
 from app.services.oa_service import OpenAccessService
 from app.services.progress import (
     ProgressTracker,
@@ -27,6 +22,11 @@ from app.services.progress import (
     release_download_batch,
     try_claim_download_batch,
 )
+from app.utils.filename import paper_filename, safe_join, slugify
+from app.utils.http import AsyncHttpClient
+from app.utils.logger import get_logger
+from app.utils.pdf_url import is_direct_pdf_url
+from app.utils.security import looks_like_pdf, robots_allowed
 
 logger = get_logger("app.download")
 
@@ -254,26 +254,18 @@ class DownloadService:
 
         # Replace gated publisher CDNs (IEEE ielx, Wiley pdfdirect, …) with a real OA mirror.
         if paper.pdf_url and not is_direct_pdf_url(paper.pdf_url, prefer_https=self.config.prefer_https):
-            alt = await OpenAccessService(self.client, self.config).alternate_pdf_url(
-                paper, exclude=paper.pdf_url
-            )
+            alt = await OpenAccessService(self.client, self.config).alternate_pdf_url(paper, exclude=paper.pdf_url)
             if alt:
                 _progress_log(f"Alternate OA URL: {_clip_url(alt)}", "info")
                 paper.pdf_url = alt
 
         # NCBI/PMC and similar often pass URL checks but fail robots.txt — swap before skip.
         if paper.pdf_url and is_direct_pdf_url(paper.pdf_url, prefer_https=self.config.prefer_https):
-            allowed = await asyncio.to_thread(
-                robots_allowed, paper.pdf_url, self.config.user_agent_header()
-            )
+            allowed = await asyncio.to_thread(robots_allowed, paper.pdf_url, self.config.user_agent_header())
             if not allowed:
-                alt = await OpenAccessService(self.client, self.config).alternate_pdf_url(
-                    paper, exclude=paper.pdf_url
-                )
+                alt = await OpenAccessService(self.client, self.config).alternate_pdf_url(paper, exclude=paper.pdf_url)
                 if alt:
-                    alt_ok = await asyncio.to_thread(
-                        robots_allowed, alt, self.config.user_agent_header()
-                    )
+                    alt_ok = await asyncio.to_thread(robots_allowed, alt, self.config.user_agent_header())
                     if alt_ok:
                         _progress_log(f"Robots-safe OA URL: {_clip_url(alt)}", "info")
                         paper.pdf_url = alt
@@ -296,16 +288,12 @@ class DownloadService:
             size, digest = await self._stream_pdf(paper.pdf_url, dest, max_size, on_progress=on_progress)
         except DownloadError as exc:
             if _retryable_download_error(exc):
-                alt = await OpenAccessService(self.client, self.config).alternate_pdf_url(
-                    paper, exclude=paper.pdf_url
-                )
+                alt = await OpenAccessService(self.client, self.config).alternate_pdf_url(paper, exclude=paper.pdf_url)
                 if alt:
                     _progress_log(f"Retry GET {_clip_url(alt)}", "info")
                     paper.pdf_url = alt
                     try:
-                        size, digest = await self._stream_pdf(
-                            paper.pdf_url, dest, max_size, on_progress=on_progress
-                        )
+                        size, digest = await self._stream_pdf(paper.pdf_url, dest, max_size, on_progress=on_progress)
                     except DownloadError as retry_exc:
                         return await asyncio.to_thread(
                             self._finalize_download,
@@ -366,12 +354,10 @@ class DownloadService:
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(".part")
 
-        async with self.client._download_sema:
-            async with self.client._client.stream(
-                "GET",
+        async with self.client.download_sem:
+            async with self.client.stream_download(
                 url,
                 timeout=timeout,
-                follow_redirects=True,
                 headers={"User-Agent": self.config.user_agent_header()},
             ) as response:
                 if response.status_code >= 400:
@@ -387,9 +373,7 @@ class DownloadService:
                         f"Remote file exceeds max size ({declared_size:,} > {max_size:,} bytes)",
                         "danger",
                     )
-                    raise DownloadError(
-                        f"Remote file exceeds max size ({declared_size:,} > {max_size:,} bytes)"
-                    )
+                    raise DownloadError(f"Remote file exceeds max size ({declared_size:,} > {max_size:,} bytes)")
                 if "html" in content_type.lower() or "json" in content_type.lower():
                     _progress_log(f"Not a PDF (Content-Type {content_type})", "danger")
                     raise DownloadError(f"Not a PDF (Content-Type {content_type})")
@@ -421,9 +405,7 @@ class DownloadService:
                                     raise DownloadError("Missing PDF magic bytes")
                         size += len(chunk)
                         if size > max_size:
-                            raise DownloadError(
-                                f"Download exceeded max file size ({size:,} > {max_size:,} bytes)"
-                            )
+                            raise DownloadError(f"Download exceeded max file size ({size:,} > {max_size:,} bytes)")
                         hasher.update(chunk)
                         handle.write(chunk)
                         if on_progress:
@@ -560,11 +542,12 @@ def pdf_button_state(paper: Paper, library_root: Path | None = None) -> str:
 
 async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: int | None = None) -> Path:
     """Download a legally available PDF into the library and return its path."""
-    from app.database.connection import session_scope
-    from app.database.models import PaperAuthor
-    from app.database.repository import paper_to_record, save_paper
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
+
+    from app.database.connection import session_scope
+    from app.database.models import PaperAuthor
+    from app.database.repository import paper_to_record
 
     cfg = get_runtime_config()
     library_root = cfg.resolve_path(cfg.library_dir)
@@ -615,15 +598,13 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
                 paper_id,
                 record,
                 topic_slug,
-                on_progress=lambda received, total: download_tracker.update_bytes(received, total)
-                if own_batch
-                else None,
+                on_progress=lambda received, total: (
+                    download_tracker.update_bytes(received, total) if own_batch else None
+                ),
                 user_id=user_id,
             )
             with session_scope() as session:
-                paper = session.scalar(
-                    select(Paper).options(selectinload(Paper.downloads)).where(Paper.id == paper_id)
-                )
+                paper = session.scalar(select(Paper).options(selectinload(Paper.downloads)).where(Paper.id == paper_id))
                 path = existing_pdf_path(paper, library_root) if paper else None
             if own_batch:
                 download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"))
@@ -729,23 +710,19 @@ async def download_papers_parallel(
                     log=False,
                 )
             updated = await downloader.download_paper(
-                    paper_id,
-                    paper,
-                    topic_slug,
-                    max_file_size=max_file_size,
-                    on_progress=lambda received, total_bytes: download_tracker.update_bytes(received, total_bytes)
-                    if track_downloads
-                    else None,
-                    user_id=user_id,
-                )
+                paper_id,
+                paper,
+                topic_slug,
+                max_file_size=max_file_size,
+                on_progress=lambda received, total_bytes: (
+                    download_tracker.update_bytes(received, total_bytes) if track_downloads else None
+                ),
+                user_id=user_id,
+            )
             if track_downloads:
-                download_tracker.finish_item(
-                    updated.status.value, error=updated.extra.get("error"), title=paper.title
-                )
+                download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"), title=paper.title)
             if job_progress is not None:
-                job_progress.finish_item(
-                    updated.status.value, error=updated.extra.get("error"), title=paper.title
-                )
+                job_progress.finish_item(updated.status.value, error=updated.extra.get("error"), title=paper.title)
             async with progress_lock:
                 done = index
                 if job_progress is not None:
@@ -766,7 +743,7 @@ async def download_papers_parallel(
             return_exceptions=True,
         )
         results: list[tuple[int, PaperRecord]] = []
-        for (paper_id, paper), outcome in zip(jobs, gathered):
+        for (paper_id, paper), outcome in zip(jobs, gathered, strict=False):
             if isinstance(outcome, ParallelDownloadAborted):
                 aborted = outcome
                 continue
@@ -778,22 +755,16 @@ async def download_papers_parallel(
                 paper.status = PaperStatus.FAILED
                 paper.extra["error"] = str(outcome) or outcome.__class__.__name__
                 if track_downloads:
-                    download_tracker.finish_item(
-                        "FAILED", error=paper.extra["error"], title=paper.title
-                    )
+                    download_tracker.finish_item("FAILED", error=paper.extra["error"], title=paper.title)
                 if job_progress is not None:
-                    job_progress.finish_item(
-                        "FAILED", error=paper.extra["error"], title=paper.title
-                    )
+                    job_progress.finish_item("FAILED", error=paper.extra["error"], title=paper.title)
                 results.append((paper_id, paper))
             else:
                 results.append(outcome)
         if aborted is not None:
             raise aborted
     finally:
-        cancelled = download_stop_requested() or (
-            job_progress is not None and job_progress.is_cancelled()
-        )
+        cancelled = download_stop_requested() or (job_progress is not None and job_progress.is_cancelled())
         release_download_batch(batch_token)
         if cancelled:
             from app.database.connection import session_scope
@@ -812,11 +783,12 @@ async def download_open_access_papers(
     user_id: int | None = None,
 ) -> dict[str, int]:
     """Download pending legally available PDFs, optionally limited to one search."""
-    from app.database.connection import session_scope
-    from app.database.models import PaperAuthor, SearchResult
-    from app.database.repository import paper_to_record, save_paper
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
+
+    from app.database.connection import session_scope
+    from app.database.models import PaperAuthor, SearchResult
+    from app.database.repository import paper_to_record
 
     cfg = get_runtime_config()
     cap = resolve_download_limit(limit, fallback=cfg.download_limit)
@@ -872,11 +844,12 @@ async def resume_downloading_papers(
     statuses: tuple[str, ...] = (PaperStatus.DOWNLOADING.value,),
 ) -> dict[str, int]:
     """Retry papers whose download row is stuck in DOWNLOADING (still has a PDF URL)."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
     from app.database.connection import session_scope
     from app.database.models import Download, PaperAuthor
     from app.database.repository import paper_to_record
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
 
     cfg = get_runtime_config()
     cap = resolve_download_limit(limit, fallback=cfg.download_limit)
@@ -947,9 +920,7 @@ def write_topic_metadata_csv(papers: list[PaperRecord], topic_slug: str, config:
     path = folder / "metadata.csv"
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(
-            ["Title", "Authors", "Year", "Journal", "DOI", "Status", "PDF Path", "Source", "Relevance"]
-        )
+        writer.writerow(["Title", "Authors", "Year", "Journal", "DOI", "Status", "PDF Path", "Source", "Relevance"])
         for paper in papers:
             writer.writerow(
                 [

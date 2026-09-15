@@ -15,8 +15,9 @@ bypass.
    (gold/hybrid OA publisher PDFs, arXiv, PubMed Central, Europe PMC, CORE,
    DOAJ, NASA NTRS, HAL, Zenodo, PLOS, eLife, PeerJ, SciPost, OpenReview,
    institutional repositories, and public government repositories).
-4. Record paywalled items with DOI, title, and publisher URL for later lawful
-   access (library subscription, author request, etc.).
+4. Record items without a confirmed OA PDF (`NO_OA_COPY_FOUND` or `OA_UNKNOWN`)
+   with DOI, title, and publisher URL for later lawful access. `PAYWALLED` is
+   reserved for restricted-access evidence, not merely “DOI present, no PDF”.
 
 ## What this software will not do
 

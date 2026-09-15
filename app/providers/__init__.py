@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from app.config import AppConfig, get_runtime_config, load_config
+from app.config import AppConfig, get_runtime_config
+from app.config import load_config as load_config
 from app.providers.arxiv import ArxivProvider
 from app.providers.base import ResearchProvider
+from app.providers.batch_providers import BATCH_PROVIDER_CLASSES
 from app.providers.core import CoreProvider
 from app.providers.crossref import CrossrefProvider
 from app.providers.europe_pmc import EuropePMCProvider
@@ -38,7 +40,6 @@ from app.providers.free import (
     WorldbankProvider,
     ZenodoProvider,
 )
-from app.providers.batch_providers import BATCH_PROVIDER_CLASSES
 from app.providers.more import (
     CernProvider,
     ChemrxivProvider,
@@ -156,6 +157,8 @@ def provider_status(config: AppConfig | None = None) -> list[dict[str, object]]:
                 "available": provider.is_available(),
                 "supports_browse": bool(getattr(cls, "supports_browse", False)),
                 "requests_per_second": provider.requests_per_second,
+                "upstream": getattr(provider, "upstream_name", provider.name),
+                "rate_limit_group": getattr(provider, "rate_limit_group", provider.name),
             }
         )
     return rows

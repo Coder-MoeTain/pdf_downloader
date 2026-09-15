@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time as time_mod
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 DEFAULT_TIMEZONE = "UTC"
@@ -103,7 +103,7 @@ _active_timezone = DEFAULT_TIMEZONE
 
 def utc_now() -> datetime:
     """Naive UTC, matching SQLite DateTime columns."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def set_active_timezone(name: str | None) -> str:
@@ -155,8 +155,8 @@ def as_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def to_local(value: datetime | None, tz_name: str | None = None) -> datetime | None:
@@ -167,7 +167,7 @@ def to_local(value: datetime | None, tz_name: str | None = None) -> datetime | N
 
 
 def now_local(tz_name: str | None = None) -> datetime:
-    return datetime.now(timezone.utc).astimezone(zone_info(tz_name))
+    return datetime.now(UTC).astimezone(zone_info(tz_name))
 
 
 def format_local(value: datetime | None, fmt: str = "%Y-%m-%d %H:%M", *, tz_name: str | None = None) -> str:

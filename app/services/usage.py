@@ -90,8 +90,10 @@ def touch_presence(user: dict[str, Any] | None, *, path: str = "") -> None:
         if due:
             _FLUSHED[user_id] = now.timestamp()
     if due:
+
         def _flush() -> None:
             try:
+
                 def _write() -> None:
                     with session_scope() as session:
                         row = session.get(User, user_id)
@@ -123,7 +125,9 @@ def list_online() -> list[dict[str, Any]]:
                 by_id[user_id] = dict(row)
     try:
         with session_scope() as session:
-            rows = session.scalars(select(User).where(User.last_seen_at.is_not(None), User.last_seen_at >= cutoff)).all()
+            rows = session.scalars(
+                select(User).where(User.last_seen_at.is_not(None), User.last_seen_at >= cutoff)
+            ).all()
             for row in rows:
                 if row.id in by_id:
                     continue

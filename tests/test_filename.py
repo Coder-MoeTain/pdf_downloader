@@ -1,7 +1,8 @@
 from pathlib import Path
 
-from app.utils.filename import normalize_title, paper_filename, safe_join, sanitize_component, slugify
 import pytest
+
+from app.utils.filename import normalize_title, paper_filename, safe_join, sanitize_component, slugify
 
 
 def test_normalize_title_collapses_punctuation():
@@ -11,7 +12,7 @@ def test_normalize_title_collapses_punctuation():
 
 
 def test_sanitize_and_slug():
-    assert ":" not in sanitize_component('bad:name*?')
+    assert ":" not in sanitize_component("bad:name*?")
     assert slugify("Web Application Security") == "web_application_security"
 
 

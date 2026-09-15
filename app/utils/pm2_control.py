@@ -213,9 +213,11 @@ def pm2_status(name: str | None = None) -> dict[str, Any]:
         "status": str(pm2_env.get("status") or match.get("status") or "unknown"),
         "pid": monit.get("pid") or pm2_env.get("pm_pid") or match.get("pid"),
         "uptime": _format_uptime(int(pm2_env.get("pm_uptime") or 0)),
-        "restarts": pm2_env.get("restart_time") if pm2_env.get("restart_time") is not None else match.get("restart_time"),
+        "restarts": pm2_env.get("restart_time")
+        if pm2_env.get("restart_time") is not None
+        else match.get("restart_time"),
         "memory": _format_bytes(monit.get("memory") or match.get("memory")),
-        "cpu": f'{monit.get("cpu", 0)}%',
+        "cpu": f"{monit.get('cpu', 0)}%",
     }
 
 

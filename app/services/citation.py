@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -27,7 +28,13 @@ def paper_citations(paper: Any) -> dict[str, str]:
         "apa": _apa(names, year_text, title, venue, volume, issue, pages, publisher, link),
         "mla": _mla(names, year_text, title, venue, volume, issue, pages, publisher, link),
         "chicago": _chicago(names, year_text, title, venue, volume, issue, pages, publisher, link),
+        "ieee": _ieee(names, year_text, title, venue, volume, issue, pages, link),
+        "harvard": _harvard(names, year_text, title, venue, volume, issue, pages, publisher, link),
+        "vancouver": _vancouver(names, year_text, title, venue, volume, issue, pages, link),
         "bibtex": _bibtex(names, year, title, venue, volume, issue, pages, publisher, paper, link),
+        "ris": _ris(names, year, title, venue, volume, issue, pages, publisher, paper, link),
+        "csl_json": _csl_json(names, year, title, venue, volume, issue, pages, publisher, paper, link),
+        "endnote": _endnote(names, year, title, venue, volume, issue, pages, publisher, paper, link),
     }
 
 
@@ -286,8 +293,7 @@ def _bibtex(
     else:
         entry = "article"
     bib_authors = " and ".join(
-        f"{last}, {given}".rstrip(", ") if given else last
-        for last, given in (_split_name(name) for name in names)
+        f"{last}, {given}".rstrip(", ") if given else last for last, given in (_split_name(name) for name in names)
     )
     fields: list[tuple[str, str]] = [("title", title)]
     if bib_authors:
@@ -314,3 +320,218 @@ def _bibtex(
         fields.append(("url", link))
     body = ",\n".join(f"  {key} = {{{_bib_escape(value)}}}" for key, value in fields)
     return f"@{entry}{{{_cite_key(names, year, title)},\n{body}\n}}"
+
+
+def _ieee(names: list[str], year: str, title: str, venue: str, volume: str, issue: str, pages: str, link: str) -> str:
+    if not names:
+        authors = "Unknown"
+    elif len(names) == 1:
+        last, given = _split_name(names[0])
+        authors = f"{_initials(given)} {last}".strip()
+    else:
+        formatted = []
+        for name in names[:6]:
+            last, given = _split_name(name)
+            formatted.append(f"{_initials(given)} {last}".strip())
+        authors = ", ".join(formatted)
+        if len(names) > 6:
+            authors += ", et al."
+    parts = [f'{authors}, "{title},"']
+    if venue:
+        detail = f" {venue}"
+        if volume:
+            detail += f", vol. {volume}"
+        if issue:
+            detail += f", no. {issue}"
+        if pages:
+            detail += f", pp. {pages}"
+        detail += f", {year}."
+        parts.append(detail.strip())
+    else:
+        parts.append(f" {year}.")
+    if link:
+        parts.append(f" {link}")
+    return "".join(parts).strip()
+
+
+def _harvard(
+    names: list[str], year: str, title: str, venue: str, volume: str, issue: str, pages: str, publisher: str, link: str
+) -> str:
+    if not names:
+        authors = "Unknown"
+    elif len(names) == 1:
+        last, given = _split_name(names[0])
+        authors = f"{last}, {_initials(given)}".rstrip(", ")
+    else:
+        last, given = _split_name(names[0])
+        authors = f"{last}, {_initials(given)} et al.".rstrip()
+    core = f"{authors} ({year}) '{title}'"
+    if venue:
+        core += f", {venue}"
+        if volume:
+            core += f", {volume}"
+            if issue:
+                core += f"({issue})"
+        if pages:
+            core += f", pp. {pages}"
+    elif publisher:
+        core += f", {publisher}"
+    if link:
+        core += f". {link}"
+    else:
+        core += "."
+    return core
+
+
+def _vancouver(
+    names: list[str], year: str, title: str, venue: str, volume: str, issue: str, pages: str, link: str
+) -> str:
+    formatted = []
+    for name in names[:6]:
+        last, given = _split_name(name)
+        initials = "".join(ch for ch in _initials(given) if ch.isalpha()).upper()
+        formatted.append(f"{last} {initials}".strip())
+    if len(names) > 6:
+        formatted.append("et al")
+    authors = ", ".join(formatted) or "Unknown"
+    out = f"{authors}. {title}. "
+    if venue:
+        out += f"{venue}. {year}"
+        if volume:
+            out += f";{volume}"
+            if issue:
+                out += f"({issue})"
+        if pages:
+            out += f":{pages}"
+        out += "."
+    else:
+        out += f"{year}."
+    if link:
+        out += f" Available from: {link}"
+    return out
+
+
+def _ris(
+    names: list[str],
+    year,
+    title: str,
+    venue: str,
+    volume: str,
+    issue: str,
+    pages: str,
+    publisher: str,
+    paper: Any,
+    link: str,
+) -> str:
+    lines = ["TY  - JOUR", f"TI  - {title}"]
+    for name in names:
+        last, given = _split_name(name)
+        lines.append(f"AU  - {last}, {given}".rstrip(", "))
+    if year:
+        lines.append(f"PY  - {year}")
+    if venue:
+        lines.append(f"JO  - {venue}")
+    if volume:
+        lines.append(f"VL  - {volume}")
+    if issue:
+        lines.append(f"IS  - {issue}")
+    if pages:
+        start, _, end = pages.partition("-")
+        lines.append(f"SP  - {start.strip()}")
+        if end.strip():
+            lines.append(f"EP  - {end.strip()}")
+    if publisher:
+        lines.append(f"PB  - {publisher}")
+    doi = normalize_doi(getattr(paper, "doi", None))
+    if doi:
+        lines.append(f"DO  - {doi}")
+    if link:
+        lines.append(f"UR  - {link}")
+    lines.append("ER  - ")
+    return "\n".join(lines)
+
+
+def _csl_json(
+    names: list[str],
+    year,
+    title: str,
+    venue: str,
+    volume: str,
+    issue: str,
+    pages: str,
+    publisher: str,
+    paper: Any,
+    link: str,
+) -> str:
+    authors = []
+    for name in names:
+        last, given = _split_name(name)
+        item = {"family": last}
+        if given:
+            item["given"] = given
+        authors.append(item)
+    payload: dict[str, Any] = {
+        "type": "article-journal" if venue else "article",
+        "title": title,
+        "author": authors,
+    }
+    if year:
+        payload["issued"] = {"date-parts": [[int(year) if str(year).isdigit() else year]]}
+    if venue:
+        payload["container-title"] = venue
+    if volume:
+        payload["volume"] = volume
+    if issue:
+        payload["issue"] = issue
+    if pages:
+        payload["page"] = pages
+    if publisher:
+        payload["publisher"] = publisher
+    doi = normalize_doi(getattr(paper, "doi", None))
+    if doi:
+        payload["DOI"] = doi
+    if link:
+        payload["URL"] = link
+    orcid = None
+    first = (getattr(paper, "authors", None) or [None])[0]
+    if first is not None:
+        orcid = getattr(first, "orcid", None) or getattr(getattr(first, "author", None), "orcid", None)
+    if orcid and authors:
+        authors[0]["ORCID"] = orcid
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _endnote(
+    names: list[str],
+    year,
+    title: str,
+    venue: str,
+    volume: str,
+    issue: str,
+    pages: str,
+    publisher: str,
+    paper: Any,
+    link: str,
+) -> str:
+    lines = ["%0 Journal Article", f"%T {title}"]
+    for name in names:
+        last, given = _split_name(name)
+        lines.append(f"%A {last}, {given}".rstrip(", "))
+    if year:
+        lines.append(f"%D {year}")
+    if venue:
+        lines.append(f"%J {venue}")
+    if volume:
+        lines.append(f"%V {volume}")
+    if issue:
+        lines.append(f"%N {issue}")
+    if pages:
+        lines.append(f"%P {pages}")
+    if publisher:
+        lines.append(f"%I {publisher}")
+    doi = normalize_doi(getattr(paper, "doi", None))
+    if doi:
+        lines.append(f"%R {doi}")
+    if link:
+        lines.append(f"%U {link}")
+    return "\n".join(lines)

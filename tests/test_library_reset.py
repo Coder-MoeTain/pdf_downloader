@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from sqlalchemy import func, select
 
 from app.database.connection import session_scope

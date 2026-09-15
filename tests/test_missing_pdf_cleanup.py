@@ -11,6 +11,7 @@ from app.database.repository import save_paper, upsert_download
 from app.models.paper import PaperRecord, PaperStatus
 from app.services.missing_pdf_cleanup import cleanup_missing_pdf_records, delete_papers_without_local_pdf
 from app.web import app
+from tests.conftest import login_admin
 
 
 def test_cleanup_removes_missing_download_keeps_existing(tmp_db, monkeypatch, tmp_path):
@@ -105,7 +106,7 @@ def test_settings_cleanup_missing_pdfs_endpoint(tmp_db, monkeypatch, tmp_path):
             local_path=str(library / "missing.pdf"),
         )
 
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     cancelled = client.post("/settings/cleanup-missing-pdfs", data={"confirm": "nope"}, follow_redirects=False)
     assert cancelled.status_code in {302, 303}
     with session_scope() as session:
@@ -202,7 +203,7 @@ def test_settings_delete_papers_without_pdf_endpoint(tmp_db, monkeypatch, tmp_pa
             PaperRecord(title="No file", doi="10.1000/nofile", status=PaperStatus.FOUND),
         )
 
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     cancelled = client.post(
         "/settings/delete-papers-without-pdf",
         data={"confirm": "nope"},

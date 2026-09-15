@@ -175,9 +175,7 @@ def search_progress_snapshot(job_id: int) -> dict[str, Any] | None:
 
 def _run_search_sync(filters: SearchFilters, user_id: int | None, progress) -> Any:
     """Execute a search on a worker thread with its own event loop."""
-    return asyncio.run(
-        SearchService(progress=progress).run(filters, user_id=user_id, skip_progress_start=True)
-    )
+    return asyncio.run(SearchService(progress=progress).run(filters, user_id=user_id, skip_progress_start=True))
 
 
 async def _run_job(job_id: int) -> None:
@@ -271,13 +269,14 @@ async def _run_job(job_id: int) -> None:
         await asyncio.to_thread(_cancel_task)
     except Exception as exc:
         logger.exception("Search job %s failed", job_id)
+        error_message = str(exc)
         prog = job_registry.get(job_id)
         if prog:
-            prog.finish_search(error=str(exc))
+            prog.finish_search(error=error_message)
 
         def _fail() -> None:
             with session_scope() as session:
-                complete_search_job(session, job_id, status="failed", error_message=str(exc))
+                complete_search_job(session, job_id, status="failed", error_message=error_message)
 
         await asyncio.to_thread(_fail)
     finally:

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class SortMode(str, Enum):
+class SortMode(StrEnum):
     RELEVANCE = "relevance"
     CITATIONS = "citations"
     NEWEST = "newest"
@@ -55,3 +55,9 @@ class SearchStats:
     report_path: str = ""
     search_query_id: int | None = None
     provider_counts: dict[str, int] = field(default_factory=dict)
+    searched: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    timed_out: int = 0
+    skipped: int = 0
+    rate_limited: int = 0

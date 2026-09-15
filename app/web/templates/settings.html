@@ -28,6 +28,7 @@
     <a class="settings-nav-link {% if section == 'credentials' %}active{% endif %}" href="/settings?section=credentials">{{ settings_nav_icon("credentials") }}<span>API credentials</span></a>
     <a class="settings-nav-link {% if section == 'sources' %}active{% endif %}" href="/settings?section=sources">{{ settings_nav_icon("sources") }}<span>Academic sources</span></a>
     <a class="settings-nav-link {% if section == 'activity' %}active{% endif %}" href="/settings?section=activity">{{ settings_nav_icon("activity") }}<span>Activity</span></a>
+    <a class="settings-nav-link {% if section == 'audit' %}active{% endif %}" href="/settings?section=audit">{{ settings_nav_icon("activity") }}<span>Audit log</span></a>
     <a class="settings-nav-link {% if section == 'updates' %}active{% endif %}" href="/settings?section=updates">{{ settings_nav_icon("updates") }}<span>Updates</span></a>
   </nav>
 
@@ -441,6 +442,40 @@
             </tr>
             {% else %}
             <tr><td colspan="5" class="paper-meta">No usage yet. Sign-ins, searches, and downloads will appear here.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if section == 'audit' %}
+    <div class="card">
+      <div class="card-header">Security audit log</div>
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Actor</th>
+              <th>Action</th>
+              <th>Target</th>
+              <th>Result</th>
+              <th>IP</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in audit_logs %}
+            <tr>
+              <td class="paper-meta text-nowrap">{{ row.timestamp|localdt }}</td>
+              <td>{{ row.actor }}</td>
+              <td><code>{{ row.action }}</code></td>
+              <td class="paper-meta">{{ row.target_type }}{% if row.target_id %} · {{ row.target_id }}{% endif %}</td>
+              <td><span class="status-badge status-{{ 'success' if row.result == 'success' else 'danger' }}">{{ row.result }}</span></td>
+              <td class="paper-meta">{{ row.ip or "—" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="paper-meta">No security events recorded yet.</td></tr>
             {% endfor %}
           </tbody>
         </table>

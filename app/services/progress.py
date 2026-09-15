@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import threading
-from app.utils.time import format_local, utc_now
 from typing import Any
+
+from app.utils.time import format_local, utc_now
 
 MAX_LOGS = 120
 SEARCH_PHASES = ("starting", "searching", "merging", "oa", "storing", "downloading", "done", "error", "cancelled")
@@ -100,7 +101,9 @@ class ProgressTracker:
                 return
             self.start_crawl(source)
 
-    def finish_crawl(self, *, error: str | None = None, stats: dict[str, Any] | None = None, cancelled: bool = False) -> None:
+    def finish_crawl(
+        self, *, error: str | None = None, stats: dict[str, Any] | None = None, cancelled: bool = False
+    ) -> None:
         with self._lock:
             if stats:
                 self._state["stats"].update(stats)
@@ -131,7 +134,7 @@ class ProgressTracker:
             self._state["phase"] = "starting"
             self._state["query"] = query
             self._state["percent"] = 2
-            self._state["message"] = f"Queued · waiting to start…"
+            self._state["message"] = "Queued · waiting to start…"
             self._append_log(f"Search queued: {query}", "info")
 
     def mark_search_started(self, query: str) -> None:
@@ -159,7 +162,16 @@ class ProgressTracker:
             self._state["providers_total"] = max(total, 0)
             self._state["providers_done"] = 0
 
-    def set_phase(self, phase: str, message: str, *, current: int | None = None, total: int | None = None, percent: float | None = None, log: bool = True) -> None:
+    def set_phase(
+        self,
+        phase: str,
+        message: str,
+        *,
+        current: int | None = None,
+        total: int | None = None,
+        percent: float | None = None,
+        log: bool = True,
+    ) -> None:
         with self._lock:
             self._state["phase"] = phase
             self._state["message"] = message
@@ -203,7 +215,9 @@ class ProgressTracker:
         with self._lock:
             self._state = self._empty()
 
-    def finish_search(self, *, error: str | None = None, stats: dict[str, Any] | None = None, cancelled: bool = False) -> None:
+    def finish_search(
+        self, *, error: str | None = None, stats: dict[str, Any] | None = None, cancelled: bool = False
+    ) -> None:
         with self._lock:
             if stats:
                 self._state["stats"].update(stats)
@@ -370,6 +384,7 @@ def request_download_stop(message: str = "Stopping downloads…") -> bool:
 
 def download_stop_requested() -> bool:
     return download_tracker.is_cancelled()
+
 
 class JobProgressRegistry:
     """Per-job progress trackers so multiple users can search in parallel."""

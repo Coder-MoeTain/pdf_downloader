@@ -73,7 +73,9 @@ def _weights(config_key: str = "default") -> RankingConfig:
     return load_config().ranking
 
 
-def score_paper(paper: PaperRecord, query: str, expanded: list[str] | None = None, config: RankingConfig | None = None) -> float:
+def score_paper(
+    paper: PaperRecord, query: str, expanded: list[str] | None = None, config: RankingConfig | None = None
+) -> float:
     cfg = config or _weights()
     queries = [query, *(expanded or [])]
     title_scores = [text_relevance(q, paper.title) for q in queries]

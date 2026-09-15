@@ -1,11 +1,12 @@
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.database.connection import session_scope
 from app.database.models import Paper
 from app.database.repository import apply_paper_filters, save_paper, set_paper_rating
 from app.models.paper import PaperRecord, PaperStatus
 from app.web import app
-from sqlalchemy import select
+from tests.conftest import login_admin, patch_web
 
 
 def test_user_rating_set_and_clear(tmp_db):
@@ -146,7 +147,7 @@ def test_library_access_filters_page(tmp_db):
             status=PaperStatus.DOWNLOADED.value,
             local_path="/tmp/library/access-saved.pdf",
         )
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
 
     page = client.get("/library")
     assert page.status_code == 200
@@ -219,7 +220,7 @@ def test_rating_api_and_downloadable_page(tmp_db):
             local_path="/tmp/library/api-rate.pdf",
         )
         paper_id = paper.id
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     response = client.post(f"/api/papers/{paper_id}/rating", json={"rating": 5})
     assert response.status_code == 200
     assert response.json() == {"ok": True, "rating": 5}
@@ -270,7 +271,7 @@ def test_category_year_source_and_journal_filters(tmp_db):
         assert arxiv == {"Satellite cyber paper"}
         sensors = {p.title for p in session.scalars(apply_paper_filters(select(Paper), journal="Sensors"))}
         assert sensors == {"Satellite cyber paper"}
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     page = client.get("/library?category=Computer%20Science")
     assert page.status_code == 200
     assert "Satellite cyber paper" in page.text
@@ -307,7 +308,7 @@ def test_library_pagination_controls(tmp_db):
                     relevance_score=100 - index,
                 ),
             )
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     first = client.get("/library?per_page=10")
     assert first.status_code == 200
     assert "Showing" in first.text
@@ -325,8 +326,8 @@ def test_library_pagination_controls(tmp_db):
 
 
 def test_library_shows_latest_downloaded_first(tmp_db):
-    from datetime import timedelta
     import re
+    from datetime import timedelta
 
     from app.database.models import Download
     from app.database.repository import query_library, upsert_download
@@ -369,12 +370,11 @@ def test_library_shows_latest_downloaded_first(tmp_db):
         papers, _total = query_library(session, sort="recent", limit=10)
         assert [p.title for p in papers] == ["Newer download", "Older download", "Metadata only"]
 
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     page = client.get("/library")
     assert page.status_code == 200
     titles = re.findall(r'<div class="paper-title"[^>]*>([^<]+)</div>', page.text)
     assert titles == ["Newer download", "Older download", "Metadata only"]
-
 
 
 def test_downloads_pagination_and_search(tmp_db):
@@ -416,7 +416,7 @@ def test_downloads_pagination_and_search(tmp_db):
             local_path="library/search.pdf",
             file_size=4096,
         )
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     first = client.get("/downloads?per_page=10")
     assert first.status_code == 200
     assert "Showing" in first.text
@@ -501,7 +501,7 @@ def test_downloads_page_marks_recent_pdfs_as_new(tmp_db):
         )
         old_row.downloaded_at = utc_now() - timedelta(days=3)
 
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     page = client.get("/downloads")
     assert page.status_code == 200
     assert "Freshly saved paper" in page.text
@@ -529,7 +529,7 @@ def test_library_hides_no_pdf_and_failed(tmp_db):
             PaperRecord(title="Broken download paper", doi="10.1000/failed", status=PaperStatus.FAILED),
         )
         save_paper(session, PaperRecord(title="Skipped paper", doi="10.1000/skipped", status=PaperStatus.SKIPPED))
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     library = client.get("/library")
     assert library.status_code == 200
     assert "Open visible paper" in library.text
@@ -585,7 +585,9 @@ def test_library_status_panel_shows_counts(tmp_db):
             session,
             PaperRecord(title="Closed paywalled paper", doi="10.1000/status-pay", status=PaperStatus.PAYWALLED),
         )
-        save_paper(session, PaperRecord(title="Broken download paper", doi="10.1000/status-fail", status=PaperStatus.FAILED))
+        save_paper(
+            session, PaperRecord(title="Broken download paper", doi="10.1000/status-fail", status=PaperStatus.FAILED)
+        )
         stats = library_status_panel(library_facets(session))
     assert stats["visible_total"] == 4
     assert stats["downloadable"] == 1
@@ -600,7 +602,7 @@ def test_library_status_panel_shows_counts(tmp_db):
     assert labels["Paywalled"] == 1
     assert "Failed" not in labels
 
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     page = client.get("/library")
     assert page.status_code == 200
     assert 'class="lib-status-panel"' in page.text
@@ -633,7 +635,9 @@ def test_hide_paywalled_filters_library_unless_explicit(tmp_db):
             session,
             PaperRecord(title="Closed paywalled paper", doi="10.1000/closed-hidden", status=PaperStatus.PAYWALLED),
         )
-        upsert_download(session, open_paper.id, pdf_url="https://arxiv.org/pdf/1.pdf", status=PaperStatus.OA_AVAILABLE.value)
+        upsert_download(
+            session, open_paper.id, pdf_url="https://arxiv.org/pdf/1.pdf", status=PaperStatus.OA_AVAILABLE.value
+        )
         upsert_download(session, closed.id, pdf_url=None, status=PaperStatus.PAYWALLED.value)
     save_workspace_settings(
         {
@@ -645,7 +649,7 @@ def test_hide_paywalled_filters_library_unless_explicit(tmp_db):
             "show_paywalled": False,
         }
     )
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     library = client.get("/library")
     assert library.status_code == 200
     assert "Open visible paper" in library.text
@@ -700,7 +704,7 @@ def test_library_abstract_preview_button(tmp_db):
                 status=PaperStatus.OA_AVAILABLE,
             ),
         )
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     page = client.get("/library")
     assert page.status_code == 200
     assert 'id="abstractPreviewModal"' in page.text
@@ -749,7 +753,7 @@ def test_library_cite_button(tmp_db):
                 status=PaperStatus.OA_AVAILABLE,
             ),
         )
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     page = client.get("/library")
     assert page.status_code == 200
     assert 'id="citePreviewModal"' in page.text
@@ -791,7 +795,7 @@ def test_library_shows_who_downloaded(tmp_db):
                 status=PaperStatus.OA_AVAILABLE,
             ),
         )
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     login = client.post(
         "/login",
         data={"email": "alice@lab.edu", "password": "password1", "next": "/library"},
@@ -820,16 +824,11 @@ def test_library_and_downloads_show_record_dates(tmp_db):
     saved = datetime(2026, 4, 1, 12, 0, 0)
     assert paper_record_date(SimpleNamespace(created_at=added, downloads=[])) == added
     assert (
-        paper_record_date(
-            SimpleNamespace(created_at=added, downloads=[SimpleNamespace(id=1, downloaded_at=saved)])
-        )
+        paper_record_date(SimpleNamespace(created_at=added, downloads=[SimpleNamespace(id=1, downloaded_at=saved)]))
         == saved
     )
     assert download_record_date(SimpleNamespace(downloaded_at=saved, paper=None)) == saved
-    assert (
-        download_record_date(SimpleNamespace(downloaded_at=None, paper=SimpleNamespace(created_at=added)))
-        == added
-    )
+    assert download_record_date(SimpleNamespace(downloaded_at=None, paper=SimpleNamespace(created_at=added))) == added
 
     with session_scope() as session:
         paper = save_paper(
@@ -850,7 +849,7 @@ def test_library_and_downloads_show_record_dates(tmp_db):
             file_size=1024,
         )
 
-    client = TestClient(app)
+    client = login_admin(TestClient(app))
     library = client.get("/library")
     assert library.status_code == 200
     assert 'class="lib-col-date">Date</th>' in library.text
@@ -886,13 +885,7 @@ def test_admin_can_delete_library_paper(tmp_db):
         assert session.get(Paper, paper_id) is None
         leftover = session.scalars(select(SearchResult).where(SearchResult.paper_id == paper_id)).all()
         assert leftover == []
-    client = TestClient(app)
-    created = client.post(
-        "/login",
-        data={"email": "admin@lab.test", "password": "secret123", "name": "Admin", "next": "/"},
-        follow_redirects=False,
-    )
-    assert created.status_code == 303
+    client = login_admin(TestClient(app))
     with session_scope() as session:
         other = save_paper(
             session,
@@ -918,15 +911,11 @@ def test_non_admin_cannot_delete_library_paper(tmp_db, monkeypatch):
         "is_admin": False,
         "has_password": True,
     }
-    monkeypatch.setattr("app.web.google_login_enabled", lambda: True)
-    monkeypatch.setattr("app.auth.google_login_enabled", lambda: True)
-    monkeypatch.setattr("app.web.auth_required", lambda: True)
-    monkeypatch.setattr("app.auth.auth_required", lambda: True)
-    monkeypatch.setattr("app.web.current_user", lambda _request: user)
-    monkeypatch.setattr("app.auth.current_user", lambda _request: user)
-    monkeypatch.setattr("app.web.user_is_admin", lambda _request: False)
-    monkeypatch.setattr("app.auth.user_is_admin", lambda _request: False)
-    monkeypatch.setattr("app.web.user_role", lambda _value: "user")
+    patch_web(monkeypatch, "google_login_enabled", lambda: True)
+    patch_web(monkeypatch, "auth_required", lambda: True)
+    patch_web(monkeypatch, "current_user", lambda _request: user)
+    patch_web(monkeypatch, "user_is_admin", lambda _request: False)
+    patch_web(monkeypatch, "user_role", lambda _value: "user")
     with session_scope() as session:
         paper = save_paper(
             session,

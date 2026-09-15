@@ -28,6 +28,10 @@ def test_apa_mla_chicago_and_bibtex_from_paper_record():
     assert cites["bibtex"].startswith("@article{lovelace2024satellites,")
     assert "author = {Lovelace, Ada and Babbage, Charles}" in cites["bibtex"]
     assert "doi = {10.1000/abs-preview}" in cites["bibtex"]
+    assert cites["ris"].startswith("TY  - JOUR")
+    assert "DO  - 10.1000/abs-preview" in cites["ris"]
+    assert '"DOI": "10.1000/abs-preview"' in cites["csl_json"]
+    assert "Lovelace, A." in cites["harvard"]
 
 
 def test_et_al_and_arxiv_fallback():

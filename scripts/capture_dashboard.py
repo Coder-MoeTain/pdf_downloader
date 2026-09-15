@@ -18,10 +18,11 @@ BASE = f"http://127.0.0.1:{PORT}"
 def seed_admin() -> tuple[str, str]:
     os.environ.setdefault("DATABASE_PATH", str(ROOT / "data" / "research.db"))
     sys.path.insert(0, str(ROOT))
+    from sqlalchemy import func, select
+
+    from app.auth import authenticate_local, create_local_user
     from app.database.connection import init_db, session_scope
-    from app.auth import create_local_user, authenticate_local
     from app.database.models import User
-    from sqlalchemy import select, func
 
     init_db()
     email = "screenshot@test.local"

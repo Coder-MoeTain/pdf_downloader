@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections import Counter
-from typing import Optional
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -15,17 +14,16 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from app import __app_name__, __version__
-from app.config import get_runtime_config, load_config, parse_size
+from app.config import get_runtime_config, parse_size
 from app.database.connection import init_db, session_scope
-from app.database.models import Author, Download, Paper, PaperAuthor, SearchQuery
+from app.database.models import Download, Paper, PaperAuthor, SearchQuery
 from app.database.repository import (
+    apply_paper_filters,
     library_search,
     list_failed_downloads,
     paper_to_record,
     save_paper,
-    apply_paper_filters,
 )
-from app.models.search import SortMode
 from app.providers import provider_status
 from app.services.download_service import DownloadService
 from app.services.export_service import ExportService
@@ -57,19 +55,19 @@ def main(ctx: typer.Context) -> None:
 @app.command()
 def search(
     query: str = typer.Argument(..., help="Research topic or search query"),
-    year_from: Optional[int] = typer.Option(None, "--year-from", help="Earliest publication year"),
-    year_to: Optional[int] = typer.Option(None, "--year-to", help="Latest publication year"),
-    authors: Optional[str] = typer.Option(None, "--authors"),
-    journal: Optional[str] = typer.Option(None, "--journal"),
-    publisher: Optional[str] = typer.Option(None, "--publisher"),
-    source: Optional[str] = typer.Option(None, "--source", help="Limit to one provider name"),
+    year_from: int | None = typer.Option(None, "--year-from", help="Earliest publication year"),
+    year_to: int | None = typer.Option(None, "--year-to", help="Latest publication year"),
+    authors: str | None = typer.Option(None, "--authors"),
+    journal: str | None = typer.Option(None, "--journal"),
+    publisher: str | None = typer.Option(None, "--publisher"),
+    source: str | None = typer.Option(None, "--source", help="Limit to one provider name"),
     open_access_only: bool = typer.Option(False, "--open-access-only"),
-    max_results: Optional[int] = typer.Option(None, "--max-results"),
+    max_results: int | None = typer.Option(None, "--max-results"),
     min_citations: int = typer.Option(0, "--min-citations"),
     sort: str = typer.Option("relevance", "--sort", help="relevance | citations | newest"),
     no_download: bool = typer.Option(False, "--no-download"),
-    download_limit: Optional[int] = typer.Option(None, "--download-limit"),
-    max_file_size: Optional[str] = typer.Option(None, "--max-file-size", help="e.g. 50MB"),
+    download_limit: int | None = typer.Option(None, "--download-limit"),
+    max_file_size: str | None = typer.Option(None, "--max-file-size", help="e.g. 50MB"),
 ) -> None:
     """Search academic sources and optionally download open-access PDFs."""
     filters = filters_from_cli(
@@ -93,8 +91,8 @@ def search(
 
 @app.command()
 def download(
-    download_limit: Optional[int] = typer.Option(None, "--download-limit"),
-    max_file_size: Optional[str] = typer.Option(None, "--max-file-size"),
+    download_limit: int | None = typer.Option(None, "--download-limit"),
+    max_file_size: str | None = typer.Option(None, "--max-file-size"),
 ) -> None:
     """Download open-access PDFs for papers that are not yet downloaded."""
     _run(_download_pending(download_limit, max_file_size))
@@ -103,16 +101,14 @@ def download(
 @app.command("list")
 def list_papers(
     limit: int = typer.Option(25, "--limit"),
-    status: Optional[str] = typer.Option(None, "--status"),
+    status: str | None = typer.Option(None, "--status"),
     downloadable: bool = typer.Option(False, "--downloadable", help="Only papers with a PDF saved on this server"),
     min_rating: int = typer.Option(0, "--min-rating", help="Minimum user rating 1–5"),
 ) -> None:
     """List papers stored in the local library."""
     with session_scope() as session:
         stmt = select(Paper).order_by(Paper.relevance_score.desc())
-        stmt = apply_paper_filters(
-            stmt, status=status or "", downloadable=downloadable, min_rating=min_rating
-        )
+        stmt = apply_paper_filters(stmt, status=status or "", downloadable=downloadable, min_rating=min_rating)
         papers = session.scalars(stmt.limit(limit)).all()
         table = Table(title="Library")
         table.add_column("ID", justify="right")
@@ -147,14 +143,16 @@ def retry() -> None:
 
 @app.command()
 def export(
-    query: Optional[str] = typer.Option(None, "--query", help="Optional library filter"),
+    query: str | None = typer.Option(None, "--query", help="Optional library filter"),
 ) -> None:
     """Export the current library to CSV/JSON/XLSX."""
     from app.models.search import SearchStats
 
     with session_scope() as session:
-        stmt = select(Paper).options(selectinload(Paper.authors).selectinload(PaperAuthor.author)).order_by(
-            Paper.relevance_score.desc()
+        stmt = (
+            select(Paper)
+            .options(selectinload(Paper.authors).selectinload(PaperAuthor.author))
+            .order_by(Paper.relevance_score.desc())
         )
         papers = [paper_to_record(p) for p in session.scalars(stmt).unique().all()]
         if query:
@@ -239,16 +237,28 @@ def fulltext_search_cmd(query: str = typer.Argument(...)) -> None:
         console.print()
 
 
-@app.command("seed-admin")
-def seed_admin(
-    email: Optional[str] = typer.Option(None, "--email", help="Admin email (or ADMIN_EMAIL)"),
-    password: Optional[str] = typer.Option(None, "--password", help="Admin password (or ADMIN_PASSWORD)"),
-    name: Optional[str] = typer.Option(None, "--name", help="Display name (or ADMIN_NAME)"),
-    reset_password: bool = typer.Option(False, "--reset-password", help="Reset the password if the account already exists"),
+@app.command("create-admin")
+def create_admin(
+    email: str | None = typer.Option(None, "--email", help="Admin email"),
+    password: str | None = typer.Option(None, "--password", help="Admin password (prompted if omitted)"),
+    name: str | None = typer.Option(None, "--name", help="Display name"),
+    reset_password: bool = typer.Option(
+        False, "--reset-password", help="Reset the password if the account already exists"
+    ),
 ) -> None:
-    """Create the local admin account if it is missing."""
-    from app.auth import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD, seed_admin_account
+    """Create the first administrator. Never uses a default password."""
+    from app.auth import seed_admin_account
 
+    email = (email or "").strip() or Prompt.ask("Admin email")
+    name = (name or "").strip() or Prompt.ask(
+        "Display name", default=email.split("@")[0] if "@" in email else "Administrator"
+    )
+    if not password:
+        password = Prompt.ask("Password", password=True)
+        confirm = Prompt.ask("Confirm password", password=True)
+        if password != confirm:
+            console.print("[red]Passwords do not match.[/]")
+            raise typer.Exit(1)
     try:
         result = seed_admin_account(email=email, password=password, name=name, reset_password=reset_password)
     except ValueError as exc:
@@ -258,14 +268,53 @@ def seed_admin(
     account_email = result["email"]
     if result["status"] == "created":
         console.print(f"[green]Created admin[/] {account_email}")
-        if not email and not password:
-            console.print(f"[dim]Default login:[/] {DEFAULT_ADMIN_EMAIL}  /  {DEFAULT_ADMIN_PASSWORD}")
-            console.print("[yellow]Change this password after the first sign-in.[/]")
     elif result["status"] == "updated":
         console.print(f"[green]Updated admin[/] {account_email}")
     else:
         console.print(f"[dim]Admin already exists:[/] {account_email}")
         console.print("Use [bold]--reset-password[/] to set a new password.")
+
+
+@app.command("setup-admin")
+def setup_admin(
+    email: str | None = typer.Option(None, "--email"),
+    password: str | None = typer.Option(None, "--password"),
+    name: str | None = typer.Option(None, "--name"),
+    reset_password: bool = typer.Option(False, "--reset-password"),
+) -> None:
+    """Alias for create-admin."""
+    create_admin(email=email, password=password, name=name, reset_password=reset_password)
+
+
+@app.command("backup")
+def backup_cmd(
+    dest: str | None = typer.Option(None, "--dest", help="Directory for the archive"),
+) -> None:
+    """Write a tar.gz backup of the research DB, settings DB, and library files."""
+    from app.services.backup_service import create_backup
+
+    archive = create_backup(Path(dest) if dest else None)
+    console.print(f"[green]Backup written[/] {archive}")
+
+
+@app.command("restore")
+def restore_cmd(archive: str = typer.Argument(..., help="Path to a Cyber Scholar backup archive")) -> None:
+    """Restore a previously created backup. Validates member paths against traversal."""
+    from app.services.backup_service import restore_backup
+
+    root = restore_backup(Path(archive))
+    console.print(f"[green]Restored into[/] {root}")
+
+
+@app.command("seed-admin")
+def seed_admin(
+    email: str | None = typer.Option(None, "--email", help="Admin email"),
+    password: str | None = typer.Option(None, "--password", help="Admin password"),
+    name: str | None = typer.Option(None, "--name", help="Display name"),
+    reset_password: bool = typer.Option(False, "--reset-password"),
+) -> None:
+    """Deprecated alias for create-admin. Requires an explicit email and password."""
+    create_admin(email=email, password=password, name=name, reset_password=reset_password)
 
 
 @app.command("update-library")
@@ -293,9 +342,7 @@ def sync_lms(
     result = sync_downloaded_papers_to_lms(dry_run=dry_run, config=cfg)
     for line in result.messages:
         console.print(line)
-    console.print(
-        f"[bold]Imported {result.imported}[/], skipped {result.skipped}, failed {result.failed}"
-    )
+    console.print(f"[bold]Imported {result.imported}[/], skipped {result.skipped}, failed {result.failed}")
     if result.failed:
         raise typer.Exit(1)
 
@@ -425,9 +472,7 @@ async def _download_pending(download_limit: int | None, max_file_size: str | Non
                 record = paper_to_record(paper)
                 if not record.pdf_url:
                     continue
-                updated = await downloader.download_paper(
-                    paper.id, record, "library", max_file_size=max_size
-                )
+                updated = await downloader.download_paper(paper.id, record, "library", max_file_size=max_size)
                 save_paper(session, updated)
                 session.commit()
                 count += 1
@@ -478,4 +523,6 @@ async def _update_topics() -> None:
             topic_name=topic.name,
         )
         stats = await service.run(filters)
-        console.print(f"Topic '{topic.name}' stored {stats.unique_papers} papers (existing DOIs: {len(existing_dois)}).")
+        console.print(
+            f"Topic '{topic.name}' stored {stats.unique_papers} papers (existing DOIs: {len(existing_dois)})."
+        )

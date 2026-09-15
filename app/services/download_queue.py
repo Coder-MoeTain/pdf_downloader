@@ -50,9 +50,7 @@ def enqueue_resume_downloads(*, user_id: int | None, limit: int = 0) -> bool:
 def _run_batch_sync(job: DownloadJob) -> dict[str, int]:
     if job.kind == "resume":
         return asyncio.run(resume_downloading_papers(user_id=job.user_id, limit=job.limit))
-    return asyncio.run(
-        download_open_access_papers(search_id=job.search_id, user_id=job.user_id, limit=job.limit)
-    )
+    return asyncio.run(download_open_access_papers(search_id=job.search_id, user_id=job.user_id, limit=job.limit))
 
 
 async def _worker_loop() -> None:

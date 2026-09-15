@@ -1,5 +1,5 @@
-from app.services.query_expansion import expand_query
 from app.config import QueryExpansionConfig
+from app.services.query_expansion import expand_query
 
 
 def test_expansion_includes_original_and_synonyms():

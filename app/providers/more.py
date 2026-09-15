@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from xml.etree import ElementTree as ET
 
@@ -60,7 +60,7 @@ def _epoch_year(value: Any) -> int | None:
         if ts > 10_000_000_000:
             ts //= 1000
         if ts > 10_000_000:
-            return datetime.fromtimestamp(ts, tz=timezone.utc).year
+            return datetime.fromtimestamp(ts, tz=UTC).year
         return ts if 1000 <= ts <= 2100 else None
     return _year(value)
 
@@ -84,6 +84,8 @@ class _CrossrefFilterProvider(ResearchProvider):
     work_type: str = ""
     assume_oa: bool = False
     publisher_name: str = ""
+    upstream = "crossref"
+    rate_group = "crossref"
 
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
         filter_parts: list[str] = []
@@ -371,7 +373,8 @@ class PaperswithcodeProvider(ResearchProvider):
             conference=_text(item.get("proceeding")),
             publisher="Papers with Code",
             arxiv_id=arxiv_id,
-            url=_https(_text(item.get("url_abs") or item.get("url"))) or (f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else None),
+            url=_https(_text(item.get("url_abs") or item.get("url")))
+            or (f"https://arxiv.org/abs/{arxiv_id}" if arxiv_id else None),
             pdf_url=pdf_url,
             open_access=bool(pdf_url),
             source_provider=self.name,
@@ -433,7 +436,11 @@ class ZbmathProvider(ResearchProvider):
             abstract=_plain(item.get("editorial_contribution") or item.get("review") or item.get("abstract")),
             authors=authors,
             publication_year=_year(item.get("year") or item.get("publication_year")),
-            journal=_text((item.get("source") or {}).get("series") if isinstance(item.get("source"), dict) else item.get("journal")),
+            journal=_text(
+                (item.get("source") or {}).get("series")
+                if isinstance(item.get("source"), dict)
+                else item.get("journal")
+            ),
             publisher="zbMATH Open",
             doi=doi,
             url=f"https://zbmath.org/{zb_id}" if zb_id else doi_url(doi),
@@ -487,7 +494,11 @@ class UsgsProvider(ResearchProvider):
                 name = f"{given} {family}".strip() or _text(author.get("text")) or ""
                 if name:
                     authors.append(AuthorRecord(name=re.sub(r"\s+\S+@\S+", "", name).strip()))
-        series = (item.get("seriesTitle") or {}).get("text") if isinstance(item.get("seriesTitle"), dict) else item.get("seriesTitle")
+        series = (
+            (item.get("seriesTitle") or {}).get("text")
+            if isinstance(item.get("seriesTitle"), dict)
+            else item.get("seriesTitle")
+        )
         return PaperRecord(
             title=title,
             abstract=_plain(item.get("docAbstract")),
@@ -498,7 +509,11 @@ class UsgsProvider(ResearchProvider):
             doi=doi,
             url=landing or (f"https://pubs.usgs.gov/publication/{index_id}" if index_id else doi_url(doi)),
             pdf_url=pdf_url,
-            keywords=[k for k in (_text(k.get("text") if isinstance(k, dict) else k) for k in _as_list(item.get("keywords"))) if k][:12],
+            keywords=[
+                k
+                for k in (_text(k.get("text") if isinstance(k, dict) else k) for k in _as_list(item.get("keywords")))
+                if k
+            ][:12],
             open_access=bool(pdf_url),
             source_provider=self.name,
             metadata_sources={"pdf_url": self.name} if pdf_url else {},
@@ -525,7 +540,9 @@ class DataverseProvider(ResearchProvider):
             return None
         global_id = _text(item.get("global_id") or item.get("identifier"))
         doi = normalize_doi(global_id)
-        authors = [AuthorRecord(name=t) for n in _as_list(item.get("authors") or item.get("authorsList")) if (t := _text(n))]
+        authors = [
+            AuthorRecord(name=t) for n in _as_list(item.get("authors") or item.get("authorsList")) if (t := _text(n))
+        ]
         if not authors:
             authors = _authors_from(item.get("authors"), "name")
         return PaperRecord(
@@ -556,7 +573,9 @@ class _Dspace7Provider(ResearchProvider):
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
         params = {"query": query, "size": min(filters.max_results, 50), "dsoType": "Item"}
         data = await self.request_json(self.BASE, params=params, headers={"Accept": "application/json"})
-        objects = ((((data or {}).get("_embedded") or {}).get("searchResult") or {}).get("_embedded") or {}).get("objects") or []
+        objects = ((((data or {}).get("_embedded") or {}).get("searchResult") or {}).get("_embedded") or {}).get(
+            "objects"
+        ) or []
         return _finished([self._parse(item) for item in objects], filters)
 
     def _parse(self, item: dict[str, Any] | None) -> PaperRecord | None:
@@ -576,7 +595,9 @@ class _Dspace7Provider(ResearchProvider):
             landing = _https(_text(handle))
         authors = [AuthorRecord(name=n) for n in (meta.get("dc.contributor.author") or []) if n]
         pdf_url = None
-        for bitstream in ((obj.get("_embedded") or {}).get("bitstreams") or {}).get("_embedded", {}).get("bitstreams") or []:
+        for bitstream in ((obj.get("_embedded") or {}).get("bitstreams") or {}).get("_embedded", {}).get(
+            "bitstreams"
+        ) or []:
             mime = str(bitstream.get("mimeType") or "").lower()
             name = str(bitstream.get("name") or "")
             href = ((bitstream.get("_links") or {}).get("content") or {}).get("href")
@@ -635,9 +656,7 @@ class CernProvider(ResearchProvider):
         title = _text(meta.get("title"))
         if not title:
             return None
-        doi = normalize_doi(
-            _text(meta.get("doi") or (item.get("pids") or {}).get("doi", {}).get("identifier"))
-        )
+        doi = normalize_doi(_text(meta.get("doi") or (item.get("pids") or {}).get("doi", {}).get("identifier")))
         if not doi:
             for ident in _as_list(meta.get("identifiers")):
                 if isinstance(ident, dict) and str(ident.get("scheme") or "").lower() == "doi":
@@ -662,12 +681,22 @@ class CernProvider(ResearchProvider):
         html = _https(_text(links.get("self_html") or links.get("html")))
         creators = meta.get("creators") or []
         authors = _authors_from(
-            [c.get("person_or_org") if isinstance(c, dict) and c.get("person_or_org") else c for c in _as_list(creators)],
+            [
+                c.get("person_or_org") if isinstance(c, dict) and c.get("person_or_org") else c
+                for c in _as_list(creators)
+            ],
             "name",
         )
         return PaperRecord(
             title=title,
-            abstract=_plain(meta.get("description") or ((meta.get("additional_descriptions") or [{}])[0].get("description") if meta.get("additional_descriptions") else None)),
+            abstract=_plain(
+                meta.get("description")
+                or (
+                    (meta.get("additional_descriptions") or [{}])[0].get("description")
+                    if meta.get("additional_descriptions")
+                    else None
+                )
+            ),
             authors=authors,
             publication_year=_year(meta.get("publication_date") or meta.get("publicationDate")),
             publication_date=str(meta.get("publication_date") or "")[:10] or None,
@@ -675,7 +704,11 @@ class CernProvider(ResearchProvider):
             doi=doi,
             url=html or doi_url(doi),
             pdf_url=pdf_url,
-            keywords=[k for k in (_text(k.get("subject") if isinstance(k, dict) else k) for k in _as_list(meta.get("subjects"))) if k][:12],
+            keywords=[
+                k
+                for k in (_text(k.get("subject") if isinstance(k, dict) else k) for k in _as_list(meta.get("subjects")))
+                if k
+            ][:12],
             open_access=True,
             source_provider=self.name,
             metadata_sources={"pdf_url": self.name} if pdf_url else {"open_access": self.name},
@@ -717,14 +750,20 @@ class NdlProvider(ResearchProvider):
             return None
         creators = [c.text.strip() for c in item.findall("dc:creator", _DC_NS) if c.text and c.text.strip()]
         if not creators:
-            creators = [c.text.strip() for c in item.findall("{http://purl.org/dc/elements/1.1/}creator") if c is not None and c.text]
+            creators = [
+                c.text.strip()
+                for c in item.findall("{http://purl.org/dc/elements/1.1/}creator")
+                if c is not None and c.text
+            ]
         date_text = (
             item.findtext("dc:date", default="", namespaces=_DC_NS)
             or item.findtext("{http://purl.org/dc/elements/1.1/}date")
             or ""
         )
         doi = None
-        for ident in item.findall("dc:identifier", _DC_NS) + item.findall("{http://purl.org/dc/elements/1.1/}identifier"):
+        for ident in item.findall("dc:identifier", _DC_NS) + item.findall(
+            "{http://purl.org/dc/elements/1.1/}identifier"
+        ):
             doi = doi or normalize_doi(ident.text)
         landing = _https((item.findtext("link") or "").strip() or None)
         return PaperRecord(

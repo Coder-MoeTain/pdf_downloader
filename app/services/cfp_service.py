@@ -126,7 +126,7 @@ def external_id_from_url(url: str) -> str:
         slug = path.split("/")[-1] or path
         if slug and slug not in {"cfp", "show", "servlet"}:
             return f"wikicfp:{slug}"[:255]
-    digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha1(url.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
     return f"wikicfp:{digest}"
 
 
@@ -185,7 +185,7 @@ def cover_image_url_for(external_id: str, categories: str | None = None) -> str:
             break
     else:
         base = 0
-    digest = hashlib.sha1(f"{external_id}|{categories or ''}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha1(f"{external_id}|{categories or ''}".encode(), usedforsecurity=False).hexdigest()
     offset = int(digest[:6], 16) % len(_COVER_PHOTOS)
     return _COVER_PHOTOS[(base + offset) % len(_COVER_PHOTOS)]
 
@@ -438,6 +438,9 @@ def _apply_estimated_deadlines(seen: dict[str, dict[str, Any]], now: datetime) -
         est = payload["event_start"] - timedelta(days=45)
         if est > now:
             payload["deadline"] = est
+            payload["deadline_verified"] = False
+            payload["deadline_confidence"] = "estimated"
+            payload["deadline_source"] = "wikicfp-estimated"
 
 
 def _select_enrich_targets(
@@ -495,6 +498,10 @@ def _merge_rss_items(keyword: str, items: list[dict[str, str]], seen: dict[str, 
             "location": location,
             "categories": keyword,
             "source": "wikicfp",
+            "deadline_source": "wikicfp",
+            "deadline_verified": False,
+            "deadline_confidence": "unknown",
+            "source_url": link,
             "fetched_at": now,
         }
 

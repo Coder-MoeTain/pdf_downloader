@@ -116,7 +116,9 @@ def _authors_from(values: Any, *name_keys: str) -> list[AuthorRecord]:
             continue
         aff = item.get("affiliation") or item.get("affiliationName")
         affiliations = [a for a in (_text(a) for a in _as_list(aff)) if a]
-        authors.append(AuthorRecord(name=name, affiliations=affiliations, orcid=_text(item.get("orcid") or item.get("ORCID"))))
+        authors.append(
+            AuthorRecord(name=name, affiliations=affiliations, orcid=_text(item.get("orcid") or item.get("ORCID")))
+        )
     return authors
 
 
@@ -249,12 +251,20 @@ class OpenaireProvider(ResearchProvider):
         access = _dig(item, "bestAccessRight", "bestaccessright")
         oa = _is_open(access) or bool(pdf_url)
         container = _dig(item, "container", "journal")
-        journal = _text(container) if not isinstance(container, dict) else _text(container.get("name") or container.get("title"))
+        journal = (
+            _text(container)
+            if not isinstance(container, dict)
+            else _text(container.get("name") or container.get("title"))
+        )
         subjects = [_text(s) for s in _as_list(_dig(item, "subjects", "subject")) if _text(s)]
         descriptions = _as_list(_dig(item, "descriptions", "description"))
         cites = _dig(item, "indicators") or {}
         if isinstance(cites, dict):
-            cites = ((cites.get("citationImpact") or {}).get("citationCount") if isinstance(cites.get("citationImpact"), dict) else cites.get("citationCount"))
+            cites = (
+                (cites.get("citationImpact") or {}).get("citationCount")
+                if isinstance(cites.get("citationImpact"), dict)
+                else cites.get("citationCount")
+            )
         return PaperRecord(
             title=title,
             abstract=_text(descriptions[0] if descriptions else None),
@@ -394,7 +404,9 @@ class ZenodoProvider(ResearchProvider):
         title = _text(meta.get("title"))
         if not title:
             return None
-        doi = normalize_doi(_text(meta.get("doi") or item.get("doi") or (item.get("pids") or {}).get("doi", {}).get("identifier")))
+        doi = normalize_doi(
+            _text(meta.get("doi") or item.get("doi") or (item.get("pids") or {}).get("doi", {}).get("identifier"))
+        )
         files = item.get("files") or meta.get("files") or []
         pdf_url = None
         for blob in files:
@@ -700,7 +712,8 @@ class OstiProvider(ResearchProvider):
             journal=_text(item.get("journal_name") or item.get("journal")),
             publisher=_text(item.get("publisher")) or "U.S. Department of Energy",
             doi=doi,
-            url=_https(_text(item.get("citation_url"))) or (f"https://www.osti.gov/biblio/{osti_id}" if osti_id else doi_url(doi)),
+            url=_https(_text(item.get("citation_url")))
+            or (f"https://www.osti.gov/biblio/{osti_id}" if osti_id else doi_url(doi)),
             pdf_url=pdf_url,
             keywords=[k for k in (_text(k) for k in _as_list(item.get("keywords") or item.get("subject"))) if k],
             open_access=bool(pdf_url) or has_fulltext,
@@ -750,12 +763,16 @@ class DataciteProvider(ResearchProvider):
             abstract=abstract,
             authors=_authors_from(attrs.get("creators"), "name"),
             publication_year=_year(attrs.get("publicationYear") or attrs.get("published")),
-            journal=_text((attrs.get("container") or {}).get("title") if isinstance(attrs.get("container"), dict) else None),
+            journal=_text(
+                (attrs.get("container") or {}).get("title") if isinstance(attrs.get("container"), dict) else None
+            ),
             publisher=_text(attrs.get("publisher")),
             doi=doi,
             url=_https(_text(attrs.get("url"))) or doi_url(doi),
             pdf_url=_pick_pdf(attrs.get("url"), attrs.get("contentUrl")),
-            keywords=[_text(s.get("subject") if isinstance(s, dict) else s) or "" for s in (attrs.get("subjects") or [])],
+            keywords=[
+                _text(s.get("subject") if isinstance(s, dict) else s) or "" for s in (attrs.get("subjects") or [])
+            ],
             open_access=oa or bool(_pick_pdf(attrs.get("url"))),
             license=license_,
             source_provider=self.name,
@@ -907,7 +924,12 @@ class FigshareProvider(ResearchProvider):
     BASE = "https://api.figshare.com/v2/articles"
 
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
-        params = {"search_for": query, "page_size": min(filters.max_results, 50), "order": "published_date", "order_direction": "desc"}
+        params = {
+            "search_for": query,
+            "page_size": min(filters.max_results, 50),
+            "order": "published_date",
+            "order_direction": "desc",
+        }
         data = await self.request_json(self.BASE, params=params)
         items = data if isinstance(data, list) else (data or {}).get("items") or []
         return _finished([self._parse(item) for item in items], filters)
@@ -946,7 +968,11 @@ class FigshareProvider(ResearchProvider):
             pdf_url=_pick_pdf(item.get("url")),
             keywords=[k for k in (_text(k) for k in _as_list(item.get("tags") or item.get("categories"))) if k],
             open_access=True,
-            license=_text((item.get("license") or {}).get("name") if isinstance(item.get("license"), dict) else item.get("license")),
+            license=_text(
+                (item.get("license") or {}).get("name")
+                if isinstance(item.get("license"), dict)
+                else item.get("license")
+            ),
             source_provider=self.name,
             metadata_sources={"open_access": self.name},
             extra={"figshare_id": item.get("id")},
@@ -975,7 +1001,9 @@ class _DspaceRestProvider(ResearchProvider):
         doi = normalize_doi(_dspace_first(meta, "dc.identifier.doi", "dc.identifier.uri"))
         handle = item.get("handle")
         landing = f"{self.origin}/handle/{handle}" if handle else _dspace_first(meta, "dc.identifier.uri")
-        authors = [AuthorRecord(name=n) for n in (meta.get("dc.contributor.author") or meta.get("dc.creator") or []) if n]
+        authors = [
+            AuthorRecord(name=n) for n in (meta.get("dc.contributor.author") or meta.get("dc.creator") or []) if n
+        ]
         return PaperRecord(
             title=title,
             abstract=_dspace_first(meta, "dc.description.abstract", "dc.description"),
@@ -1234,7 +1262,9 @@ class WorldbankProvider(ResearchProvider):
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
         params = {"query": query, "size": min(filters.max_results, 50), "dsoType": "Item"}
         data = await self.request_json(self.BASE, params=params, headers={"Accept": "application/json"})
-        objects = ((((data or {}).get("_embedded") or {}).get("searchResult") or {}).get("_embedded") or {}).get("objects") or []
+        objects = ((((data or {}).get("_embedded") or {}).get("searchResult") or {}).get("_embedded") or {}).get(
+            "objects"
+        ) or []
         return _finished([self._parse(item) for item in objects], filters)
 
     def _parse(self, item: dict[str, Any] | None) -> PaperRecord | None:
@@ -1254,7 +1284,9 @@ class WorldbankProvider(ResearchProvider):
             landing = _https(_text(handle))
         authors = [AuthorRecord(name=n) for n in (meta.get("dc.contributor.author") or []) if n]
         pdf_url = None
-        for bitstream in ((obj.get("_embedded") or {}).get("bitstreams") or {}).get("_embedded", {}).get("bitstreams") or []:
+        for bitstream in ((obj.get("_embedded") or {}).get("bitstreams") or {}).get("_embedded", {}).get(
+            "bitstreams"
+        ) or []:
             mime = str(bitstream.get("mimeType") or "").lower()
             name = str(bitstream.get("name") or "")
             href = ((bitstream.get("_links") or {}).get("content") or {}).get("href")

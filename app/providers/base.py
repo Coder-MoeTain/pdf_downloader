@@ -36,6 +36,14 @@ class ResearchProvider(ABC):
             return cfg.requests_per_second_with_key
         return cfg.requests_per_second
 
+    @property
+    def upstream_name(self) -> str:
+        return str(getattr(self, "upstream", "") or self.name)
+
+    @property
+    def rate_limit_group(self) -> str:
+        return str(getattr(self, "rate_group", "") or self.upstream_name or self.name)
+
     def has_api_key(self) -> bool:
         return False
 
@@ -49,7 +57,7 @@ class ResearchProvider(ABC):
     async def request_json(self, url: str, **kwargs: object):
         return await self.client.get_json(
             url,
-            provider=self.name,
+            provider=self.rate_limit_group,
             requests_per_second=self.requests_per_second,
             **kwargs,
         )
@@ -57,7 +65,7 @@ class ResearchProvider(ABC):
     async def request_text(self, url: str, **kwargs: object) -> str:
         return await self.client.get_text(
             url,
-            provider=self.name,
+            provider=self.rate_limit_group,
             requests_per_second=self.requests_per_second,
             **kwargs,
         )
@@ -66,7 +74,7 @@ class ResearchProvider(ABC):
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
         raise NotImplementedError
 
-    async def browse(self, filters: "CrawlFilters", *, cursor: str | None = None) -> "BrowsePage":
+    async def browse(self, filters: CrawlFilters, *, cursor: str | None = None) -> BrowsePage:
         raise NotImplementedError(f"{self.display_name} does not support source crawling yet.")
 
     async def get_paper(self, identifier: str) -> PaperRecord | None:

@@ -9,22 +9,29 @@ from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, case, delete, exists, func, or_, select
+from sqlalchemy import and_, case, delete, exists, func, or_, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.database.identifiers import normalize_identifier, record_identifiers
 from app.database.models import (
     Author,
     CfpCall,
+    Collection,
+    CollectionPaper,
     CrawlJob,
     Download,
     Paper,
     PaperAuthor,
     PaperFulltext,
+    PaperIdentifier,
     Provider,
+    SavedSearch,
     SearchJob,
     SearchQuery,
     SearchResult,
     User,
+    UserPaper,
 )
 from app.models.paper import AuthorRecord, PaperRecord, PaperStatus
 from app.utils.filename import normalize_title
@@ -66,22 +73,41 @@ def upsert_provider(session: Session, name: str, *, error: str | None = None) ->
 
 
 def get_or_create_author(session: Session, record: AuthorRecord) -> Author:
+    orcid = (record.orcid or "").strip() or None
+    if orcid:
+        author = session.scalar(select(Author).where(Author.orcid == orcid))
+        if author is not None:
+            if record.affiliations and not author.affiliations:
+                author.affiliations = _join(record.affiliations)
+            if record.name and author.name != record.name.strip():
+                author.name = record.name.strip()
+                author.normalized_name = normalize_title(record.name)
+            return author
     norm = normalize_title(record.name)
-    author = session.scalar(select(Author).where(Author.normalized_name == norm))
+    author = None
+    if norm:
+        matches = list(session.scalars(select(Author).where(Author.normalized_name == norm)).all())
+        if orcid:
+            author = next((row for row in matches if not row.orcid), None)
+        elif len(matches) == 1:
+            author = matches[0]
+        elif matches:
+            # Do not merge two authors who share a name if either already has an ORCID.
+            author = next((row for row in matches if not row.orcid), None)
     if author is None:
         author = Author(
             name=record.name.strip(),
             normalized_name=norm,
             affiliations=_join(record.affiliations),
-            orcid=record.orcid,
+            orcid=orcid,
         )
         session.add(author)
         session.flush()
     else:
         if record.affiliations and not author.affiliations:
             author.affiliations = _join(record.affiliations)
-        if record.orcid and not author.orcid:
-            author.orcid = record.orcid
+        if orcid and not author.orcid:
+            author.orcid = orcid
     return author
 
 
@@ -133,6 +159,8 @@ def paper_to_record(paper: Paper) -> PaperRecord:
 
 
 def save_paper(session: Session, record: PaperRecord) -> Paper:
+    if record.doi:
+        record.doi = normalize_identifier("doi", record.doi) or record.doi
     existing = find_existing_paper(session, record)
     if existing is None:
         paper = Paper(title=record.title)
@@ -180,10 +208,52 @@ def save_paper(session: Session, record: PaperRecord) -> Paper:
         for position, author_rec in enumerate(record.authors):
             author = get_or_create_author(session, author_rec)
             session.add(PaperAuthor(paper_id=paper.id, author_id=author.id, position=position))
+    _sync_paper_identifiers(session, paper, record)
+    _upsert_paper_fts(session, paper)
     return paper
 
 
+def _sync_paper_identifiers(session: Session, paper: Paper, record: PaperRecord) -> None:
+    for scheme, raw, normalized in record_identifiers(record):
+        existing = session.scalar(
+            select(PaperIdentifier).where(
+                PaperIdentifier.scheme == scheme,
+                PaperIdentifier.normalized_value == normalized,
+            )
+        )
+        if existing is not None:
+            if existing.paper_id != paper.id:
+                # Unique constraint: keep the canonical paper that already owns this id.
+                continue
+            existing.value = raw
+            continue
+        try:
+            with session.begin_nested():
+                session.add(
+                    PaperIdentifier(
+                        paper_id=paper.id,
+                        scheme=scheme,
+                        value=raw,
+                        normalized_value=normalized,
+                    )
+                )
+                session.flush()
+        except IntegrityError:
+            continue
+
+
 def find_existing_paper(session: Session, record: PaperRecord) -> Paper | None:
+    for scheme, _raw, normalized in record_identifiers(record):
+        ident = session.scalar(
+            select(PaperIdentifier).where(
+                PaperIdentifier.scheme == scheme,
+                PaperIdentifier.normalized_value == normalized,
+            )
+        )
+        if ident is not None:
+            found = session.get(Paper, ident.paper_id)
+            if found is not None:
+                return found
     if record.doi:
         found = session.scalar(select(Paper).where(Paper.doi == record.doi))
         if found:
@@ -231,9 +301,7 @@ def filter_new_paper_records(session: Session, records: list[PaperRecord]) -> li
     if pmids:
         existing_pmids = set(session.scalars(select(Paper.pmid).where(Paper.pmid.in_(pmids))).all())
     if arxiv_ids:
-        existing_arxiv = set(
-            session.scalars(select(Paper.arxiv_id).where(Paper.arxiv_id.in_(arxiv_ids))).all()
-        )
+        existing_arxiv = set(session.scalars(select(Paper.arxiv_id).where(Paper.arxiv_id.in_(arxiv_ids))).all())
     if openalex_ids:
         existing_openalex = set(
             session.scalars(select(Paper.openalex_id).where(Paper.openalex_id.in_(openalex_ids))).all()
@@ -298,9 +366,7 @@ def attach_search_result(session: Session, search_id: int, paper_id: int, rank: 
         existing.rank = rank
         existing.relevance_score = score
         return
-    session.add(
-        SearchResult(search_query_id=search_id, paper_id=paper_id, rank=rank, relevance_score=score)
-    )
+    session.add(SearchResult(search_query_id=search_id, paper_id=paper_id, rank=rank, relevance_score=score))
 
 
 def upsert_download(
@@ -693,7 +759,7 @@ def library_facets(session: Session, *, force: bool = False, light: bool = False
     visible = visible_paper_clauses()
     years = [
         year
-        for year, in session.execute(
+        for (year,) in session.execute(
             select(Paper.publication_year)
             .where(Paper.publication_year.is_not(None), *visible)
             .distinct()
@@ -707,9 +773,7 @@ def library_facets(session: Session, *, force: bool = False, light: bool = False
     visible_total = sum(status_counts.values())
     downloadable = session.scalar(select(func.count(Paper.id)).where(downloadable_clause(), *visible)) or 0
     open_access = session.scalar(select(func.count(Paper.id)).where(open_access_clause(), *visible)) or 0
-    paywalled = session.scalar(
-        select(func.count(Paper.id)).where(Paper.status == PaperStatus.PAYWALLED.value)
-    ) or 0
+    paywalled = session.scalar(select(func.count(Paper.id)).where(Paper.status == PaperStatus.PAYWALLED.value)) or 0
 
     categories: list[dict] = []
     sources: list[dict] = []
@@ -782,11 +846,7 @@ def dashboard_stats(session: Session, *, force: bool = False) -> dict:
     global _dashboard_cache, _dashboard_cache_at
     now = time.monotonic()
     with _facets_lock:
-        if (
-            not force
-            and _dashboard_cache is not None
-            and (now - _dashboard_cache_at) < _DASHBOARD_TTL_SECONDS
-        ):
+        if not force and _dashboard_cache is not None and (now - _dashboard_cache_at) < _DASHBOARD_TTL_SECONDS:
             return deepcopy(_dashboard_cache)
 
     facets = library_facets(session)
@@ -795,9 +855,7 @@ def dashboard_stats(session: Session, *, force: bool = False) -> dict:
     oa = session.scalar(select(func.count(Paper.id)).where(Paper.open_access.is_(True), *visible)) or 0
     failed = session.scalar(select(func.count(Download.id)).where(Download.status == "FAILED")) or 0
     searches = session.scalar(select(func.count(SearchQuery.id))) or 0
-    no_year = session.scalar(
-        select(func.count(Paper.id)).where(Paper.publication_year.is_(None), *visible)
-    ) or 0
+    no_year = session.scalar(select(func.count(Paper.id)).where(Paper.publication_year.is_(None), *visible)) or 0
     years = session.execute(
         select(Paper.publication_year, func.count(Paper.id))
         .where(Paper.publication_year.is_not(None), *visible)
@@ -892,12 +950,46 @@ def dashboard_stats(session: Session, *, force: bool = False) -> dict:
     return deepcopy(payload)
 
 
-def set_paper_rating(session: Session, paper_id: int, rating: int) -> Paper | None:
+def _upsert_paper_fts(session: Session, paper: Paper, fulltext: str = "") -> None:
+    authors = "; ".join(
+        link.author.name
+        for link in sorted(paper.authors or [], key=lambda item: item.position or 0)
+        if getattr(link, "author", None) and link.author.name
+    )
+    try:
+        with session.begin_nested():
+            session.execute(text("DELETE FROM papers_fts WHERE rowid = :id"), {"id": paper.id})
+            session.execute(
+                text(
+                    "INSERT INTO papers_fts(rowid, title, abstract, authors, keywords, fulltext) "
+                    "VALUES (:id, :title, :abstract, :authors, :keywords, :fulltext)"
+                ),
+                {
+                    "id": paper.id,
+                    "title": paper.title or "",
+                    "abstract": paper.abstract or "",
+                    "authors": authors,
+                    "keywords": paper.keywords or "",
+                    "fulltext": fulltext,
+                },
+            )
+    except Exception:
+        pass
+
+
+def set_paper_rating(session: Session, paper_id: int, rating: int, *, user_id: int | None = None) -> Paper | None:
     paper = session.get(Paper, paper_id)
     if paper is None:
         return None
     paper.user_rating = None if rating == 0 else rating
     paper.updated_at = utc_now()
+    if user_id:
+        row = session.scalar(select(UserPaper).where(UserPaper.user_id == user_id, UserPaper.paper_id == paper_id))
+        if row is None:
+            row = UserPaper(user_id=user_id, paper_id=paper_id)
+            session.add(row)
+        row.rating = None if rating == 0 else rating
+        row.updated_at = utc_now()
     return paper
 
 
@@ -975,15 +1067,54 @@ def save_fulltext(session: Session, paper_id: int, content: str) -> PaperFulltex
     else:
         row.content = content
         row.indexed_at = utc_now()
+    paper = session.get(Paper, paper_id)
+    if paper is not None:
+        _upsert_paper_fts(session, paper, fulltext=content)
     return row
 
 
 def fulltext_search(session: Session, query: str, limit: int = 50) -> list[tuple[Paper, str]]:
-    like = f"%{query}%"
+    cleaned = " ".join((query or "").split())
+    if not cleaned:
+        return []
+    try:
+        match = cleaned.replace('"', '""')
+        rows = session.execute(
+            text(
+                "SELECT rowid, snippet(papers_fts, 4, '[', ']', '…', 12) "
+                "FROM papers_fts WHERE papers_fts MATCH :q ORDER BY rank LIMIT :limit"
+            ),
+            {"q": match, "limit": limit},
+        ).all()
+        papers = (
+            {
+                paper.id: paper
+                for paper in session.scalars(select(Paper).where(Paper.id.in_([row[0] for row in rows]))).all()
+            }
+            if rows
+            else {}
+        )
+        out: list[tuple[Paper, str]] = []
+        for rowid, snippet in rows:
+            paper = papers.get(int(rowid))
+            if paper is not None:
+                out.append((paper, str(snippet or "")[:500]))
+        if out:
+            return out
+    except Exception:
+        pass
+    like = f"%{cleaned}%"
     stmt = (
         select(Paper, PaperFulltext.content)
         .join(PaperFulltext, PaperFulltext.paper_id == Paper.id)
-        .where(PaperFulltext.content.ilike(like))
+        .where(
+            or_(
+                Paper.title.ilike(like),
+                Paper.abstract.ilike(like),
+                Paper.keywords.ilike(like),
+                PaperFulltext.content.ilike(like),
+            )
+        )
         .limit(limit)
     )
     return [(paper, snippet[:500]) for paper, snippet in session.execute(stmt).all()]
@@ -1009,9 +1140,7 @@ def claim_next_search_job(session: Session, *, max_per_user: int = 1) -> SearchJ
         session.scalars(select(SearchJob.user_id).where(SearchJob.status == "running")).all()
     )
     pending = session.scalars(
-        select(SearchJob)
-        .where(SearchJob.status == "pending")
-        .order_by(SearchJob.created_at)
+        select(SearchJob).where(SearchJob.status == "pending").order_by(SearchJob.created_at)
     ).all()
     limit = max(1, int(max_per_user))
     for job in pending:
@@ -1170,9 +1299,7 @@ def claim_next_crawl_job(session: Session, *, max_per_user: int = 1) -> CrawlJob
     running_counts: Counter[int | None] = Counter(
         session.scalars(select(CrawlJob.user_id).where(CrawlJob.status == "running")).all()
     )
-    pending = session.scalars(
-        select(CrawlJob).where(CrawlJob.status == "pending").order_by(CrawlJob.created_at)
-    ).all()
+    pending = session.scalars(select(CrawlJob).where(CrawlJob.status == "pending").order_by(CrawlJob.created_at)).all()
     limit = max(1, int(max_per_user))
     for job in pending:
         if running_counts[job.user_id] >= limit:
@@ -1235,9 +1362,7 @@ def list_crawl_jobs(
         stmt = stmt.where(CrawlJob.status.in_(statuses))
     needle = (q or "").strip()
     if needle:
-        stmt = stmt.where(
-            or_(CrawlJob.source.ilike(f"%{needle}%"), CrawlJob.filters_json.ilike(f"%{needle}%"))
-        )
+        stmt = stmt.where(or_(CrawlJob.source.ilike(f"%{needle}%"), CrawlJob.filters_json.ilike(f"%{needle}%")))
     if with_user:
         stmt = stmt.options(selectinload(CrawlJob.user))
     return list(session.scalars(stmt).all())
@@ -1257,9 +1382,7 @@ def count_crawl_jobs(
         stmt = stmt.where(CrawlJob.status.in_(statuses))
     needle = (q or "").strip()
     if needle:
-        stmt = stmt.where(
-            or_(CrawlJob.source.ilike(f"%{needle}%"), CrawlJob.filters_json.ilike(f"%{needle}%"))
-        )
+        stmt = stmt.where(or_(CrawlJob.source.ilike(f"%{needle}%"), CrawlJob.filters_json.ilike(f"%{needle}%")))
     return int(session.scalar(stmt) or 0)
 
 
@@ -1311,10 +1434,7 @@ def active_crawl_job_any(session: Session) -> CrawlJob | None:
     if running is not None:
         return running
     return session.scalar(
-        select(CrawlJob)
-        .where(CrawlJob.status == "pending")
-        .order_by(CrawlJob.created_at.asc())
-        .limit(1)
+        select(CrawlJob).where(CrawlJob.status == "pending").order_by(CrawlJob.created_at.asc()).limit(1)
     )
 
 
@@ -1355,6 +1475,9 @@ def delete_library_paper(session: Session, paper_id: int) -> tuple[str, list[str
     paths = [row.local_path for row in paper.downloads if row.local_path]
     session.execute(delete(SearchResult).where(SearchResult.paper_id == paper_id))
     session.execute(delete(PaperFulltext).where(PaperFulltext.paper_id == paper_id))
+    session.execute(delete(PaperIdentifier).where(PaperIdentifier.paper_id == paper_id))
+    session.execute(delete(UserPaper).where(UserPaper.paper_id == paper_id))
+    session.execute(delete(CollectionPaper).where(CollectionPaper.paper_id == paper_id))
     session.delete(paper)
     session.flush()
     return title, paths
@@ -1409,7 +1532,9 @@ def upsert_cfp_call(session: Session, payload: dict) -> CfpCall:
     row = session.scalar(select(CfpCall).where(CfpCall.external_id == external_id))
     now = utc_now()
     if row is None:
-        row = CfpCall(external_id=external_id, title=str(payload.get("title") or "Untitled"), url=str(payload.get("url") or ""))
+        row = CfpCall(
+            external_id=external_id, title=str(payload.get("title") or "Untitled"), url=str(payload.get("url") or "")
+        )
         session.add(row)
     row.title = str(payload.get("title") or row.title or "Untitled")[:512]
     row.summary = str(payload.get("summary") or "")
@@ -1429,7 +1554,149 @@ def upsert_cfp_call(session: Session, payload: dict) -> CfpCall:
     if payload.get("categories") is not None:
         row.categories = str(payload.get("categories") or "") or None
     row.source = str(payload.get("source") or "wikicfp")[:32]
+    row.deadline_source = str(payload.get("deadline_source") or row.source or "wikicfp")[:64]
+    if "deadline_verified" in payload:
+        row.deadline_verified = bool(payload.get("deadline_verified"))
+    if payload.get("deadline_confidence"):
+        row.deadline_confidence = str(payload.get("deadline_confidence") or "estimated")[:16]
+    elif row.deadline and not row.deadline_verified:
+        row.deadline_confidence = "estimated"
+    official = payload.get("official_website") or payload.get("website_url")
+    if official is not None:
+        row.official_website = str(official or "") or None
+    if payload.get("source_url") is not None:
+        row.source_url = str(payload.get("source_url") or "") or None
+    elif not row.source_url:
+        row.source_url = row.url
     row.fetched_at = payload.get("fetched_at") or now
     row.updated_at = now
     session.flush()
     return row
+
+
+def get_or_create_user_paper(session: Session, user_id: int, paper_id: int) -> UserPaper:
+    row = session.scalar(select(UserPaper).where(UserPaper.user_id == user_id, UserPaper.paper_id == paper_id))
+    if row is None:
+        row = UserPaper(user_id=user_id, paper_id=paper_id)
+        session.add(row)
+        session.flush()
+    return row
+
+
+def set_user_paper_notes(session: Session, user_id: int, paper_id: int, notes: str) -> UserPaper:
+    row = get_or_create_user_paper(session, user_id, paper_id)
+    row.notes = notes
+    row.updated_at = utc_now()
+    return row
+
+
+def set_user_paper_tags(session: Session, user_id: int, paper_id: int, tags: list[str]) -> UserPaper:
+    row = get_or_create_user_paper(session, user_id, paper_id)
+    row.tags = "; ".join(tag.strip() for tag in tags if tag.strip())
+    row.updated_at = utc_now()
+    return row
+
+
+def set_reading_status(session: Session, user_id: int, paper_id: int, status: str) -> UserPaper:
+    allowed = {"unread", "reading", "reviewed", "cited", "archived"}
+    value = status.strip().lower()
+    if value not in allowed:
+        raise ValueError(f"Unknown reading status: {status}")
+    row = get_or_create_user_paper(session, user_id, paper_id)
+    row.reading_status = value
+    row.updated_at = utc_now()
+    return row
+
+
+def ensure_default_collections(session: Session, user_id: int) -> list[Collection]:
+    defaults = ("Reading List", "Literature Review", "Important", "To Cite")
+    existing = {row.slug: row for row in session.scalars(select(Collection).where(Collection.user_id == user_id)).all()}
+    created: list[Collection] = []
+    for name in defaults:
+        slug = name.lower().replace(" ", "-")
+        if slug in existing:
+            created.append(existing[slug])
+            continue
+        row = Collection(user_id=user_id, name=name, slug=slug)
+        session.add(row)
+        created.append(row)
+    session.flush()
+    return created
+
+
+def add_paper_to_collection(session: Session, user_id: int, collection_id: int, paper_id: int) -> CollectionPaper:
+    collection = session.get(Collection, collection_id)
+    if collection is None or collection.user_id != user_id:
+        raise ValueError("Collection not found")
+    row = session.scalar(
+        select(CollectionPaper).where(
+            CollectionPaper.collection_id == collection_id, CollectionPaper.paper_id == paper_id
+        )
+    )
+    if row is None:
+        row = CollectionPaper(collection_id=collection_id, paper_id=paper_id)
+        session.add(row)
+        session.flush()
+    return row
+
+
+def save_search_config(session: Session, user_id: int, name: str, query: str, filters: dict) -> SavedSearch:
+    row = SavedSearch(
+        user_id=user_id,
+        name=name.strip() or query.strip()[:80],
+        query=query.strip(),
+        filters_json=json.dumps(filters or {}),
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def list_user_collections(session: Session, user_id: int) -> list[Collection]:
+    ensure_default_collections(session, user_id)
+    return list(
+        session.scalars(select(Collection).where(Collection.user_id == user_id).order_by(Collection.name)).all()
+    )
+
+
+def list_saved_searches(session: Session, user_id: int) -> list[SavedSearch]:
+    return list(
+        session.scalars(select(SavedSearch).where(SavedSearch.user_id == user_id).order_by(SavedSearch.id.desc())).all()
+    )
+
+
+def user_paper_workspace(session: Session, user_id: int, paper_id: int) -> dict:
+    row = session.scalar(select(UserPaper).where(UserPaper.user_id == user_id, UserPaper.paper_id == paper_id))
+    memberships = list(
+        session.scalars(
+            select(CollectionPaper.collection_id)
+            .join(Collection, Collection.id == CollectionPaper.collection_id)
+            .where(Collection.user_id == user_id, CollectionPaper.paper_id == paper_id)
+        ).all()
+    )
+    return {
+        "notes": (row.notes if row else "") or "",
+        "tags": (row.tags if row else "") or "",
+        "reading_status": (row.reading_status if row else "unread") or "unread",
+        "rating": row.rating if row else None,
+        "collection_ids": [int(item) for item in memberships],
+    }
+
+
+def related_papers(session: Session, paper_id: int, *, limit: int = 8) -> list[Paper]:
+    paper = session.get(Paper, paper_id)
+    if paper is None:
+        return []
+    tokens = [part.strip() for part in (paper.keywords or "").split(";") if part.strip()][:4]
+    title_words = [word for word in (paper.normalized_title or "").split() if len(word) > 4][:5]
+    likes = []
+    for token in tokens + title_words:
+        likes.append(Paper.title.ilike(f"%{token}%"))
+        likes.append(Paper.keywords.ilike(f"%{token}%"))
+    if paper.journal:
+        likes.append(Paper.journal == paper.journal)
+    stmt = select(Paper).where(Paper.id != paper_id)
+    if likes:
+        stmt = stmt.where(or_(*likes))
+    stmt = stmt.order_by(Paper.citation_count.desc().nullslast(), Paper.id.desc()).limit(limit)
+    return list(session.scalars(stmt).all())

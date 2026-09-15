@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Iterable
+from collections.abc import Iterable
 
-from app.services.lms_sync import load_lms_sync_config, lms_sync_skip_reason, maybe_sync_to_lms
+from app.services.lms_sync import lms_sync_skip_reason, load_lms_sync_config, maybe_sync_to_lms
 from app.utils.logger import get_logger
 
 logger = get_logger("app.lms_watch")

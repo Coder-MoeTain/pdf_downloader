@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.database.settings_repository import load_crawl_schedule, save_crawl_schedule_settings
 from app.services.crawl_schedule import next_run_at, run_scheduled_crawl_once, schedule_is_due
@@ -33,7 +33,7 @@ def test_save_and_load_crawl_schedule(tmp_db):
 
 
 def test_schedule_is_due_respects_interval(tmp_db):
-    now = datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
     settings = {
         "enabled": True,
         "interval_minutes": 60,
@@ -83,7 +83,7 @@ def test_run_scheduled_crawl_queues_due_sources(tmp_db, monkeypatch):
     )
     from app.database.settings_repository import mark_crawl_schedule_run
 
-    mark_crawl_schedule_run(datetime.now(timezone.utc) - timedelta(hours=2))
+    mark_crawl_schedule_run(datetime.now(UTC) - timedelta(hours=2))
     calls: list[str] = []
 
     def fake_enqueue(*, user_id, filters, scheduled=False):

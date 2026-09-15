@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.database.connection import session_scope
 from app.database.repository import active_crawl_job_for_source
@@ -27,8 +27,8 @@ def _parse_last_run(raw: str) -> datetime | None:
     except ValueError:
         return None
     if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=timezone.utc)
-    return stamp.astimezone(timezone.utc)
+        stamp = stamp.replace(tzinfo=UTC)
+    return stamp.astimezone(UTC)
 
 
 def schedule_is_due(settings: dict, *, now: datetime | None = None) -> bool:
@@ -36,9 +36,9 @@ def schedule_is_due(settings: dict, *, now: datetime | None = None) -> bool:
         return False
     if not settings.get("sources"):
         return False
-    current = now or datetime.now(timezone.utc)
+    current = now or datetime.now(UTC)
     if current.tzinfo is None:
-        current = current.replace(tzinfo=timezone.utc)
+        current = current.replace(tzinfo=UTC)
     last = _parse_last_run(str(settings.get("last_run") or ""))
     if last is None:
         return True
@@ -52,7 +52,7 @@ def next_run_at(settings: dict) -> datetime | None:
     last = _parse_last_run(str(settings.get("last_run") or ""))
     interval = max(15, int(settings.get("interval_minutes") or 60))
     if last is None:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
     return last + timedelta(minutes=interval)
 
 

@@ -99,6 +99,7 @@ def init_db(url: str | None = None) -> None:
     engine = get_engine(url)
     Base.metadata.create_all(engine)
     _ensure_columns(engine)
+    _run_alembic(engine)
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
         conn.commit()
@@ -165,9 +166,51 @@ def _ensure_columns(engine: Engine) -> None:
                     conn.execute(text(f"ALTER TABLE crawl_jobs ADD COLUMN {column} INTEGER"))
         cfp_rows = conn.execute(text("PRAGMA table_info(cfp_calls)")).all()
         cfp_names = {row[1] for row in cfp_rows}
-        if cfp_names and "website_url" not in cfp_names:
-            conn.execute(text("ALTER TABLE cfp_calls ADD COLUMN website_url TEXT"))
+        if cfp_names:
+            if "website_url" not in cfp_names:
+                conn.execute(text("ALTER TABLE cfp_calls ADD COLUMN website_url TEXT"))
+            for column, decl in (
+                ("deadline_source", "VARCHAR(64) DEFAULT 'wikicfp'"),
+                ("deadline_verified", "BOOLEAN DEFAULT 0"),
+                ("deadline_confidence", "VARCHAR(16) DEFAULT 'estimated'"),
+                ("official_website", "TEXT"),
+                ("source_url", "TEXT"),
+            ):
+                if column not in cfp_names:
+                    conn.execute(text(f"ALTER TABLE cfp_calls ADD COLUMN {column} {decl}"))
+        try:
+            conn.execute(
+                text(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5("
+                    "title, abstract, authors, keywords, fulltext, tokenize='porter unicode61')"
+                )
+            )
+        except Exception:
+            pass
         conn.commit()
+
+
+def _run_alembic(engine: Engine) -> None:
+    """Apply Alembic migrations when configured. Tests skip this for speed."""
+    import os
+
+    if os.environ.get("APP_ENV") == "testing":
+        return
+    from app.config import ROOT_DIR
+
+    ini_path = ROOT_DIR / "alembic.ini"
+    if not ini_path.is_file():
+        return
+    try:
+        from alembic.config import Config
+
+        from alembic import command
+
+        cfg = Config(str(ini_path))
+        cfg.set_main_option("sqlalchemy.url", str(engine.url))
+        command.upgrade(cfg, "head")
+    except Exception as exc:
+        logger.warning("Alembic upgrade skipped: %s", exc)
 
 
 def reset_engine() -> None:

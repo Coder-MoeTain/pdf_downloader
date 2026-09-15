@@ -178,11 +178,7 @@ def _parse_pubmed_xml(xml_text: str, source: str) -> list[PaperRecord]:
                 pmid=pmid,
                 pmcid=pmcid,
                 url=f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else None,
-                pdf_url=(
-                    f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/pdf/"
-                    if pmcid
-                    else None
-                ),
+                pdf_url=(f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/pdf/" if pmcid else None),
                 keywords=[k for k in keywords if k],
                 open_access=bool(pmcid),
                 source_provider=source,

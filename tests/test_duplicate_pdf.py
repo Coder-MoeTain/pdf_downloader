@@ -1,6 +1,8 @@
 import hashlib
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.config import get_runtime_config
 from app.database.connection import session_scope
@@ -8,9 +10,6 @@ from app.database.models import Download, Paper
 from app.database.repository import save_paper, upsert_download
 from app.models.paper import PaperRecord, PaperStatus
 from app.services.download_service import DownloadService
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-
 
 PDF_BYTES = b"%PDF-1.7\n" + (b"duplicate-pdf-body" * 200)
 
@@ -74,9 +73,7 @@ async def test_duplicate_pdf_is_not_stored_twice(tmp_db, tmp_path, monkeypatch):
     assert updated.extra["duplicate_of"] == first_id
 
     with session_scope() as session:
-        paper_b = session.scalar(
-            select(Paper).options(selectinload(Paper.downloads)).where(Paper.id == second_id)
-        )
+        paper_b = session.scalar(select(Paper).options(selectinload(Paper.downloads)).where(Paper.id == second_id))
         download_b = session.scalar(select(Download).where(Download.paper_id == second_id))
         assert paper_b.status == PaperStatus.DUPLICATE.value
         assert download_b.status == PaperStatus.DUPLICATE.value
