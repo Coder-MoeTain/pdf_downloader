@@ -29,6 +29,26 @@ MAX_TITLE_LEN = 255
 MAX_AUTHOR_LEN = 255
 MAX_CATEGORY_LEN = 255
 
+# After a localhost DB connect/auth failure, skip for the rest of the process.
+_lms_skip_reason: str | None = None
+
+
+def lms_sync_skip_reason() -> str | None:
+    return _lms_skip_reason
+
+
+def _is_local_db_host(host: str) -> bool:
+    h = (host or "").strip().lower()
+    return h in {"", "localhost", "127.0.0.1", "::1"}
+
+
+def _mark_lms_skip(reason: str) -> None:
+    global _lms_skip_reason
+    if _lms_skip_reason:
+        return
+    _lms_skip_reason = reason
+    logger.warning("%s — further LMS sync attempts skipped", reason)
+
 CATEGORY_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("Cybersecurity", re.compile(r"\b(security|cyber|intrusion|malware|vulnerability|cryptograph|penetration|ids|ips)\b", re.I)),
     ("Artificial Intelligence", re.compile(r"\b(artificial intelligence|machine learning|deep learning|neural|llm|reinforcement)\b", re.I)),
@@ -523,6 +543,8 @@ def sync_downloaded_papers_to_lms(
 
 def maybe_sync_to_lms(*, paper_ids: list[int] | None = None) -> SyncResult | None:
     """Best-effort sync after search/download. Never raises into the caller."""
+    if _lms_skip_reason:
+        return None
     try:
         cfg = load_lms_sync_config()
         if not cfg.enabled or cfg.root is None:
@@ -541,5 +563,16 @@ def maybe_sync_to_lms(*, paper_ids: list[int] | None = None) -> SyncResult | Non
             )
         return result
     except Exception as exc:
-        logger.warning("LMS sync failed: %s", exc)
+        host = "127.0.0.1"
+        try:
+            host = load_lms_sync_config().db_host
+        except Exception:
+            pass
+        if _is_local_db_host(host) and any(
+            token in str(exc).lower()
+            for token in ("access denied", "can't connect", "connection refused", "unknown database")
+        ):
+            _mark_lms_skip(f"LMS sync unavailable on localhost: {exc}")
+        else:
+            logger.warning("LMS sync failed: %s", exc)
         return None

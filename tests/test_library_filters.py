@@ -723,6 +723,42 @@ def test_library_abstract_preview_button(tmp_db):
     assert detail["status_label"] == "Open access"
 
 
+def test_library_cite_button(tmp_db):
+    from app.models.paper import AuthorRecord
+
+    with session_scope() as session:
+        save_paper(
+            session,
+            PaperRecord(
+                title="Paper with abstract",
+                doi="10.1000/abs-preview",
+                abstract="Satellites can observe drought from orbit.",
+                authors=[AuthorRecord(name="Ada Lovelace")],
+                publication_year=2024,
+                journal="Remote Sensing",
+                pdf_url="https://arxiv.org/pdf/1.pdf",
+                status=PaperStatus.OA_AVAILABLE,
+            ),
+        )
+        save_paper(
+            session,
+            PaperRecord(
+                title="Paper without abstract",
+                doi="10.1000/no-abs",
+                pdf_url="https://arxiv.org/pdf/2.pdf",
+                status=PaperStatus.OA_AVAILABLE,
+            ),
+        )
+    client = TestClient(app)
+    page = client.get("/library")
+    assert page.status_code == 200
+    assert 'id="citePreviewModal"' in page.text
+    assert page.text.count("cite-btn") == 2
+    assert "Lovelace, A. (2024)." in page.text
+    assert "@article{lovelace2024paper," in page.text
+    assert "Copy citation" in page.text
+
+
 def test_library_shows_who_downloaded(tmp_db):
     from app.auth import create_local_user
     from app.database.repository import upsert_download

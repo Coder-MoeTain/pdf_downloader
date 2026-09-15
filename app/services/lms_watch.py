@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Iterable
 
-from app.services.lms_sync import load_lms_sync_config, maybe_sync_to_lms
+from app.services.lms_sync import load_lms_sync_config, lms_sync_skip_reason, maybe_sync_to_lms
 from app.utils.logger import get_logger
 
 logger = get_logger("app.lms_watch")
@@ -18,10 +18,14 @@ _thread: threading.Thread | None = None
 _pending_ids: set[int] = set()
 _sweep_all = False
 _interval = 20.0
+_started = False
 
 
 def schedule_lms_sync(*, paper_ids: Iterable[int] | None = None) -> None:
     """Queue an e-library import and return immediately."""
+    cfg = load_lms_sync_config()
+    if not cfg.enabled or cfg.root is None or lms_sync_skip_reason():
+        return
     ids = [int(x) for x in (paper_ids or []) if x]
     start_lms_watch()
     with _lock:
@@ -34,7 +38,10 @@ def schedule_lms_sync(*, paper_ids: Iterable[int] | None = None) -> None:
 
 
 def start_lms_watch(*, interval: float = 20.0) -> None:
-    global _thread, _interval
+    global _thread, _interval, _started
+    cfg = load_lms_sync_config()
+    if not cfg.enabled or cfg.root is None or lms_sync_skip_reason():
+        return
     _interval = max(5.0, float(interval))
     with _lock:
         if _thread is not None and _thread.is_alive():
@@ -42,7 +49,9 @@ def start_lms_watch(*, interval: float = 20.0) -> None:
         _stop.clear()
         _thread = threading.Thread(target=_run_loop, name="lms-sync", daemon=True)
         _thread.start()
-    logger.info("e-library import watcher started (every %.0fs, and after each download)", _interval)
+    if not _started:
+        _started = True
+        logger.info("e-library import watcher started (every %.0fs, and after each download)", _interval)
 
 
 def stop_lms_watch() -> None:
@@ -85,6 +94,10 @@ def _take_work() -> list[int] | None:
 
 def _run_loop() -> None:
     while not _stop.is_set():
+        if lms_sync_skip_reason():
+            _wake.wait(timeout=_interval)
+            _wake.clear()
+            continue
         woken = _wake.wait(timeout=_interval)
         _wake.clear()
         if _stop.is_set():

@@ -61,6 +61,8 @@
   --login-btn-gmail-fg: #1f2937;
   --login-input-bg: rgba(255, 255, 255, 0.62);
   --login-input-border: rgba(255, 255, 255, 0.78);
+  --login-input-fg: #10243d;
+  --login-input-placeholder: rgba(16, 36, 61, 0.45);
   --settings-nav-hover: rgba(255, 255, 255, 0.42);
   --settings-nav-active-bg: rgba(255, 255, 255, 0.62);
   --table-head-bg: rgba(255, 255, 255, 0.72);
@@ -218,6 +220,19 @@ a.stat-card:hover {
 .login-field input {
   background: var(--login-input-bg);
   border-color: var(--login-input-border);
+  color: var(--login-input-fg);
+  caret-color: var(--login-input-fg);
+}
+
+.login-field input::placeholder {
+  color: var(--login-input-placeholder);
+}
+
+.login-field input:-webkit-autofill,
+.login-field input:-webkit-autofill:hover,
+.login-field input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--login-input-fg);
+  caret-color: var(--login-input-fg);
 }
 
 .queue-group-header {
@@ -374,6 +389,8 @@ a.stat-card:hover {
   --login-btn-gmail-fg: #e8eef4;
   --login-input-bg: rgba(12, 20, 30, 0.92);
   --login-input-border: rgba(255, 255, 255, 0.14);
+  --login-input-fg: #fff;
+  --login-input-placeholder: rgba(255, 255, 255, 0.55);
   --settings-nav-hover: rgba(255, 255, 255, 0.06);
   --settings-nav-active-bg: rgba(94, 224, 181, 0.14);
   --table-head-bg: rgba(12, 20, 30, 0.92);
@@ -608,12 +625,23 @@ a.stat-card:hover {
   background: rgba(94, 224, 181, 0.12);
 }
 
-[data-bs-theme="dark"] .star-btn {
-  color: rgba(255, 255, 255, 0.22);
+[data-bs-theme="dark"] .cite-format-tab {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--ink-soft);
 }
-
-[data-bs-theme="dark"] .star-btn.on {
-  color: #e0b060;
+[data-bs-theme="dark"] .cite-format-tab:hover {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+[data-bs-theme="dark"] .cite-format-tab.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b141e;
+}
+[data-bs-theme="dark"] .cite-text {
+  background: rgba(12, 20, 30, 0.72);
 }
 
 @media (prefers-reduced-transparency: reduce) {

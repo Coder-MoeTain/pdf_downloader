@@ -78,6 +78,85 @@
     });
   }
 
+  var citeModalEl = document.getElementById("citePreviewModal");
+  if (citeModalEl && typeof bootstrap !== "undefined") {
+    var citeModal = bootstrap.Modal.getOrCreateInstance(citeModalEl);
+    var citeTitle = document.getElementById("citePreviewTitle");
+    var citeText = document.getElementById("citePreviewText");
+    var citeCopyBtn = document.getElementById("citeCopyBtn");
+    var citeTabs = citeModalEl.querySelectorAll("[data-cite-format]");
+    var citeFormats = { apa: "", mla: "", chicago: "", bibtex: "" };
+    var citeFormat = "apa";
+
+    function setCiteFormat(next) {
+      citeFormat = citeFormats[next] ? next : "apa";
+      citeTabs.forEach(function (tab) {
+        var active = tab.getAttribute("data-cite-format") === citeFormat;
+        tab.classList.toggle("is-active", active);
+        tab.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      if (citeText) citeText.textContent = citeFormats[citeFormat] || "";
+      if (citeCopyBtn) {
+        citeCopyBtn.textContent = "Copy citation";
+        citeCopyBtn.disabled = !citeFormats[citeFormat];
+      }
+    }
+
+    document.querySelectorAll(".cite-btn").forEach(function (button) {
+      button.addEventListener("click", function () {
+        try {
+          citeFormats = JSON.parse(button.getAttribute("data-cite") || "{}");
+        } catch (error) {
+          citeFormats = {};
+        }
+        if (citeTitle) citeTitle.textContent = button.getAttribute("data-cite-title") || "Cite";
+        setCiteFormat("apa");
+        citeModal.show();
+      });
+    });
+
+    citeTabs.forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        setCiteFormat(tab.getAttribute("data-cite-format") || "apa");
+      });
+    });
+
+    if (citeCopyBtn) {
+      citeCopyBtn.addEventListener("click", function () {
+        var value = citeFormats[citeFormat] || "";
+        if (!value) return;
+        function copied() {
+          citeCopyBtn.textContent = "Copied";
+          window.setTimeout(function () {
+            citeCopyBtn.textContent = "Copy citation";
+          }, 1600);
+        }
+        function copyWithHelper() {
+          var helper = document.createElement("textarea");
+          helper.value = value;
+          helper.setAttribute("readonly", "");
+          helper.style.position = "fixed";
+          helper.style.left = "-9999px";
+          document.body.appendChild(helper);
+          helper.select();
+          try {
+            document.execCommand("copy");
+            copied();
+          } catch (error) {
+            citeCopyBtn.textContent = "Copy failed";
+          } finally {
+            helper.remove();
+          }
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(value).then(copied).catch(copyWithHelper);
+          return;
+        }
+        copyWithHelper();
+      });
+    }
+  }
+
   var paperDetailDialog = document.getElementById("paperDetailDialog");
   var paperDetailTitle = document.getElementById("paperDetailTitle");
   var paperDetailBody = document.getElementById("paperDetailBody");

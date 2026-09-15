@@ -93,6 +93,7 @@ def _connect_mysql(host: str, port: int, user: str, password: str, database: str
         future=True,
         pool_pre_ping=True,
         pool_recycle=280,
+        connect_args={"connect_timeout": 5},
     )
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))

@@ -59,8 +59,10 @@ from app.database.repository import (
     get_crawl_job,
     get_search_job,
     library_facets,
+    latest_cfp_fetch_at,
     list_crawl_jobs,
     list_search_jobs,
+    list_upcoming_cfps,
     query_library,
     set_paper_rating,
     split_tags,
@@ -111,6 +113,7 @@ from app.services.crawl_queue import (
 )
 from app.services.crawl_schedule import next_run_at, start_crawl_schedule_worker
 from app.services.crawl_service import filters_from_form
+from app.services.cfp_service import cfp_display_image, refresh_status, schedule_cfp_refresh
 from app.services.progress import crawl_idle_snapshot, crawl_job_registry, download_tracker, job_registry, live_progress, tracker
 from app.services.search_queue import (
     cancel_search,
@@ -150,6 +153,7 @@ from app.web.ui import (
     source_matches,
     paper_abstract_meta,
     paper_authors_line,
+    paper_citations,
     paper_categories,
     paper_downloader_name,
     paper_record_date,
@@ -179,6 +183,7 @@ templates.env.globals["source_logo_url"] = source_logo_url
 templates.env.globals["source_homepage"] = source_homepage
 templates.env.globals["paper_abstract_meta"] = paper_abstract_meta
 templates.env.globals["paper_authors_line"] = paper_authors_line
+templates.env.globals["paper_citations"] = paper_citations
 templates.env.globals["paper_categories"] = paper_categories
 templates.env.globals["paper_downloader_name"] = paper_downloader_name
 templates.env.globals["paper_record_date"] = paper_record_date
@@ -188,6 +193,7 @@ templates.env.globals["is_new_download"] = is_new_download
 templates.env.globals["job_actor_name"] = job_actor_name
 templates.env.globals["job_status_meta"] = job_status_meta
 templates.env.globals["crawl_job_keyword"] = crawl_job_keyword
+templates.env.globals["cfp_display_image"] = cfp_display_image
 templates.env.filters["filesize"] = lambda value: _format_bytes(value)
 templates.env.filters["localdt"] = lambda value, fmt="%Y-%m-%d %H:%M": format_local(value, fmt)
 templates.env.filters["tags"] = split_tags
@@ -206,7 +212,8 @@ async def _auth_gate(request: Request, call_next):
     if is_public_path(path):
         return await call_next(request)
     user = current_user(request)
-    needs_login = auth_required() or path.startswith("/account")
+    # auth_required() may hit SQLite — never run it on the event loop or the whole server freezes.
+    needs_login = path.startswith("/account") or await asyncio.to_thread(auth_required)
     if needs_login and user is None:
         if path.startswith("/api/"):
             return JSONResponse({"ok": False, "error": "Sign in required"}, status_code=401)
@@ -241,6 +248,9 @@ async def _startup() -> None:
     await start_crawl_queue_worker()
     await start_download_worker()
     await start_crawl_schedule_worker()
+
+    # CFP fill is kicked from /cfp when the cache is empty — avoid competing with startup.
+    # (Manual Refresh still works anytime.)
     try:
         from app.services.lms_watch import schedule_lms_sync, start_lms_watch
 
@@ -1411,6 +1421,68 @@ def search_queue_api(request: Request):
         queue_snapshot(user_id=user_id, is_admin=is_admin),
         headers={"Cache-Control": "no-store"},
     )
+
+
+@app.get("/cfp", response_class=HTMLResponse)
+async def cfp_page(request: Request):
+    """Render cached CFPs only — never wait on WikiCFP or a long SQLite lock."""
+
+    def _build() -> dict:
+        rows: list = []
+        fetched_at = None
+        try:
+            with session_scope() as session:
+                # Fail fast if another writer (background refresh) holds the DB.
+                session.connection().exec_driver_sql("PRAGMA busy_timeout=1500")
+                rows = list_upcoming_cfps(session)
+                fetched_at = latest_cfp_fetch_at(session)
+        except OperationalError:
+            rows = []
+            fetched_at = None
+        status = refresh_status()
+        return _ctx(
+            request,
+            calls=rows,
+            fetched_at=fetched_at,
+            window_days=90,
+            list_limit=30,
+            refresh=status,
+            cfp_auto_refresh=not rows and not status.get("running"),
+        )
+
+    ctx = await asyncio.to_thread(_build)
+    return templates.TemplateResponse(request, "cfp.html", ctx)
+
+
+@app.get("/api/cfp-status")
+def cfp_status_api():
+    return JSONResponse(refresh_status(), headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/cfp-refresh")
+async def cfp_refresh_api():
+    started = await asyncio.to_thread(lambda: schedule_cfp_refresh(force=True))
+    status = refresh_status()
+    return JSONResponse(
+        {"ok": True, "started": started, **status},
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/cfp/refresh")
+async def cfp_refresh(request: Request):
+    started = await asyncio.to_thread(lambda: schedule_cfp_refresh(force=True))
+    if started:
+        _search_message["text"] = "Refreshing Call for Papers from WikiCFP in the background. This page will update when ready."
+        _search_message["level"] = "info"
+    else:
+        status = refresh_status()
+        if status.get("running"):
+            _search_message["text"] = "A Call for Papers refresh is already running. Stay on this page — it will reload when finished."
+        else:
+            _search_message["text"] = status.get("message") or "Could not start refresh."
+        _search_message["level"] = "info"
+    return RedirectResponse("/cfp", status_code=303)
 
 
 @app.get("/reports", response_class=HTMLResponse)

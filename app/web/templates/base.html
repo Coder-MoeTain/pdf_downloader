@@ -44,12 +44,13 @@
       <ul class="navbar-nav nav-primary">
         {% for href, label, key in [
           ("/", "Dashboard", "dashboard"),
-          ("/search", "Search", "search"),
           ("/library", "Library", "library"),
           ("/downloads", "Downloads", "downloads"),
+          ("/cfp", "Call for papers", "cfp"),
           ("/reports", "Reports", "reports"),
           ("/sources", "Sources", "sources"),
           ("/crawler", "Crawler", "crawler"),
+          ("/search", "Search", "search"),
           ("/system", "System", "system"),
         ] if is_admin or key not in ("sources", "crawler", "system") %}
         <li class="nav-item">
@@ -141,6 +142,29 @@
       </div>
       <div class="modal-body">
         <p class="abstract-modal-text" id="abstractPreviewText"></p>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="citePreviewModal" tabindex="-1" aria-labelledby="citePreviewTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content abstract-modal-content cite-modal-content">
+      <div class="modal-header">
+        <div class="abstract-modal-heading">
+          <div class="abstract-modal-kicker">Citation</div>
+          <h2 class="modal-title h5" id="citePreviewTitle">Cite</h2>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close citation"></button>
+      </div>
+      <div class="modal-body">
+        <div class="cite-format-tabs" role="tablist" aria-label="Citation format">
+          <button class="cite-format-tab is-active" type="button" role="tab" aria-selected="true" data-cite-format="apa">APA</button>
+          <button class="cite-format-tab" type="button" role="tab" aria-selected="false" data-cite-format="mla">MLA</button>
+          <button class="cite-format-tab" type="button" role="tab" aria-selected="false" data-cite-format="chicago">Chicago</button>
+          <button class="cite-format-tab" type="button" role="tab" aria-selected="false" data-cite-format="bibtex">BibTeX</button>
+        </div>
+        <pre class="cite-text" id="citePreviewText"></pre>
+        <button class="btn btn-sm btn-primary cite-copy-btn" type="button" id="citeCopyBtn">Copy citation</button>
       </div>
     </div>
   </div>

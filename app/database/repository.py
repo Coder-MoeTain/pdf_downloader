@@ -7,11 +7,25 @@ import threading
 import time
 from collections import Counter
 from copy import deepcopy
+from datetime import datetime, timedelta
 
 from sqlalchemy import and_, case, delete, exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.database.models import Author, CrawlJob, Download, Paper, PaperAuthor, PaperFulltext, Provider, SearchJob, SearchQuery, SearchResult, User
+from app.database.models import (
+    Author,
+    CfpCall,
+    CrawlJob,
+    Download,
+    Paper,
+    PaperAuthor,
+    PaperFulltext,
+    Provider,
+    SearchJob,
+    SearchQuery,
+    SearchResult,
+    User,
+)
 from app.models.paper import AuthorRecord, PaperRecord, PaperStatus
 from app.utils.filename import normalize_title
 from app.utils.time import utc_now
@@ -1344,3 +1358,76 @@ def delete_library_paper(session: Session, paper_id: int) -> tuple[str, list[str
     session.delete(paper)
     session.flush()
     return title, paths
+
+
+CFP_WINDOW_DAYS = 90
+CFP_LIST_LIMIT = 30
+
+
+def list_upcoming_cfps(
+    session: Session,
+    *,
+    within_days: int = CFP_WINDOW_DAYS,
+    limit: int = CFP_LIST_LIMIT,
+) -> list[CfpCall]:
+    """CFPs with a submission deadline (or upcoming event date) in the window."""
+    now = utc_now()
+    end = now + timedelta(days=max(1, within_days))
+    stmt = (
+        select(CfpCall)
+        .where(
+            or_(
+                (CfpCall.deadline.is_not(None) & (CfpCall.deadline >= now) & (CfpCall.deadline <= end)),
+                (
+                    CfpCall.deadline.is_(None)
+                    & CfpCall.event_start.is_not(None)
+                    & (CfpCall.event_start >= now)
+                    & (CfpCall.event_start <= end)
+                ),
+            )
+        )
+        .order_by(
+            case((CfpCall.deadline.is_(None), 1), else_=0),
+            CfpCall.deadline.asc(),
+            CfpCall.event_start.asc(),
+            CfpCall.title.asc(),
+        )
+        .limit(max(1, limit))
+    )
+    return list(session.scalars(stmt).all())
+
+
+def latest_cfp_fetch_at(session: Session) -> datetime | None:
+    return session.scalar(select(func.max(CfpCall.fetched_at)))
+
+
+def upsert_cfp_call(session: Session, payload: dict) -> CfpCall:
+    """Insert or update a CFP by external_id."""
+    external_id = str(payload.get("external_id") or "").strip()
+    if not external_id:
+        raise ValueError("external_id is required")
+    row = session.scalar(select(CfpCall).where(CfpCall.external_id == external_id))
+    now = utc_now()
+    if row is None:
+        row = CfpCall(external_id=external_id, title=str(payload.get("title") or "Untitled"), url=str(payload.get("url") or ""))
+        session.add(row)
+    row.title = str(payload.get("title") or row.title or "Untitled")[:512]
+    row.summary = str(payload.get("summary") or "")
+    row.url = str(payload.get("url") or row.url or "")
+    if payload.get("image_url") is not None:
+        row.image_url = str(payload["image_url"] or "") or None
+    if "deadline" in payload:
+        row.deadline = payload.get("deadline")
+    if "event_start" in payload:
+        row.event_start = payload.get("event_start")
+    if "event_end" in payload:
+        row.event_end = payload.get("event_end")
+    if payload.get("location") is not None:
+        row.location = str(payload.get("location") or "")[:255] or None
+    if payload.get("categories") is not None:
+        row.categories = str(payload.get("categories") or "") or None
+    row.source = str(payload.get("source") or "wikicfp")[:32]
+    row.fetched_at = payload.get("fetched_at") or now
+    row.updated_at = now
+    session.flush()
+    return row

@@ -193,6 +193,11 @@
                   aria-haspopup="dialog">Abstract</button>
           <template class="paper-abstract-text">{{ p.abstract }}</template>
           {% endif %}
+          <button class="btn btn-sm btn-outline-secondary cite-btn paper-action-btn" type="button"
+                  data-cite-title="{{ p.title|e }}"
+                  data-cite='{{ paper_citations(p)|tojson }}'
+                  aria-haspopup="dialog"
+                  aria-controls="citePreviewModal">Cite</button>
           {% set on_server = can_preview(p) %}
           {% if on_server %}
           <button class="btn btn-sm btn-outline-primary preview-btn paper-action-btn" type="button"

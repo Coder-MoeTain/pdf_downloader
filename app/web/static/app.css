@@ -608,6 +608,40 @@ a.paper-meta:hover { color: var(--accent); }
   color: var(--ink-soft);
   font-style: italic;
 }
+.cite-format-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.9rem;
+}
+.cite-format-tab {
+  border: 1px solid var(--glass-border);
+  background: var(--surface-chip);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 0.28rem 0.8rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+.cite-format-tab:hover,
+.cite-format-tab.is-active {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+.cite-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "Source Sans 3", "Segoe UI", sans-serif;
+  font-size: 1.02rem;
+  line-height: 1.55;
+  margin: 0 0 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  background: var(--paper-2);
+}
+.cite-copy-btn { min-width: 8.5rem; }
 .paper-detail-modal-content {
   background: var(--glass-strong);
   backdrop-filter: blur(24px) saturate(1.3);
@@ -2223,7 +2257,8 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   padding: 0.6rem 0.85rem;
-  color: #10243d;
+  color: var(--login-input-fg, #10243d);
+  caret-color: var(--login-input-fg, #10243d);
   outline: none;
 }
 .login-field input:focus {
@@ -2898,4 +2933,107 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
   .app-nav {
     background: #0b1c2e;
   }
+}
+
+/* —— Call for papers —— */
+.page-cfp .cfp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 1rem;
+}
+.page-cfp .cfp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--surface);
+  min-height: 100%;
+  overflow: hidden;
+}
+.page-cfp .cfp-card-media {
+  display: block;
+  height: 10rem;
+  background:
+    linear-gradient(135deg, rgba(16, 36, 61, 0.18), rgba(31, 111, 139, 0.28)),
+    rgba(31, 111, 139, 0.1);
+  overflow: hidden;
+}
+.page-cfp .cfp-card-media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.35s ease;
+}
+.page-cfp .cfp-card:hover .cfp-card-media img {
+  transform: scale(1.04);
+}
+.page-cfp .cfp-card-media img.is-fallback {
+  width: 3.25rem;
+  height: 3.25rem;
+  margin: 3.2rem auto 0;
+  object-fit: contain;
+  transform: none;
+}
+.page-cfp .cfp-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0.95rem 1rem 1.05rem;
+  flex: 1;
+}
+.page-cfp .cfp-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.65rem;
+  align-items: center;
+  margin-bottom: 0.35rem;
+}
+.page-cfp .cfp-deadline {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(201, 162, 39, 0.16);
+  color: var(--warn);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.page-cfp .cfp-cat {
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  text-transform: capitalize;
+}
+.page-cfp .cfp-title {
+  font-size: 1.05rem;
+  line-height: 1.35;
+  margin: 0 0 0.35rem;
+}
+.page-cfp .cfp-title a {
+  color: inherit;
+  text-decoration: none;
+}
+.page-cfp .cfp-title a:hover {
+  color: var(--accent);
+}
+.page-cfp .cfp-summary {
+  margin: 0 0 0.75rem;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.page-cfp .cfp-link {
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+.page-cfp .cfp-link:hover {
+  text-decoration: underline;
+}
+[data-bs-theme="dark"] .page-cfp .cfp-card-media {
+  background:
+    linear-gradient(135deg, rgba(8, 16, 28, 0.35), rgba(31, 111, 139, 0.22)),
+    rgba(255, 255, 255, 0.04);
 }

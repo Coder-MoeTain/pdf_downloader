@@ -188,24 +188,37 @@ async def _run_job(job_id: int) -> None:
 
     try:
         if job_id in _cancel_requested:
-            with session_scope() as session:
-                complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+
+            def _cancel_early() -> None:
+                with session_scope() as session:
+                    complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+
+            await asyncio.to_thread(_cancel_early)
             return
-        with session_scope() as session:
-            job = get_search_job(session, job_id)
-            if job is None or job.status != "running":
-                return
-            query = job.query
-            filters_data = json.loads(job.filters_json)
-            user_id = job.user_id
+
+        def _load() -> tuple[str, dict, int | None] | None:
+            with session_scope() as session:
+                job = get_search_job(session, job_id)
+                if job is None or job.status != "running":
+                    return None
+                return job.query, json.loads(job.filters_json), job.user_id
+
+        loaded = await asyncio.to_thread(_load)
+        if loaded is None:
+            return
+        query, filters_data, user_id = loaded
 
         filters = filters_from_dict(filters_data)
         progress = job_registry.get_or_create(job_id)
         if job_id in _cancel_requested:
             progress.request_cancel()
             progress.finish_search(cancelled=True)
-            with session_scope() as session:
-                complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+
+            def _cancel_started() -> None:
+                with session_scope() as session:
+                    complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+
+            await asyncio.to_thread(_cancel_started)
             return
         progress.mark_search_started(query)
         if job_id in _cancel_requested or progress.is_cancelled():
@@ -215,19 +228,22 @@ async def _run_job(job_id: int) -> None:
         # Run off the uvicorn event loop so page loads stay responsive.
         stats = await asyncio.to_thread(_run_search_sync, filters, user_id, progress)
 
-        with session_scope() as session:
-            row = get_search_job(session, job_id)
-            if row is None or row.status == "cancelled":
-                return
-            complete_search_job(
-                session,
-                job_id,
-                status="completed",
-                search_query_id=stats.search_query_id,
-                papers_found=stats.unique_papers,
-                pdfs_downloaded=stats.pdfs_downloaded,
-                pdfs_failed=stats.failed_downloads,
-            )
+        def _complete() -> None:
+            with session_scope() as session:
+                row = get_search_job(session, job_id)
+                if row is None or row.status == "cancelled":
+                    return
+                complete_search_job(
+                    session,
+                    job_id,
+                    status="completed",
+                    search_query_id=stats.search_query_id,
+                    papers_found=stats.unique_papers,
+                    pdfs_downloaded=stats.pdfs_downloaded,
+                    pdfs_failed=stats.failed_downloads,
+                )
+
+        await asyncio.to_thread(_complete)
 
         logger.info("Search job %s completed: %s unique papers", job_id, stats.unique_papers)
     except SearchCancelled:
@@ -235,23 +251,35 @@ async def _run_job(job_id: int) -> None:
         prog = job_registry.get(job_id)
         if prog:
             prog.finish_search(cancelled=True)
-        with session_scope() as session:
-            complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+
+        def _cancel_exc() -> None:
+            with session_scope() as session:
+                complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+
+        await asyncio.to_thread(_cancel_exc)
     except asyncio.CancelledError:
         logger.info("Search job %s cancelled", job_id)
         prog = job_registry.get(job_id)
         if prog:
             prog.request_cancel()
             prog.finish_search(cancelled=True)
-        with session_scope() as session:
-            complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+
+        def _cancel_task() -> None:
+            with session_scope() as session:
+                complete_search_job(session, job_id, status="cancelled", error_message="Stopped by user.")
+
+        await asyncio.to_thread(_cancel_task)
     except Exception as exc:
         logger.exception("Search job %s failed", job_id)
         prog = job_registry.get(job_id)
         if prog:
             prog.finish_search(error=str(exc))
-        with session_scope() as session:
-            complete_search_job(session, job_id, status="failed", error_message=str(exc))
+
+        def _fail() -> None:
+            with session_scope() as session:
+                complete_search_job(session, job_id, status="failed", error_message=str(exc))
+
+        await asyncio.to_thread(_fail)
     finally:
         _cancel_requested.discard(job_id)
         _running_tasks.pop(job_id, None)

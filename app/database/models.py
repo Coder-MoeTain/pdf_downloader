@@ -260,3 +260,28 @@ class PaperFulltext(Base):
     paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id"), unique=True, nullable=False)
     content: Mapped[str] = mapped_column(Text, default="")
     indexed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class CfpCall(Base):
+    """Cached call-for-papers entries (e.g. WikiCFP)."""
+
+    __tablename__ = "cfp_calls"
+    __table_args__ = (
+        Index("ix_cfp_calls_deadline", "deadline"),
+        Index("ix_cfp_calls_fetched_at", "fetched_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    external_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    event_start: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    event_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    categories: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(32), default="wikicfp")
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

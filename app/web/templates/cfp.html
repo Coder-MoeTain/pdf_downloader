@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% from "_macros.html" import empty_state %}
+{% block title %}Call for papers · {{ app_name }}{% endblock %}
+{% block body_class %}page-cfp{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="h2 mb-0">Call for papers</h1>
+    <p class="page-lead mb-0">
+      Upcoming submission deadlines in the next {{ window_days }} days
+      {% if fetched_at %}· updated {{ fetched_at|localdt("%Y-%m-%d %H:%M") }}{% endif %}
+    </p>
+  </div>
+  <form method="post" action="/cfp/refresh" data-busy="Refreshing…">
+    <button class="btn btn-outline-primary" type="submit" {% if refresh and refresh.running %}disabled{% endif %}>
+      {% if refresh and refresh.running %}Refreshing…{% else %}Refresh from WikiCFP{% endif %}
+    </button>
+  </form>
+</div>
+
+<div class="alert alert-info mb-3" id="cfpRefreshAlert" role="status" {% if not (refresh and refresh.message) %}hidden{% endif %}>
+  {{ (refresh.message if refresh else '') or 'Loading Call for Papers in the background…' }}
+</div>
+
+{% if calls %}
+<div class="cfp-meta paper-meta mb-3">Showing {{ calls|length }} of up to {{ list_limit }} calls with deadlines in the next {{ window_days }} days.</div>
+<div class="cfp-grid" role="list">
+  {% for call in calls %}
+  <article class="cfp-card" role="listitem">
+    <a class="cfp-card-media" href="{{ call.url }}" target="_blank" rel="noopener noreferrer" tabindex="-1" aria-hidden="true">
+      <img
+        src="{{ cfp_display_image(call) }}"
+        alt=""
+        loading="lazy"
+        width="960"
+        height="540"
+        onerror="this.onerror=null;this.src='/static/favicon.svg';this.classList.add('is-fallback')"
+      >
+    </a>
+    <div class="cfp-card-body">
+      <div class="cfp-card-top">
+        {% if call.deadline %}
+        <span class="cfp-deadline">Due {{ call.deadline|localdt("%b %d, %Y") }}</span>
+        {% elif call.event_start %}
+        <span class="cfp-deadline">Event {{ call.event_start|localdt("%b %d, %Y") }}</span>
+        {% endif %}
+        {% if call.categories %}<span class="cfp-cat">{{ call.categories }}</span>{% endif %}
+      </div>
+      <h2 class="cfp-title">
+        <a href="{{ call.url }}" target="_blank" rel="noopener noreferrer">{{ call.title }}</a>
+      </h2>
+      {% if call.location %}<p class="cfp-location paper-meta mb-1">{{ call.location }}</p>{% endif %}
+      {% if call.summary %}<p class="cfp-summary">{{ call.summary[:280] }}{% if call.summary|length > 280 %}…{% endif %}</p>{% endif %}
+      <a class="cfp-link" href="{{ call.url }}" target="_blank" rel="noopener noreferrer">Open call →</a>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+  {{ empty_state(
+    "Loading Call for Papers…",
+    "The page is ready. WikiCFP results are fetched in the background and this view reloads when they arrive.",
+    "",
+    ""
+  ) }}
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var empty = {{ 'true' if not calls else 'false' }};
+  var running = {{ 'true' if refresh and refresh.running else 'false' }};
+  var autoStart = {{ 'true' if cfp_auto_refresh else 'false' }};
+  var alertEl = document.getElementById("cfpRefreshAlert");
+  var tries = 0;
+  var started = false;
+
+  function showMsg(text) {
+    if (!alertEl || !text) return;
+    alertEl.hidden = false;
+    alertEl.textContent = text;
+  }
+
+  function poll() {
+    tries += 1;
+    fetch("/api/cfp-status", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) {
+        if (r.status === 401) throw new Error("auth");
+        return r.json();
+      })
+      .then(function (data) {
+        if (data.message) showMsg(data.message);
+        if (data.running) {
+          if (tries < 120) window.setTimeout(poll, 2000);
+          return;
+        }
+        if (empty) {
+          window.location.reload();
+          return;
+        }
+        if (data.status === "ok" || data.status === "error") {
+          showMsg(data.message || "Refresh finished.");
+        }
+      })
+      .catch(function (err) {
+        if (String(err && err.message) === "auth") {
+          showMsg("Sign in again to load Call for Papers.");
+          return;
+        }
+        if (!started && empty) {
+          startAndPoll();
+          return;
+        }
+        if (tries < 120) window.setTimeout(poll, 3000);
+      });
+  }
+
+  function startAndPoll() {
+    if (started) { poll(); return; }
+    started = true;
+    showMsg("Refreshing from WikiCFP in the background…");
+    fetch("/api/cfp-refresh", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Accept": "application/json" },
+      cache: "no-store",
+    })
+      .then(function (r) {
+        if (r.status === 401) throw new Error("auth");
+        return r.json();
+      })
+      .then(function (data) {
+        if (data.message) showMsg(data.message);
+        poll();
+      })
+      .catch(function (err) {
+        if (String(err && err.message) === "auth") {
+          showMsg("Sign in again to load Call for Papers.");
+          return;
+        }
+        showMsg("Could not start refresh. Retrying…");
+        poll();
+      });
+  }
+
+  if (autoStart || (empty && !running)) {
+    window.setTimeout(startAndPoll, 100);
+  } else if (running || empty) {
+    window.setTimeout(poll, 500);
+  }
+})();
+</script>
+{% endblock %}

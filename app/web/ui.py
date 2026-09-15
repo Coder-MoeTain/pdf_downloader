@@ -96,6 +96,13 @@ def download_record_date(row):
     return None
 
 
+def paper_citations(paper) -> dict[str, str]:
+    """APA, MLA, Chicago, and BibTeX strings for the library Cite button."""
+    from app.services.citation import paper_citations as build_citations
+
+    return build_citations(paper)
+
+
 def paper_abstract_meta(paper) -> str:
     """Year, venue, and authors shown under the abstract preview title."""
     parts = []
@@ -121,6 +128,7 @@ def active_page(path: str) -> str:
         ("/search", "search"),
         ("/library", "library"),
         ("/downloads", "downloads"),
+        ("/cfp", "cfp"),
         ("/reports", "reports"),
         ("/sources", "sources"),
         ("/crawler", "crawler"),
