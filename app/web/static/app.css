@@ -153,7 +153,7 @@ h1, h2, .brand-text, .display-6, .empty-title {
   gap: 0.4rem;
   color: rgba(255,255,255,0.72);
   font-weight: 650;
-  font-size: calc(0.86rem + 2pt);
+  font-size: calc(0.86rem + 4pt);
   line-height: 1;
   border-radius: 999px;
   padding: calc(0.46rem + 2.5pt) 0.72rem;
@@ -248,7 +248,7 @@ h1, h2, .brand-text, .display-6, .empty-title {
 }
 .nav-user-name {
   color: rgba(255,255,255,0.88);
-  font-size: calc(0.8rem + 2pt);
+  font-size: calc(0.8rem + 4pt);
   font-weight: 600;
   max-width: 7.5rem;
   overflow: hidden;
@@ -259,7 +259,7 @@ h1, h2, .brand-text, .display-6, .empty-title {
 .app-nav.navbar-dark .nav-signout,
 .app-nav.navbar-dark .nav-login {
   padding: calc(0.28rem + 2.5pt) 0.7rem;
-  font-size: calc(0.78rem + 2pt);
+  font-size: calc(0.78rem + 4pt);
   border: 0;
   line-height: 1.2;
 }
@@ -323,7 +323,7 @@ h1, h2, .brand-text, .display-6, .empty-title {
   color: #d7f5e8;
   text-decoration: none;
   font-weight: 650;
-  font-size: calc(0.86rem + 2pt);
+  font-size: calc(0.86rem + 4pt);
   line-height: 1;
   padding: calc(0.46rem + 2.5pt) 0.72rem;
   border-radius: 999px;
