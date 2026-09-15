@@ -171,8 +171,11 @@
         </td>
         <td class="lib-col-source">
           {% if p.source %}
-          {% set src = source_catalog.get(p.source, {}) %}
-          {{ source_mark(p.source, src.homepage_url or '', src.display_name or '', true, 22) }}
+          {% set primary = (p.source.split('+')|first)|trim %}
+          {% set src = source_catalog.get(primary, {}) %}
+          <span class="lib-source" title="{{ source_label(p.source, 0) }}">
+            {{ source_mark(primary, src.homepage_url or '', source_label(p.source), true, 22) }}
+          </span>
           {% else %}
           —
           {% endif %}

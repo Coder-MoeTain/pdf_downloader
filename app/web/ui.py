@@ -157,24 +157,42 @@ SORT_OPTIONS = (
 )
 
 
-def source_label(slug: str | None) -> str:
+def source_parts(slug: str | None) -> list[str]:
+    """Split merged provider ids like ``openalex+crossref+hal``."""
     if not slug:
+        return []
+    return [part.strip() for part in str(slug).replace(",", "+").split("+") if part.strip()]
+
+
+def primary_source_slug(slug: str | None) -> str:
+    parts = source_parts(slug)
+    return parts[0] if parts else ""
+
+
+def source_label(slug: str | None, limit: int | None = 2) -> str:
+    """Human label for a source slug; shortens long merged multi-source strings."""
+    parts = source_parts(slug)
+    if not parts:
         return ""
     from app.database.source_catalog import BUILTIN_SOURCES
 
     labels = {str(item["slug"]): str(item["display_name"]) for item in BUILTIN_SOURCES}
-    return labels.get(slug, slug.replace("_", " ").title())
+    names = [labels.get(part, part.replace("_", " ").title()) for part in parts]
+    if limit is None or limit <= 0 or len(names) <= limit:
+        return "+".join(names)
+    return "+".join(names[:limit]) + f" +{len(names) - limit}"
 
 
 def source_homepage(slug: str | None, homepage_url: str | None = None) -> str:
     if homepage_url:
         return homepage_url.strip()
-    if not slug:
+    primary = primary_source_slug(slug)
+    if not primary:
         return ""
     from app.database.source_catalog import BUILTIN_SOURCES
 
     for item in BUILTIN_SOURCES:
-        if str(item["slug"]) == slug:
+        if str(item["slug"]) == primary:
             return str(item.get("homepage_url") or "")
     return ""
 

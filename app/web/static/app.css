@@ -2472,7 +2472,15 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
   font-size: 0.88rem;
   white-space: nowrap;
 }
-.page-library .lib-col-source { width: 9.5rem; }
+.page-library .lib-col-source { width: 11.5rem; max-width: 13rem; }
+.page-library .lib-source {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+}
+.page-library .lib-source .source-mark-label {
+  max-width: 9.5rem;
+}
 .page-library .lib-col-user { width: 8.5rem; }
 .page-library .lib-col-date { width: 8.5rem; }
 .page-library .lib-date {
