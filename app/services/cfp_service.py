@@ -427,7 +427,47 @@ def _enrich_limit() -> int:
         configured = int(getattr(get_runtime_config(), "cfp_list_limit", DETAIL_LIMIT) or DETAIL_LIMIT)
     except Exception:
         configured = DETAIL_LIMIT
-    return max(DETAIL_LIMIT, min(DETAIL_LIMIT_MAX, configured))
+    # Enrich enough upcoming calls to cover the list (plus headroom for filtering).
+    return max(DETAIL_LIMIT, min(DETAIL_LIMIT_MAX, max(configured * 2, configured + 20)))
+
+
+def _apply_estimated_deadlines(seen: dict[str, dict[str, Any]], now: datetime) -> None:
+    for payload in seen.values():
+        if payload.get("deadline") or not payload.get("event_start"):
+            continue
+        est = payload["event_start"] - timedelta(days=45)
+        if est > now:
+            payload["deadline"] = est
+
+
+def _select_enrich_targets(
+    seen: dict[str, dict[str, Any]],
+    now: datetime,
+    *,
+    limit: int,
+    within_days: int = 90,
+) -> list[dict[str, Any]]:
+    """Prefer calls that will appear on the CFP page (upcoming deadlines / events)."""
+    end = now + timedelta(days=max(1, within_days))
+    ranked: list[tuple[int, datetime, dict[str, Any]]] = []
+    for payload in seen.values():
+        deadline = payload.get("deadline")
+        event_start = payload.get("event_start")
+        if deadline is not None and now <= deadline <= end:
+            ranked.append((0, deadline, payload))
+        elif event_start is not None and now <= event_start <= end:
+            ranked.append((1, event_start, payload))
+    ranked.sort(key=lambda item: (item[0], item[1]))
+    chosen = [payload for _, _, payload in ranked[: max(1, limit)]]
+    if len(chosen) < limit:
+        seen_ids = {id(p) for p in chosen}
+        for payload in seen.values():
+            if id(payload) in seen_ids:
+                continue
+            chosen.append(payload)
+            if len(chosen) >= limit:
+                break
+    return chosen
 
 
 def _merge_rss_items(keyword: str, items: list[dict[str, str]], seen: dict[str, dict[str, Any]], now: datetime) -> None:
@@ -491,9 +531,10 @@ def refresh_cfps(*, force: bool = False, claim: bool = True) -> dict[str, int]:
                     items = []
                 _merge_rss_items(keyword, items, seen, now)
 
-        to_enrich = list(seen.values())[: _enrich_limit()]
+        _apply_estimated_deadlines(seen, now)
+        to_enrich = _select_enrich_targets(seen, now, limit=_enrich_limit())
         if to_enrich:
-            _set_result(status="running", message=f"Reading deadlines for {len(to_enrich)} calls…")
+            _set_result(status="running", message=f"Reading conference websites for {len(to_enrich)} calls…")
             with ThreadPoolExecutor(max_workers=ENRICH_CONCURRENCY) as pool:
                 futures = {pool.submit(_enrich_event, row["url"]): row for row in to_enrich}
                 for fut in as_completed(futures):
@@ -513,14 +554,6 @@ def refresh_cfps(*, force: bool = False, claim: bool = True) -> dict[str, int]:
                         payload["location"] = extra["location"]
                     if extra.get("website_url"):
                         payload["website_url"] = extra["website_url"]
-
-        # If WikiCFP HTML blocked us, still surface upcoming events by estimating a deadline.
-        for payload in seen.values():
-            if payload.get("deadline") or not payload.get("event_start"):
-                continue
-            est = payload["event_start"] - timedelta(days=45)
-            if est > now:
-                payload["deadline"] = est
 
         payloads = list(seen.values())
         _set_result(status="running", message=f"Saving {len(payloads)} calls…")

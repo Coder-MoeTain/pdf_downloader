@@ -51,12 +51,11 @@
       </h2>
       {% if call.location %}<p class="cfp-location paper-meta mb-1">{{ call.location }}</p>{% endif %}
       {% if call.summary %}<p class="cfp-summary">{{ call.summary[:280] }}{% if call.summary|length > 280 %}…{% endif %}</p>{% endif %}
+      {% if call.website_url %}
       <div class="cfp-actions">
-        {% if call.website_url %}
         <a class="cfp-link" href="{{ call.website_url }}" target="_blank" rel="noopener noreferrer">Conference website →</a>
-        {% endif %}
-        <a class="cfp-link {% if call.website_url %}cfp-link-secondary{% endif %}" href="{{ call.url }}" target="_blank" rel="noopener noreferrer">WikiCFP →</a>
       </div>
+      {% endif %}
     </div>
   </article>
   {% endfor %}

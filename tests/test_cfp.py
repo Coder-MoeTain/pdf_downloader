@@ -186,5 +186,5 @@ def test_cfp_page_renders_upcoming(tmp_db):
     assert "Singapore" in page.text
     assert "Conference website" in page.text
     assert "https://agentic.example/cfp" in page.text
-    assert "WikiCFP" in page.text
+    assert "WikiCFP →" not in page.text
     assert "Hidden Far Away" not in page.text
