@@ -145,7 +145,13 @@ def parse_json_response(response: httpx.Response, url: str) -> Any:
         return response.json()
     except ValueError as exc:
         snippet = http_error_detail(response) or "non-JSON body"
-        raise HttpError(f"Invalid JSON from {url} ({snippet})", response.status_code) from exc
+        lower = snippet.lower()
+        if any(token in lower for token in ("not a bot", "captcha", "cf-challenge", "attention required", "just a moment")):
+            raise HttpError(
+                f"Blocked by anti-bot challenge from {url} ({snippet})",
+                response.status_code,
+            ) from None
+        raise HttpError(f"Invalid JSON from {url} ({snippet})", response.status_code) from None
 
 
 def http_error_detail(response: httpx.Response) -> str:
@@ -167,7 +173,6 @@ def http_error_detail(response: httpx.Response) -> str:
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text).strip(" \"'")
     return text[:160]
-
 
 def _http_error_message(response: httpx.Response, url: str) -> str:
     detail = http_error_detail(response)

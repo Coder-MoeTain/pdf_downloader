@@ -126,8 +126,18 @@ def _try_mysql() -> Engine | None:
             last_error = create_exc
             engine = None
     if engine is None:
-        logger.warning("MySQL settings store unavailable (%s); falling back to SQLite", last_error)
-        _status["error"] = str(last_error or "MySQL unavailable")
+        msg = str(last_error or "MySQL unavailable")
+        if "1044" in msg or "Access denied" in msg:
+            logger.warning(
+                "MySQL settings store unavailable (%s). "
+                "Grant cyber_admin access to database `%s` (SELECT/INSERT/UPDATE/CREATE TABLE), "
+                "or create the database as root; falling back to SQLite",
+                last_error,
+                database,
+            )
+        else:
+            logger.warning("MySQL settings store unavailable (%s); falling back to SQLite", last_error)
+        _status["error"] = msg
         return None
     _status.update(
         {

@@ -6,7 +6,7 @@ const python = existsSync(join(root, "venv", "Scripts", "python.exe"))
   ? join(root, "venv", "Scripts", "python.exe")
   : join(root, "venv", "bin", "python");
 
-const host = process.env.APP_HOST || "127.0.0.1";
+const host = process.env.APP_HOST || "0.0.0.0";
 const port = process.env.APP_PORT || "8000";
 
 module.exports = {

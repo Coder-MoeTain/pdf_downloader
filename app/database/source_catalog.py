@@ -21,7 +21,6 @@ DEFAULT_ENABLED_SOURCE_SLUGS: frozenset[str] = frozenset(
         "openaire",
         "hal",
         "zenodo",
-        "dblp",
         "plos",
         "eric",
         "osti",

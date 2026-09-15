@@ -34,3 +34,14 @@ def test_parse_json_response_html_body():
             httpx.Response(200, text="<html><title>Blocked</title></html>"),
             "https://www.osti.gov/api/v1/records",
         )
+
+
+def test_parse_json_response_bot_challenge():
+    with pytest.raises(HttpError, match="anti-bot challenge"):
+        parse_json_response(
+            httpx.Response(
+                200,
+                text="<html><body>Making sure you're not a bot!</body></html>",
+            ),
+            "https://dblp.org/search/publ/api",
+        )

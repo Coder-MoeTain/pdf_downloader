@@ -350,9 +350,14 @@ class SearchService:
                 except TimeoutError:
                     return provider.display_name, TimeoutError(f"timed out after {timeout:.0f}s")
                 except Exception as exc:
-                    logger.exception("Provider %s failed", provider.name)
-                    return provider.display_name, exc
+                    # Remote API blocks / rate limits are expected; avoid full stack traces in PM2 logs.
+                    from app.utils.http import HttpError
 
+                    if isinstance(exc, HttpError):
+                        logger.warning("Provider %s failed: %s", provider.name, exc)
+                    else:
+                        logger.exception("Provider %s failed", provider.name)
+                    return provider.display_name, exc
         gathered_tasks = [asyncio.create_task(_one(p), name=p.display_name) for p in providers]
         outcomes: list[tuple[str, list[PaperRecord] | Exception]] = []
         pending = set(gathered_tasks)
