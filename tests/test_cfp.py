@@ -13,6 +13,7 @@ from app.services.cfp_service import (
     display_image_url,
     extract_deadline_from_html,
     extract_og_image,
+    extract_website_from_html,
     external_id_from_url,
     is_generic_cfp_image,
     parse_cfp_date,
@@ -64,10 +65,13 @@ def test_extract_deadline_and_og_image():
     </head><body>
       Submission Deadline: Oct 20, 2026
       Where: Tokyo, Japan
+      Link: <a href="https://conf.example.org/2026" target="_newtab">https://conf.example.org/2026</a>
     </body></html>
     """
     assert extract_og_image(html) == "https://example.com/poster.png"
     assert extract_deadline_from_html(html) == datetime(2026, 10, 20)
+    assert extract_website_from_html(html) == "https://conf.example.org/2026"
+    assert extract_website_from_html("Link: <a href=\"http://www.wikicfp.com/x\">x</a>") is None
 
 
 def test_external_id_from_url():
@@ -159,6 +163,7 @@ def test_cfp_page_renders_upcoming(tmp_db):
                 "summary": "Call for papers on autonomous agents.",
                 "deadline": now + timedelta(days=40),
                 "image_url": "/static/favicon.svg",
+                "website_url": "https://agentic.example/cfp",
                 "categories": "artificial intelligence",
                 "location": "Singapore",
             },
@@ -179,4 +184,7 @@ def test_cfp_page_renders_upcoming(tmp_db):
     assert "Agentic AI Symposium" in page.text
     assert "autonomous agents" in page.text
     assert "Singapore" in page.text
+    assert "Conference website" in page.text
+    assert "https://agentic.example/cfp" in page.text
+    assert "WikiCFP" in page.text
     assert "Hidden Far Away" not in page.text

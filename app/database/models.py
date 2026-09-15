@@ -276,6 +276,7 @@ class CfpCall(Base):
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     summary: Mapped[str] = mapped_column(Text, default="")
     url: Mapped[str] = mapped_column(Text, nullable=False)
+    website_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     deadline: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     event_start: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

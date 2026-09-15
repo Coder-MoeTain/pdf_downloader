@@ -136,6 +136,7 @@ class AppConfig(BaseModel):
     show_paywalled: bool = True
     timezone: str = "UTC"
     default_max_results: int = 50
+    cfp_list_limit: int = 30
     default_sort: str = "relevance"
     provider_timeout_seconds: float = 12
     provider_phase_seconds: float = 16

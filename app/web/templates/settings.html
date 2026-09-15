@@ -142,6 +142,11 @@
             <input class="form-control" id="default_max_results" name="default_max_results" type="number" min="1" max="500" value="{{ config.default_max_results }}">
           </div>
           <div class="col-md-4">
+            <label class="form-label" for="cfp_list_limit">Call for papers limit</label>
+            <input class="form-control" id="cfp_list_limit" name="cfp_list_limit" type="number" min="1" max="200" value="{{ config.cfp_list_limit }}">
+            <div class="form-text">How many upcoming CFPs to show on the Call for papers page.</div>
+          </div>
+          <div class="col-md-4">
             <label class="form-label" for="download_limit">Download limit</label>
             <input class="form-control" id="download_limit" name="download_limit" type="number" min="0" max="100000" value="{{ config.download_limit }}">
             <div class="form-text">0 = no limit (download all pending PDFs).</div>

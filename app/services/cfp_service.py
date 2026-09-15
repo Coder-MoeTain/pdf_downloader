@@ -34,6 +34,7 @@ CFP_KEYWORDS = (
 )
 REFRESH_TTL = timedelta(hours=6)
 DETAIL_LIMIT = 24
+DETAIL_LIMIT_MAX = 200
 REQUEST_TIMEOUT = 12.0
 ENRICH_CONCURRENCY = 6
 UPSERT_CHUNK = 10
@@ -298,6 +299,31 @@ def extract_location_from_html(html: str) -> str | None:
     return None
 
 
+def extract_website_from_html(html: str) -> str | None:
+    """Extract the conference/event website from a WikiCFP event page."""
+    match = re.search(
+        r"Link:\s*<a[^>]+href=[\"'](https?://[^\"']+)[\"']",
+        html,
+        re.I,
+    )
+    if not match:
+        match = re.search(
+            r"Link:\s*(https?://[^\s<\"']+)",
+            strip_html(html),
+            re.I,
+        )
+    if not match:
+        return None
+    url = match.group(1).strip().rstrip(").,;")
+    host = (urlparse(url).netloc or "").lower()
+    if not host or "wikicfp.com" in host:
+        return None
+    skip = ("facebook.com", "twitter.com", "x.com", "linkedin.com", "creativecommons.org")
+    if any(s in host for s in skip):
+        return None
+    return url[:2000]
+
+
 def should_refresh(*, force: bool = False) -> bool:
     if force:
         return True
@@ -388,7 +414,20 @@ def _enrich_event(link: str) -> dict[str, Any]:
     location = extract_location_from_html(html)
     if location:
         extra["location"] = location
+    website = extract_website_from_html(html)
+    if website:
+        extra["website_url"] = website
     return extra
+
+
+def _enrich_limit() -> int:
+    try:
+        from app.config import get_runtime_config
+
+        configured = int(getattr(get_runtime_config(), "cfp_list_limit", DETAIL_LIMIT) or DETAIL_LIMIT)
+    except Exception:
+        configured = DETAIL_LIMIT
+    return max(DETAIL_LIMIT, min(DETAIL_LIMIT_MAX, configured))
 
 
 def _merge_rss_items(keyword: str, items: list[dict[str, str]], seen: dict[str, dict[str, Any]], now: datetime) -> None:
@@ -408,6 +447,7 @@ def _merge_rss_items(keyword: str, items: list[dict[str, str]], seen: dict[str, 
             "title": item["title"][:512],
             "summary": summary[:2000],
             "url": link,
+            "website_url": None,
             "image_url": cover_image_url_for(ext, keyword),
             "deadline": None,
             "event_start": event_start,
@@ -451,7 +491,7 @@ def refresh_cfps(*, force: bool = False, claim: bool = True) -> dict[str, int]:
                     items = []
                 _merge_rss_items(keyword, items, seen, now)
 
-        to_enrich = list(seen.values())[:DETAIL_LIMIT]
+        to_enrich = list(seen.values())[: _enrich_limit()]
         if to_enrich:
             _set_result(status="running", message=f"Reading deadlines for {len(to_enrich)} calls…")
             with ThreadPoolExecutor(max_workers=ENRICH_CONCURRENCY) as pool:
@@ -471,6 +511,8 @@ def refresh_cfps(*, force: bool = False, claim: bool = True) -> dict[str, int]:
                         payload["image_url"] = extra["image_url"]
                     if extra.get("location"):
                         payload["location"] = extra["location"]
+                    if extra.get("website_url"):
+                        payload["website_url"] = extra["website_url"]
 
         # If WikiCFP HTML blocked us, still surface upcoming events by estimating a deadline.
         for payload in seen.values():

@@ -75,6 +75,7 @@ def seed_default_settings() -> None:
             ("show_paywalled", cfg.show_paywalled, "workspace", False),
             ("download_limit", cfg.download_limit, "search", False),
             ("default_max_results", cfg.default_max_results, "search", False),
+            ("cfp_list_limit", cfg.cfp_list_limit, "search", False),
             ("max_file_size", f"{max(1, int(cfg.max_file_size_bytes / (1024 * 1024)))}MB", "search", False),
             ("max_concurrent_requests", cfg.env.max_concurrent_requests, "search", False),
             ("max_concurrent_downloads", cfg.env.max_concurrent_downloads, "search", False),
@@ -343,6 +344,7 @@ def save_search_settings(data: dict[str, Any]) -> None:
     with settings_session() as session:
         set_setting(session, "download_limit", _int("download_limit", 0, 100000), group="search")
         set_setting(session, "default_max_results", _int("default_max_results", 1, 500), group="search")
+        set_setting(session, "cfp_list_limit", _int("cfp_list_limit", 1, 200), group="search")
         raw_size = str(data.get("max_file_size") or "").strip() or "150MB"
         try:
             from app.config import parse_size
@@ -585,6 +587,7 @@ def apply_runtime_overlay(cfg: AppConfig) -> AppConfig:
     cfg.env.max_redirects = _int("max_redirects", cfg.env.max_redirects)
     cfg.download_limit = _int("download_limit", cfg.download_limit)
     cfg.default_max_results = _int("default_max_results", cfg.default_max_results)
+    cfg.cfp_list_limit = max(1, min(200, _int("cfp_list_limit", cfg.cfp_list_limit)))
     if stored.get("max_file_size"):
         from app.config import parse_size
 

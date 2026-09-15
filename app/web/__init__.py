@@ -1430,11 +1430,13 @@ async def cfp_page(request: Request):
     def _build() -> dict:
         rows: list = []
         fetched_at = None
+        cfg = get_runtime_config()
+        list_limit = max(1, min(200, int(getattr(cfg, "cfp_list_limit", 30) or 30)))
         try:
             with session_scope() as session:
                 # Fail fast if another writer (background refresh) holds the DB.
                 session.connection().exec_driver_sql("PRAGMA busy_timeout=1500")
-                rows = list_upcoming_cfps(session)
+                rows = list_upcoming_cfps(session, limit=list_limit)
                 fetched_at = latest_cfp_fetch_at(session)
         except OperationalError:
             rows = []
@@ -1445,7 +1447,7 @@ async def cfp_page(request: Request):
             calls=rows,
             fetched_at=fetched_at,
             window_days=90,
-            list_limit=30,
+            list_limit=list_limit,
             refresh=status,
             cfp_auto_refresh=not rows and not status.get("running"),
         )
@@ -1991,6 +1993,7 @@ def settings_delete_papers_without_pdf(request: Request, confirm: str = Form("")
 def settings_save_search(
     download_limit: int = Form(0),
     default_max_results: int = Form(50),
+    cfp_list_limit: int = Form(30),
     max_file_size: str = Form("150MB"),
     max_concurrent_requests: int = Form(5),
     max_concurrent_downloads: int = Form(3),
@@ -2003,6 +2006,7 @@ def settings_save_search(
             {
                 "download_limit": download_limit,
                 "default_max_results": default_max_results,
+                "cfp_list_limit": cfp_list_limit,
                 "max_file_size": max_file_size,
                 "max_concurrent_requests": max_concurrent_requests,
                 "max_concurrent_downloads": max_concurrent_downloads,

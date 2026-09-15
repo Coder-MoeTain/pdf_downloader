@@ -1414,6 +1414,8 @@ def upsert_cfp_call(session: Session, payload: dict) -> CfpCall:
     row.title = str(payload.get("title") or row.title or "Untitled")[:512]
     row.summary = str(payload.get("summary") or "")
     row.url = str(payload.get("url") or row.url or "")
+    if payload.get("website_url") is not None:
+        row.website_url = str(payload["website_url"] or "") or None
     if payload.get("image_url") is not None:
         row.image_url = str(payload["image_url"] or "") or None
     if "deadline" in payload:

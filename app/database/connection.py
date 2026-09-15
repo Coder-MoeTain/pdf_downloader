@@ -163,6 +163,10 @@ def _ensure_columns(engine: Engine) -> None:
             for column in ("records_seen", "skipped_existing"):
                 if column not in crawl_names:
                     conn.execute(text(f"ALTER TABLE crawl_jobs ADD COLUMN {column} INTEGER"))
+        cfp_rows = conn.execute(text("PRAGMA table_info(cfp_calls)")).all()
+        cfp_names = {row[1] for row in cfp_rows}
+        if cfp_names and "website_url" not in cfp_names:
+            conn.execute(text("ALTER TABLE cfp_calls ADD COLUMN website_url TEXT"))
         conn.commit()
 
 

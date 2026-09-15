@@ -153,7 +153,7 @@ h1, h2, .brand-text, .display-6, .empty-title {
   gap: 0.4rem;
   color: rgba(255,255,255,0.72);
   font-weight: 650;
-  font-size: 0.86rem;
+  font-size: calc(0.86rem + 2pt);
   line-height: 1;
   border-radius: 999px;
   padding: calc(0.46rem + 2.5pt) 0.72rem;
@@ -248,7 +248,7 @@ h1, h2, .brand-text, .display-6, .empty-title {
 }
 .nav-user-name {
   color: rgba(255,255,255,0.88);
-  font-size: 0.8rem;
+  font-size: calc(0.8rem + 2pt);
   font-weight: 600;
   max-width: 7.5rem;
   overflow: hidden;
@@ -259,7 +259,7 @@ h1, h2, .brand-text, .display-6, .empty-title {
 .app-nav.navbar-dark .nav-signout,
 .app-nav.navbar-dark .nav-login {
   padding: calc(0.28rem + 2.5pt) 0.7rem;
-  font-size: 0.78rem;
+  font-size: calc(0.78rem + 2pt);
   border: 0;
   line-height: 1.2;
 }
@@ -323,7 +323,7 @@ h1, h2, .brand-text, .display-6, .empty-title {
   color: #d7f5e8;
   text-decoration: none;
   font-weight: 650;
-  font-size: 0.86rem;
+  font-size: calc(0.86rem + 2pt);
   line-height: 1;
   padding: calc(0.46rem + 2.5pt) 0.72rem;
   border-radius: 999px;
@@ -3024,13 +3024,25 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
   font-size: 0.9rem;
   line-height: 1.45;
 }
+.page-cfp .cfp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 1rem;
+  margin-top: auto;
+}
 .page-cfp .cfp-link {
   font-weight: 600;
   font-size: 0.9rem;
   text-decoration: none;
 }
-.page-cfp .cfp-link:hover {
+.page-cfp .cfp-link-secondary {
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+.page-cfp .cfp-link:hover,
+.page-cfp .cfp-link-secondary:hover {
   text-decoration: underline;
+  color: var(--accent);
 }
 [data-bs-theme="dark"] .page-cfp .cfp-card-media {
   background:
