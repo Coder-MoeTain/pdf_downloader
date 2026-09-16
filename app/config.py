@@ -55,7 +55,7 @@ class EnvSettings(BaseSettings):
     google_client_secret: str = ""
     google_admin_emails: str = ""
     session_secret: str = ""
-    allowed_hosts: str = "localhost,127.0.0.1"
+    allowed_hosts: str = ""
     trusted_proxy_ips: str = "127.0.0.1"
     https_redirect: bool = False
     app_host: str = "127.0.0.1"
@@ -312,17 +312,41 @@ def parse_host_list(value: str | None, *, fallback: tuple[str, ...] = ()) -> lis
     return parts or list(fallback)
 
 
-def allowed_hosts() -> list[str]:
+def _configured_allowed_hosts() -> list[str]:
     raw = os.environ.get("ALLOWED_HOSTS")
     if raw is None:
         try:
             raw = load_config().env.allowed_hosts
         except Exception:
-            raw = "localhost,127.0.0.1"
-    hosts = parse_host_list(raw, fallback=("localhost", "127.0.0.1"))
-    if app_env() == "testing" and "testserver" not in hosts:
+            raw = ""
+    return parse_host_list(raw)
+
+
+def allowed_hosts() -> list[str]:
+    """Hostnames accepted by TrustedHostMiddleware.
+
+    Development accepts any Host (LAN IP, machine name, port-forward tunnels).
+    Production requires an explicit ALLOWED_HOSTS list and still allows loopback
+    so local health checks work.
+    """
+    env = app_env()
+    if env == "development":
+        return ["*"]
+
+    hosts = list(_configured_allowed_hosts())
+    extras = ["localhost", "127.0.0.1", "::1"]
+    try:
+        bind = (load_config().env.app_host or os.environ.get("APP_HOST") or "").strip()
+    except Exception:
+        bind = (os.environ.get("APP_HOST") or "").strip()
+    if bind and bind not in {"0.0.0.0", "::", "*"}:
+        extras.append(bind)
+    for host in extras:
+        if host not in hosts:
+            hosts.append(host)
+    if env == "testing" and "testserver" not in hosts:
         hosts.append("testserver")
-    return hosts
+    return hosts or ["localhost", "127.0.0.1"]
 
 
 def trusted_proxy_ips() -> list[str]:
@@ -385,7 +409,7 @@ def validate_startup_config(cfg: AppConfig | None = None) -> None:
     cfg = cfg or load_config()
     env = app_env()
     secret = (cfg.env.session_secret or os.environ.get("SESSION_SECRET") or "").strip()
-    hosts = allowed_hosts()
+    configured_hosts = _configured_allowed_hosts()
     proxies = trusted_proxy_ips()
     if env == "production":
         if not is_strong_secret(secret):
@@ -393,8 +417,11 @@ def validate_startup_config(cfg: AppConfig | None = None) -> None:
                 "SESSION_SECRET is required in production and must be at least 32 bytes of entropy. "
                 'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
             )
-        if not hosts or "*" in hosts or "0.0.0.0" in hosts:
-            raise ConfigurationError("ALLOWED_HOSTS must be an explicit hostname list in production.")
+        if not configured_hosts or "*" in configured_hosts or "0.0.0.0" in configured_hosts:
+            raise ConfigurationError(
+                "ALLOWED_HOSTS must be an explicit hostname list in production "
+                "(the name you type in the browser, e.g. research.example.com)."
+            )
         if not proxies or "*" in proxies:
             raise ConfigurationError("TRUSTED_PROXY_IPS must not be '*' in production. Example: 127.0.0.1")
     if env not in {"development", "testing", "production"}:

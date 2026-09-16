@@ -108,6 +108,9 @@ app.include_router(system_router)
 async def _startup() -> None:
     setup_logging()
     validate_startup_config()
+    from app.utils.logger import get_logger
+
+    get_logger(__name__).info("Trusted hosts: %s", ", ".join(allowed_hosts()))
     init_db()
     if setup_required():
         from app.security.bootstrap import ensure_bootstrap_token

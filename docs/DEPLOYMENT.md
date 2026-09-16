@@ -9,7 +9,7 @@ APP_ENV=production
 APP_HOST=127.0.0.1
 APP_PORT=8000
 SESSION_SECRET=<output of python -c "import secrets; print(secrets.token_urlsafe(48))">
-ALLOWED_HOSTS=research.example.com
+ALLOWED_HOSTS=research.example.com,localhost,127.0.0.1
 TRUSTED_PROXY_IPS=127.0.0.1
 HTTPS_REDIRECT=false
 ```
