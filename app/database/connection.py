@@ -13,7 +13,6 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
-import app.database.research_models as _research_models  # noqa: F401
 from app.config import load_config
 from app.database.models import Base
 from app.utils.logger import get_logger

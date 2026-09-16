@@ -74,15 +74,6 @@ class EnvSettings(BaseSettings):
     lms_db_name: str = ""
     lms_db_user: str = ""
     lms_db_password: str = ""
-    llm_enabled: bool = False
-    llm_provider: str = ""
-    llm_base_url: str = ""
-    llm_model: str = ""
-    llm_api_key: str = ""
-    zotero_api_key: str = ""
-    zotero_user_id: str = ""
-    zotero_library_type: str = "user"
-    zotero_collection_key: str = ""
 
     @property
     def polite_email(self) -> str:
@@ -348,7 +339,7 @@ def allowed_hosts() -> list[str]:
         bind = (load_config().env.app_host or os.environ.get("APP_HOST") or "").strip()
     except Exception:
         bind = (os.environ.get("APP_HOST") or "").strip()
-    if bind and bind not in {"0.0.0.0", "::", "*"}:  # nosec B104
+    if bind and bind not in {"0.0.0.0", "::", "*"}:
         extras.append(bind)
     for host in extras:
         if host not in hosts:
@@ -426,7 +417,7 @@ def validate_startup_config(cfg: AppConfig | None = None) -> None:
                 "SESSION_SECRET is required in production and must be at least 32 bytes of entropy. "
                 'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
             )
-        if not configured_hosts or "*" in configured_hosts or "0.0.0.0" in configured_hosts:  # nosec B104
+        if not configured_hosts or "*" in configured_hosts or "0.0.0.0" in configured_hosts:
             raise ConfigurationError(
                 "ALLOWED_HOSTS must be an explicit hostname list in production "
                 "(the name you type in the browser, e.g. research.example.com)."

@@ -6,25 +6,23 @@ import hashlib
 import re
 import threading
 import time
+import urllib.error
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from html import unescape
 from typing import Any
 from urllib.parse import quote_plus, urlparse
-
-import httpx
-from defusedxml import ElementTree as ET
+from xml.etree import ElementTree as ET
 
 from app.database.connection import session_scope
 from app.database.repository import latest_cfp_fetch_at, upsert_cfp_call
-from app.exceptions import UnsafeUrlError
-from app.security.ssrf import validate_outbound_url
 from app.utils.logger import get_logger
 from app.utils.time import utc_now
 
 logger = get_logger("app.cfp")
 
-WIKICFP_HTTP_HOSTS = {"www.wikicfp.com", "wikicfp.com"}
+# WikiCFP serves RSS/HTML reliably over HTTP; HTTPS often times out from many networks.
 WIKICFP_RSS = "http://www.wikicfp.com/cfp/rss"
 CFP_KEYWORDS = (
     "artificial intelligence",
@@ -373,20 +371,21 @@ def _clear_stale_refresh() -> None:
 
 
 def _http_get_text(url: str, *, timeout: float = REQUEST_TIMEOUT) -> str:
-    target = prefer_http_wikicfp(url)
-    validate_outbound_url(target, allow_http_hosts=WIKICFP_HTTP_HOSTS)
-    headers = {"User-Agent": USER_AGENT, "Accept": "application/rss+xml,text/html,*/*"}
-    with httpx.Client(timeout=timeout, follow_redirects=False, headers=headers) as client:
-        response = client.get(target)
-        response.raise_for_status()
-        return response.text
+    req = urllib.request.Request(
+        prefer_http_wikicfp(url),
+        headers={"User-Agent": USER_AGENT, "Accept": "application/rss+xml,text/html,*/*"},
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        charset = resp.headers.get_content_charset() or "utf-8"
+        return resp.read().decode(charset, errors="replace")
 
 
 def _fetch_rss_keyword(keyword: str) -> list[dict[str, str]]:
     url = f"{WIKICFP_RSS}?cat={quote_plus(keyword)}"
     try:
         text = _http_get_text(url)
-    except (httpx.HTTPError, UnsafeUrlError, TimeoutError, OSError) as exc:
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
         logger.warning("WikiCFP RSS failed for %s: %s", keyword, exc)
         return []
     except Exception as exc:

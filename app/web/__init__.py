@@ -41,7 +41,6 @@ from app.database.settings_repository import apply_top20_source_limits, seed_aca
 from app.exceptions import CsrfError
 from app.security.csrf import CsrfMiddleware, csrf_failure, csrf_protect
 from app.security.headers import SecurityHeadersMiddleware
-from app.services.alert_service import start_alert_worker
 from app.services.crawl_queue import start_crawl_queue_worker
 from app.services.crawl_schedule import start_crawl_schedule_worker
 from app.services.download_queue import start_download_worker
@@ -55,20 +54,10 @@ from app.web.dependencies import WEB_DIR
 from app.web.dependencies import _crawl_source_rows as _crawl_source_rows
 from app.web.middleware import AuthGateMiddleware
 from app.web.routes.admin import router as admin_router
-from app.web.routes.annotations import router as annotations_router
 from app.web.routes.auth import router as auth_router
 from app.web.routes.cfp import router as cfp_router
 from app.web.routes.downloads import router as downloads_router
-from app.web.routes.evidence import router as evidence_router
-from app.web.routes.extraction import router as extraction_router
 from app.web.routes.library import router as library_router
-from app.web.routes.matrix import router as matrix_router
-from app.web.routes.prisma import router as prisma_router
-from app.web.routes.project_papers import router as project_papers_router
-from app.web.routes.projects import router as projects_router
-from app.web.routes.research_ai import router as research_ai_router
-from app.web.routes.research_analytics import router as research_analytics_router
-from app.web.routes.screening import router as screening_router
 from app.web.routes.search import router as search_router
 from app.web.routes.settings import router as settings_router
 from app.web.routes.system import router as system_router
@@ -113,16 +102,6 @@ app.include_router(cfp_router)
 app.include_router(settings_router)
 app.include_router(admin_router)
 app.include_router(system_router)
-app.include_router(projects_router)
-app.include_router(project_papers_router)
-app.include_router(screening_router)
-app.include_router(extraction_router)
-app.include_router(matrix_router)
-app.include_router(evidence_router)
-app.include_router(prisma_router)
-app.include_router(research_analytics_router)
-app.include_router(annotations_router)
-app.include_router(research_ai_router)
 
 
 @app.on_event("startup")
@@ -146,7 +125,6 @@ async def _startup() -> None:
     await start_crawl_queue_worker()
     await start_download_worker()
     await start_crawl_schedule_worker()
-    await start_alert_worker()
 
     try:
         from app.services.lms_watch import schedule_lms_sync, start_lms_watch

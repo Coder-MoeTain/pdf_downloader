@@ -23,7 +23,6 @@ tzdata>=2024.1
 psutil>=5.9.0
 argon2-cffi>=23.1.0
 alembic>=1.13.0
-defusedxml>=0.7.1
 pytest>=8.2.0
 pytest-asyncio>=0.23.0
 pytest-cov>=5.0.0

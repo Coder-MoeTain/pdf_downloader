@@ -2,9 +2,6 @@
 {% from "_macros.html" import empty_state %}
 {% block title %}Call for papers · {{ app_name }}{% endblock %}
 {% block body_class %}page-cfp{% endblock %}
-{% block extra_js %}
-<script src="/static/cfp.js?v={{ version }}"></script>
-{% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
@@ -21,47 +18,10 @@
   </form>
 </div>
 
-<section class="cfp-filters mb-3" aria-label="Filter calls">
-  <form class="lib-filter-form" method="get" action="/cfp">
-    <div class="lib-filter-grid">
-      <div class="lib-field lib-field-search">
-        <label class="lib-filter-label" for="cfp-q">Search</label>
-        <input class="form-control" id="cfp-q" name="q" value="{{ q }}" placeholder="Title, location, or topic">
-      </div>
-      <div class="lib-field">
-        <label class="lib-filter-label" for="cfp-category">Category</label>
-        <input class="form-control" id="cfp-category" name="category" value="{{ category }}" list="cfp-cats" placeholder="Any">
-        <datalist id="cfp-cats">{% for item in cfp_categories %}<option value="{{ item }}">{% endfor %}</datalist>
-      </div>
-      <div class="lib-field">
-        <label class="lib-filter-label" for="cfp-country">Country / location</label>
-        <input class="form-control" id="cfp-country" name="country" value="{{ country }}" list="cfp-loc" placeholder="Any">
-        <datalist id="cfp-loc">{% for item in cfp_countries %}<option value="{{ item }}">{% endfor %}</datalist>
-      </div>
-      <div class="lib-field">
-        <label class="lib-filter-label" for="cfp-sort">Sort</label>
-        <select class="form-select" id="cfp-sort" name="sort" data-auto-submit>
-          <option value="deadline" {% if sort == 'deadline' %}selected{% endif %}>Deadline soonest</option>
-          <option value="event" {% if sort == 'event' %}selected{% endif %}>Event date</option>
-          <option value="recent" {% if sort == 'recent' %}selected{% endif %}>Recently added</option>
-        </select>
-      </div>
-      <div class="lib-field lib-field-actions">
-        <label class="form-check mt-4">
-          <input class="form-check-input" type="checkbox" name="verified" value="1" {% if verified_only %}checked{% endif %}>
-          Verified only
-        </label>
-        <button class="btn btn-primary" type="submit">Filter</button>
-      </div>
-    </div>
-  </form>
-</section>
-
 <div class="alert alert-info mb-3" id="cfpRefreshAlert" role="status" {% if not (refresh and refresh.message) %}hidden{% endif %}>
   {{ (refresh.message if refresh else '') or 'Loading Call for Papers in the background…' }}
 </div>
 
-<div id="cfpPage" data-empty="{{ 'true' if not calls else 'false' }}" data-running="{{ 'true' if refresh and refresh.running else 'false' }}" data-auto-start="{{ 'true' if cfp_auto_refresh else 'false' }}">
 {% if calls %}
 <div class="cfp-meta paper-meta mb-3">Showing {{ calls|length }} of up to {{ list_limit }} calls with deadlines in the next {{ window_days }} days.</div>
 <div class="cfp-grid" role="list">
@@ -74,7 +34,7 @@
         loading="lazy"
         width="960"
         height="540"
-        data-fallback-src="/static/favicon.svg"
+        onerror="this.onerror=null;this.src='/static/favicon.svg';this.classList.add('is-fallback')"
       >
     </a>
     <div class="cfp-card-body">
@@ -102,29 +62,108 @@
       <p class="paper-meta mb-1">Estimated — verify on official conference website</p>
       {% endif %}
       {% if call.summary %}<p class="cfp-summary">{{ call.summary[:280] }}{% if call.summary|length > 280 %}…{% endif %}</p>{% endif %}
+      {% if call.website_url %}
       <div class="cfp-actions">
-        {% if call.website_url %}
         <a class="cfp-link" href="{{ call.website_url }}" target="_blank" rel="noopener noreferrer">Conference website →</a>
-        {% endif %}
-        <form method="post" action="/cfp/{{ call.id }}/bookmark" class="d-inline">
-          <button class="btn btn-sm btn-outline-secondary" type="submit">{% if call.id in bookmark_ids %}Saved{% else %}Save CFP{% endif %}</button>
-        </form>
       </div>
+      {% endif %}
     </div>
   </article>
   {% endfor %}
 </div>
 {% else %}
-  {% if q or category or country or verified_only %}
-    {{ empty_state("Nothing matches this filter", "Clear the filters or try another keyword.", "/cfp", "Show all calls") }}
-  {% else %}
   {{ empty_state(
     "Loading Call for Papers…",
     "The page is ready. WikiCFP results are fetched in the background and this view reloads when they arrive.",
     "",
     ""
   ) }}
-  {% endif %}
 {% endif %}
-</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var empty = {{ 'true' if not calls else 'false' }};
+  var running = {{ 'true' if refresh and refresh.running else 'false' }};
+  var autoStart = {{ 'true' if cfp_auto_refresh else 'false' }};
+  var alertEl = document.getElementById("cfpRefreshAlert");
+  var tries = 0;
+  var started = false;
+
+  function showMsg(text) {
+    if (!alertEl || !text) return;
+    alertEl.hidden = false;
+    alertEl.textContent = text;
+  }
+
+  function poll() {
+    tries += 1;
+    fetch("/api/cfp-status", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) {
+        if (r.status === 401) throw new Error("auth");
+        return r.json();
+      })
+      .then(function (data) {
+        if (data.message) showMsg(data.message);
+        if (data.running) {
+          if (tries < 120) window.setTimeout(poll, 2000);
+          return;
+        }
+        if (empty) {
+          window.location.reload();
+          return;
+        }
+        if (data.status === "ok" || data.status === "error") {
+          showMsg(data.message || "Refresh finished.");
+        }
+      })
+      .catch(function (err) {
+        if (String(err && err.message) === "auth") {
+          showMsg("Sign in again to load Call for Papers.");
+          return;
+        }
+        if (!started && empty) {
+          startAndPoll();
+          return;
+        }
+        if (tries < 120) window.setTimeout(poll, 3000);
+      });
+  }
+
+  function startAndPoll() {
+    if (started) { poll(); return; }
+    started = true;
+    showMsg("Refreshing from WikiCFP in the background…");
+    fetch("/api/cfp-refresh", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Accept": "application/json" },
+      cache: "no-store",
+    })
+      .then(function (r) {
+        if (r.status === 401) throw new Error("auth");
+        return r.json();
+      })
+      .then(function (data) {
+        if (data.message) showMsg(data.message);
+        poll();
+      })
+      .catch(function (err) {
+        if (String(err && err.message) === "auth") {
+          showMsg("Sign in again to load Call for Papers.");
+          return;
+        }
+        showMsg("Could not start refresh. Retrying…");
+        poll();
+      });
+  }
+
+  if (autoStart || (empty && !running)) {
+    window.setTimeout(startAndPoll, 100);
+  } else if (running || empty) {
+    window.setTimeout(poll, 500);
+  }
+})();
+</script>
 {% endblock %}

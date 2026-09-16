@@ -377,7 +377,3 @@ class SavedSearch(Base):
     alert_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    alert_frequency: Mapped[str] = mapped_column(String(16), default="weekly")
-    last_result_count: Mapped[int] = mapped_column(Integer, default=0)
-    new_paper_count: Mapped[int] = mapped_column(Integer, default=0)
-    project_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

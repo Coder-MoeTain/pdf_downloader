@@ -59,7 +59,7 @@ async def download_paper_pdf(request: Request, paper_id: int):
         path=str(path),
         media_type="application/pdf",
         filename=path.name,
-        content_disposition_type="inline" if request.query_params.get("inline") == "1" else "attachment",
+        content_disposition_type="attachment",
     )
 
 

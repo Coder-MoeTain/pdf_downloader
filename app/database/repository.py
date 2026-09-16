@@ -21,7 +21,6 @@ from app.database.models import (
     CollectionPaper,
     CrawlJob,
     Download,
-    LmsExport,
     Paper,
     PaperAuthor,
     PaperFulltext,
@@ -209,99 +208,12 @@ def save_paper(session: Session, record: PaperRecord) -> Paper:
         for position, author_rec in enumerate(record.authors):
             author = get_or_create_author(session, author_rec)
             session.add(PaperAuthor(paper_id=paper.id, author_id=author.id, position=position))
-    paper = _sync_paper_identifiers(session, paper, record)
+    _sync_paper_identifiers(session, paper, record)
     _upsert_paper_fts(session, paper)
     return paper
 
 
-def _copy_missing_paper_fields(winner: Paper, loser: Paper) -> None:
-    for field in (
-        "title",
-        "normalized_title",
-        "abstract",
-        "doi",
-        "pmid",
-        "pmcid",
-        "arxiv_id",
-        "openalex_id",
-        "semantic_scholar_id",
-        "publication_year",
-        "publication_date",
-        "journal",
-        "conference",
-        "volume",
-        "issue",
-        "pages",
-        "publisher",
-        "keywords",
-        "research_fields",
-        "url",
-        "pdf_url",
-        "license",
-        "source",
-        "metadata_sources",
-    ):
-        if not getattr(winner, field) and getattr(loser, field):
-            setattr(winner, field, getattr(loser, field))
-    winner.citation_count = max(winner.citation_count or 0, loser.citation_count or 0)
-    winner.reference_count = max(winner.reference_count or 0, loser.reference_count or 0)
-    if loser.open_access:
-        winner.open_access = True
-    if loser.status and winner.status in {"FOUND", "OA_AVAILABLE"} and loser.status not in {"", "FOUND"}:
-        winner.status = loser.status
-    winner.updated_at = utc_now()
-
-
-def _repoint_paper_rows(
-    session: Session,
-    model,
-    loser_id: int,
-    winner_id: int,
-    clash_fields: tuple[str, ...] = (),
-) -> None:
-    rows = list(session.scalars(select(model).where(model.paper_id == loser_id)).all())
-    for row in rows:
-        if clash_fields:
-            clause = [getattr(model, field) == getattr(row, field) for field in clash_fields]
-            existing = session.scalar(select(model).where(model.paper_id == winner_id, *clause))
-            if existing is not None:
-                session.delete(row)
-                continue
-        row.paper_id = winner_id
-
-
-def merge_into_canonical(session: Session, winner: Paper, loser: Paper) -> Paper:
-    """Keep one canonical paper when the same identifier is claimed twice."""
-    if winner.id == loser.id:
-        return winner
-    _copy_missing_paper_fields(winner, loser)
-    _repoint_paper_rows(session, Download, loser.id, winner.id)
-    _repoint_paper_rows(session, SearchResult, loser.id, winner.id, ("search_query_id",))
-    _repoint_paper_rows(session, UserPaper, loser.id, winner.id, ("user_id",))
-    _repoint_paper_rows(session, CollectionPaper, loser.id, winner.id, ("collection_id",))
-    _repoint_paper_rows(session, PaperIdentifier, loser.id, winner.id, ("scheme", "normalized_value"))
-    _repoint_paper_rows(session, PaperAuthor, loser.id, winner.id, ("author_id", "position"))
-    _repoint_paper_rows(session, LmsExport, loser.id, winner.id)
-    _repoint_paper_rows(session, PaperFulltext, loser.id, winner.id)
-    try:
-        from app.database.research_models import DocumentChunk, EvidenceSource, PaperAnnotation, ProjectPaper
-
-        _repoint_paper_rows(session, ProjectPaper, loser.id, winner.id, ("project_id",))
-        _repoint_paper_rows(session, PaperAnnotation, loser.id, winner.id)
-        _repoint_paper_rows(session, DocumentChunk, loser.id, winner.id)
-        _repoint_paper_rows(session, EvidenceSource, loser.id, winner.id)
-    except Exception:
-        pass
-    try:
-        session.execute(text("DELETE FROM papers_fts WHERE rowid = :id"), {"id": loser.id})
-    except Exception:
-        pass
-    session.delete(loser)
-    session.flush()
-    return winner
-
-
-def _sync_paper_identifiers(session: Session, paper: Paper, record: PaperRecord) -> Paper:
+def _sync_paper_identifiers(session: Session, paper: Paper, record: PaperRecord) -> None:
     for scheme, raw, normalized in record_identifiers(record):
         existing = session.scalar(
             select(PaperIdentifier).where(
@@ -311,9 +223,7 @@ def _sync_paper_identifiers(session: Session, paper: Paper, record: PaperRecord)
         )
         if existing is not None:
             if existing.paper_id != paper.id:
-                canonical = session.get(Paper, existing.paper_id)
-                if canonical is not None:
-                    paper = merge_into_canonical(session, canonical, paper)
+                # Unique constraint: keep the canonical paper that already owns this id.
                 continue
             existing.value = raw
             continue
@@ -329,17 +239,7 @@ def _sync_paper_identifiers(session: Session, paper: Paper, record: PaperRecord)
                 )
                 session.flush()
         except IntegrityError:
-            owner = session.scalar(
-                select(PaperIdentifier).where(
-                    PaperIdentifier.scheme == scheme,
-                    PaperIdentifier.normalized_value == normalized,
-                )
-            )
-            if owner is not None and owner.paper_id != paper.id:
-                canonical = session.get(Paper, owner.paper_id)
-                if canonical is not None:
-                    paper = merge_into_canonical(session, canonical, paper)
-    return paper
+            continue
 
 
 def find_existing_paper(session: Session, record: PaperRecord) -> Paper | None:
@@ -678,7 +578,6 @@ def apply_paper_filters(
     source: str = "",
     journal: str = "",
     user_id: int | None = None,
-    rater_user_id: int | None = None,
 ):
     if status:
         stmt = stmt.where(Paper.status == status)
@@ -689,17 +588,7 @@ def apply_paper_filters(
     if open_access:
         stmt = stmt.where(open_access_clause())
     if min_rating:
-        if rater_user_id:
-            stmt = stmt.where(
-                exists().where(
-                    UserPaper.paper_id == Paper.id,
-                    UserPaper.user_id == rater_user_id,
-                    UserPaper.rating.is_not(None),
-                    UserPaper.rating >= min_rating,
-                )
-            )
-        else:
-            stmt = stmt.where(Paper.user_rating.is_not(None), Paper.user_rating >= min_rating)
+        stmt = stmt.where(Paper.user_rating.is_not(None), Paper.user_rating >= min_rating)
     if category.strip():
         field_match = _tag_column_matches(Paper.research_fields, category)
         keyword_match = _tag_column_matches(Paper.keywords, category)
@@ -784,7 +673,6 @@ def library_filter_kwargs(
     source: str = "",
     journal: str = "",
     user_id: int | None = None,
-    rater_user_id: int | None = None,
 ) -> dict:
     return {
         "status": status,
@@ -796,7 +684,6 @@ def library_filter_kwargs(
         "source": source,
         "journal": journal,
         "user_id": user_id,
-        "rater_user_id": rater_user_id,
     }
 
 
@@ -813,7 +700,6 @@ def query_library(
     source: str = "",
     journal: str = "",
     user_id: int | None = None,
-    rater_user_id: int | None = None,
     sort: str = "recent",
     latest_search_id: int | None = None,
     offset: int = 0,
@@ -830,7 +716,6 @@ def query_library(
         source=source,
         journal=journal,
         user_id=user_id,
-        rater_user_id=rater_user_id,
     )
     count_stmt = select(func.count(func.distinct(Paper.id)))
     stmt = select(Paper).options(
@@ -854,32 +739,7 @@ def query_library(
     stmt = apply_library_sort(stmt, sort, latest=bool(latest_search_id))
     total = session.scalar(count_stmt) or 0
     papers = list(session.scalars(stmt.offset(offset).limit(limit)).unique().all())
-    attach_user_paper_meta(session, papers, rater_user_id)
     return papers, total
-
-
-def attach_user_paper_meta(session: Session, papers: list[Paper], user_id: int | None) -> None:
-    """Attach per-user rating/reading metadata without writing Paper.user_rating."""
-    for paper in papers:
-        paper.workspace_rating = None
-        paper.workspace_reading = "unread"
-        paper.workspace_tags = ""
-    if not user_id or not papers:
-        return
-    rows = session.scalars(
-        select(UserPaper).where(
-            UserPaper.user_id == user_id,
-            UserPaper.paper_id.in_([paper.id for paper in papers]),
-        )
-    ).all()
-    by_paper = {row.paper_id: row for row in rows}
-    for paper in papers:
-        row = by_paper.get(paper.id)
-        if row is None:
-            continue
-        paper.workspace_rating = row.rating
-        paper.workspace_reading = row.reading_status or "unread"
-        paper.workspace_tags = row.tags or ""
 
 
 def library_facets(session: Session, *, force: bool = False, light: bool = False) -> dict:
@@ -1121,6 +981,8 @@ def set_paper_rating(session: Session, paper_id: int, rating: int, *, user_id: i
     paper = session.get(Paper, paper_id)
     if paper is None:
         return None
+    paper.user_rating = None if rating == 0 else rating
+    paper.updated_at = utc_now()
     if user_id:
         row = session.scalar(select(UserPaper).where(UserPaper.user_id == user_id, UserPaper.paper_id == paper_id))
         if row is None:
@@ -1128,9 +990,6 @@ def set_paper_rating(session: Session, paper_id: int, rating: int, *, user_id: i
             session.add(row)
         row.rating = None if rating == 0 else rating
         row.updated_at = utc_now()
-        return paper
-    paper.user_rating = None if rating == 0 else rating
-    paper.updated_at = utc_now()
     return paper
 
 
@@ -1633,54 +1492,32 @@ def list_upcoming_cfps(
     *,
     within_days: int = CFP_WINDOW_DAYS,
     limit: int = CFP_LIST_LIMIT,
-    q: str = "",
-    category: str = "",
-    country: str = "",
-    verified_only: bool = False,
-    sort: str = "deadline",
 ) -> list[CfpCall]:
     """CFPs with a submission deadline (or upcoming event date) in the window."""
     now = utc_now()
     end = now + timedelta(days=max(1, within_days))
-    stmt = select(CfpCall).where(
-        or_(
-            (CfpCall.deadline.is_not(None) & (CfpCall.deadline >= now) & (CfpCall.deadline <= end)),
-            (
-                CfpCall.deadline.is_(None)
-                & CfpCall.event_start.is_not(None)
-                & (CfpCall.event_start >= now)
-                & (CfpCall.event_start <= end)
-            ),
+    stmt = (
+        select(CfpCall)
+        .where(
+            or_(
+                (CfpCall.deadline.is_not(None) & (CfpCall.deadline >= now) & (CfpCall.deadline <= end)),
+                (
+                    CfpCall.deadline.is_(None)
+                    & CfpCall.event_start.is_not(None)
+                    & (CfpCall.event_start >= now)
+                    & (CfpCall.event_start <= end)
+                ),
+            )
         )
-    )
-    needle = (q or "").strip()
-    if needle:
-        like = f"%{needle}%"
-        stmt = stmt.where(or_(CfpCall.title.ilike(like), CfpCall.summary.ilike(like), CfpCall.location.ilike(like)))
-    if category.strip():
-        stmt = stmt.where(CfpCall.categories.ilike(f"%{category.strip()}%"))
-    if country.strip():
-        stmt = stmt.where(CfpCall.location.ilike(f"%{country.strip()}%"))
-    if verified_only:
-        stmt = stmt.where(CfpCall.deadline_verified.is_(True))
-    sort_key = (sort or "deadline").strip().lower()
-    if sort_key == "event":
-        stmt = stmt.order_by(
-            case((CfpCall.event_start.is_(None), 1), else_=0),
-            CfpCall.event_start.asc(),
-            CfpCall.deadline.asc(),
-            CfpCall.title.asc(),
-        )
-    elif sort_key == "recent":
-        stmt = stmt.order_by(CfpCall.updated_at.desc(), CfpCall.title.asc())
-    else:
-        stmt = stmt.order_by(
+        .order_by(
             case((CfpCall.deadline.is_(None), 1), else_=0),
             CfpCall.deadline.asc(),
             CfpCall.event_start.asc(),
             CfpCall.title.asc(),
         )
-    return list(session.scalars(stmt.limit(max(1, limit))).all())
+        .limit(max(1, limit))
+    )
+    return list(session.scalars(stmt).all())
 
 
 def latest_cfp_fetch_at(session: Session) -> datetime | None:
@@ -1803,43 +1640,14 @@ def add_paper_to_collection(session: Session, user_id: int, collection_id: int, 
     return row
 
 
-def save_search_config(
-    session: Session,
-    user_id: int,
-    name: str,
-    query: str,
-    filters: dict,
-    *,
-    alert_enabled: bool = False,
-    alert_frequency: str = "weekly",
-) -> SavedSearch:
-    frequency = alert_frequency if alert_frequency in {"daily", "weekly", "monthly"} else "weekly"
+def save_search_config(session: Session, user_id: int, name: str, query: str, filters: dict) -> SavedSearch:
     row = SavedSearch(
         user_id=user_id,
         name=name.strip() or query.strip()[:80],
         query=query.strip(),
         filters_json=json.dumps(filters or {}),
-        alert_enabled=bool(alert_enabled),
-        alert_frequency=frequency,
     )
     session.add(row)
-    session.flush()
-    return row
-
-
-def get_saved_search(session: Session, user_id: int, search_id: int) -> SavedSearch | None:
-    return session.scalar(select(SavedSearch).where(SavedSearch.id == search_id, SavedSearch.user_id == user_id))
-
-
-def update_saved_search_alert(
-    session: Session, user_id: int, search_id: int, *, enabled: bool, frequency: str = "weekly"
-) -> SavedSearch | None:
-    row = get_saved_search(session, user_id, search_id)
-    if row is None:
-        return None
-    row.alert_enabled = bool(enabled)
-    if frequency in {"daily", "weekly", "monthly"}:
-        row.alert_frequency = frequency
     session.flush()
     return row
 
@@ -1875,55 +1683,20 @@ def user_paper_workspace(session: Session, user_id: int, paper_id: int) -> dict:
     }
 
 
-def related_papers_with_reasons(session: Session, paper_id: int, *, limit: int = 8) -> list[dict]:
+def related_papers(session: Session, paper_id: int, *, limit: int = 8) -> list[Paper]:
     paper = session.get(Paper, paper_id)
     if paper is None:
         return []
-    keywords = {tag.lower() for tag in split_tags(paper.keywords) + split_tags(paper.research_fields)}
-    title_words = {word for word in (paper.normalized_title or "").split() if len(word) > 4}
-    authors = {
-        link.author.name.strip().lower()
-        for link in (paper.authors or [])
-        if getattr(link, "author", None) and (link.author.name or "").strip()
-    }
-    tokens = list(keywords)[:6] + list(title_words)[:5]
+    tokens = [part.strip() for part in (paper.keywords or "").split(";") if part.strip()][:4]
+    title_words = [word for word in (paper.normalized_title or "").split() if len(word) > 4][:5]
     likes = []
-    for token in tokens:
+    for token in tokens + title_words:
         likes.append(Paper.title.ilike(f"%{token}%"))
         likes.append(Paper.keywords.ilike(f"%{token}%"))
-        likes.append(Paper.research_fields.ilike(f"%{token}%"))
     if paper.journal:
         likes.append(Paper.journal == paper.journal)
     stmt = select(Paper).where(Paper.id != paper_id)
     if likes:
         stmt = stmt.where(or_(*likes))
-    stmt = stmt.options(selectinload(Paper.authors).selectinload(PaperAuthor.author))
-    stmt = stmt.order_by(Paper.citation_count.desc().nullslast(), Paper.id.desc()).limit(max(limit * 4, 16))
-    scored: list[tuple[int, dict]] = []
-    for candidate in session.scalars(stmt).all():
-        reasons: list[str] = []
-        cand_kw = {tag.lower() for tag in split_tags(candidate.keywords) + split_tags(candidate.research_fields)}
-        if keywords & cand_kw:
-            reasons.append("Similar keywords")
-        cand_title = {word for word in (candidate.normalized_title or "").split() if len(word) > 4}
-        if title_words & cand_title:
-            reasons.append("Similar topic")
-        if paper.journal and candidate.journal and paper.journal.strip().lower() == candidate.journal.strip().lower():
-            reasons.append("Same journal")
-        cand_authors = {
-            link.author.name.strip().lower()
-            for link in (candidate.authors or [])
-            if getattr(link, "author", None) and (link.author.name or "").strip()
-        }
-        if authors & cand_authors:
-            reasons.append("Shared author")
-        if not reasons:
-            reasons.append("Similar topic")
-        score = len(reasons) * 10 + int(candidate.citation_count or 0)
-        scored.append((score, {"paper": candidate, "reasons": reasons}))
-    scored.sort(key=lambda item: (-item[0], item[1]["paper"].id))
-    return [item[1] for item in scored[:limit]]
-
-
-def related_papers(session: Session, paper_id: int, *, limit: int = 8) -> list[Paper]:
-    return [row["paper"] for row in related_papers_with_reasons(session, paper_id, limit=limit)]
+    stmt = stmt.order_by(Paper.citation_count.desc().nullslast(), Paper.id.desc()).limit(limit)
+    return list(session.scalars(stmt).all())

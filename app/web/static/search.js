@@ -1,30 +1,4 @@
 (function () {
-  var searchForm = document.querySelector("form.search-form");
-  var saveForm = document.getElementById("saveSearchForm");
-  if (searchForm && saveForm) {
-    saveForm.addEventListener("submit", function () {
-      saveForm.innerHTML = "";
-      Array.prototype.forEach.call(searchForm.elements, function (el) {
-        if (!el.name || el.type === "submit") return;
-        var input = document.createElement("input");
-        input.type = "hidden";
-        input.name = el.name === "query" ? "query" : el.name;
-        if (el.type === "checkbox") {
-          if (!el.checked) return;
-          input.value = el.value || "1";
-        } else {
-          input.value = el.value;
-        }
-        saveForm.appendChild(input);
-      });
-      var name = document.createElement("input");
-      name.type = "hidden";
-      name.name = "name";
-      name.value = (searchForm.querySelector("#query") || {}).value || "Saved search";
-      saveForm.appendChild(name);
-    });
-  }
-
   var PHASE_ORDER = ["starting", "searching", "merging", "oa", "storing", "downloading", "done"];
   var jobEl = document.getElementById("searchJob");
   if (!jobEl) return;
