@@ -332,7 +332,11 @@
           encodeURIComponent(item.title) +
           '">' +
           escapeHtml(item.title) +
-          "</a></li>"
+          "</a>" +
+          (item.reasons && item.reasons.length
+            ? ' <span class="paper-meta">' + escapeHtml(item.reasons.join(" · ")) + "</span>"
+            : "") +
+          "</li>"
         );
       })
       .join("");

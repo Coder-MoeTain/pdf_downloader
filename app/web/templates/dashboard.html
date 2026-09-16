@@ -19,12 +19,12 @@
   </div>
   <div class="dash-head-actions">
     {% if stored_total %}<a class="btn btn-outline-secondary" href="/library">Browse library</a>{% endif %}
-    <a class="btn btn-primary" href="/search">New search</a>
+    <a class="btn btn-primary" href="/discover">Discover papers</a>
   </div>
 </div>
 
 {% if progress and progress.active %}
-<a class="card dash-live mb-4" href="{{ '/search?live=1' if progress.kind == 'search' else '/downloads' }}">
+<a class="card dash-live mb-4" href="{{ '/discover?live=1' if progress.kind == 'search' else '/downloads' }}">
   <div class="card-body d-flex flex-wrap align-items-center gap-3">
     <span class="dash-live-badge"><span class="nav-live-dot" aria-hidden="true"></span> Live</span>
     <div class="flex-grow-1 min-w-0">
@@ -41,8 +41,34 @@
 </a>
 {% endif %}
 
+{% if workspace and workspace.projects %}
+<section class="dash-projects mb-4" aria-label="Research projects">
+  <div class="d-flex justify-content-between align-items-baseline mb-2">
+    <h2 class="h5 mb-0">Research projects</h2>
+    <a class="dash-card-link" href="/projects">All projects</a>
+  </div>
+  <div class="row g-3">
+    {% for project in workspace.projects %}
+    <div class="col-md-6 col-xl-3">
+      <a class="stat-card h-100" href="/projects/{{ project.id }}">
+        <div class="card-body">
+          <div class="stat-label">{{ project.status.replace('_',' ') }}</div>
+          <div class="stat-value tone-primary">{{ project.title }}</div>
+          <div class="stat-hint">{{ project.review_type.replace('_',' ') }}</div>
+        </div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="paper-meta mt-2 mb-0">
+    {{ workspace.active }} active
+    {% if workspace.screening_pending %} · {{ workspace.screening_pending }} screening pending{% endif %}
+  </p>
+</section>
+{% endif %}
+
 {% if not stored_total %}
-  {{ empty_state("No papers yet", "Run a search to discover papers and download open-access PDFs.", "/search", "Start searching") }}
+  {{ empty_state("No papers yet", "Run a search to discover papers and download open-access PDFs.", "/discover", "Start searching") }}
 {% else %}
 <section class="dash-overview" aria-label="Library metrics">
   <div class="row g-3 dash-kpi-grid">
@@ -163,7 +189,7 @@
     <div class="card dash-actions-card">
       <div class="card-header">Quick actions</div>
       <div class="card-body dash-actions-grid">
-        <a class="dash-action-tile" href="/search">
+        <a class="dash-action-tile" href="/discover">
           <span class="dash-action-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6.25" stroke="currentColor" stroke-width="1.75"/><path d="M16.2 16.2 20 20" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg>
           </span>
@@ -205,7 +231,7 @@
     <div class="card mt-4">
       <div class="card-header dash-card-head">
         <div>Recent searches</div>
-        <a class="dash-card-link" href="/search">New</a>
+        <a class="dash-card-link" href="/discover">New</a>
       </div>
       <ul class="list-group list-group-flush dash-recent-list">
         {% for row in recent %}
@@ -240,6 +266,42 @@
     </div>
     {% endif %}
 
+    {% if search_alerts %}
+    <div class="card mt-4">
+      <div class="card-header dash-card-head">
+        <div>Saved-search alerts</div>
+        <a class="dash-card-link" href="/discover">Manage</a>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for row in search_alerts[:5] %}
+        <li class="list-group-item d-flex justify-content-between gap-2">
+          <div>
+            <strong>{{ row.name }}</strong>
+            <div class="paper-meta mb-0">{{ row.query }}</div>
+          </div>
+          <span class="paper-meta mb-0">{% if row.new_paper_count %}{{ row.new_paper_count }} new{% else %}Watching{% endif %}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if upcoming_cfps %}
+    <div class="card mt-4">
+      <div class="card-header dash-card-head">
+        <div>Upcoming CFP deadlines</div>
+        <a class="dash-card-link" href="/cfp">All calls</a>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for call in upcoming_cfps[:5] %}
+        <li class="list-group-item d-flex justify-content-between gap-2">
+          <a class="rank-name" href="{{ call.website_url or call.url }}" target="_blank" rel="noopener noreferrer">{{ call.title }}</a>
+          <span class="paper-meta mb-0">{% if call.deadline %}{{ call.deadline|localdt("%b %d") }}{% else %}Date unknown{% endif %}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
     {% if latest_search %}
     <div class="card mt-4 dash-latest-card">
       <div class="card-body">

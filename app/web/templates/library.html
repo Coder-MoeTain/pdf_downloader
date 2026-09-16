@@ -58,6 +58,7 @@
   <form class="lib-filter-form" method="get" action="/library">
     {% if latest %}<input type="hidden" name="latest" value="1">{% endif %}
     {% if category %}<input type="hidden" name="category" value="{{ category }}">{% endif %}
+    {% if view and view != 'compact' %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
     <div class="lib-filter-grid">
       <div class="lib-field lib-field-search">
         <label class="lib-filter-label" for="q">Search</label>
@@ -65,7 +66,7 @@
       </div>
       <div class="lib-field">
         <label class="lib-filter-label" for="year">Year</label>
-        <select class="form-select" id="year" name="year" onchange="this.form.submit()">
+        <select class="form-select" id="year" name="year" data-auto-submit>
           <option value="">All years</option>
           {% for y in facets.years %}
           <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
@@ -74,7 +75,7 @@
       </div>
       <div class="lib-field">
         <label class="lib-filter-label" for="sort">Sort</label>
-        <select class="form-select" id="sort" name="sort" onchange="this.form.submit()">
+        <select class="form-select" id="sort" name="sort" data-auto-submit>
           {% for key, label in sort_options %}
           <option value="{{ key }}" {% if sort == key %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
@@ -82,7 +83,7 @@
       </div>
       <div class="lib-field">
         <label class="lib-filter-label" for="access">Access</label>
-        <select class="form-select" id="access" name="access" onchange="this.form.submit()">
+        <select class="form-select" id="access" name="access" data-auto-submit>
           <option value="" {% if not oa and not pdf and status != 'PAYWALLED' %}selected{% endif %}>Any access</option>
           <option value="downloadable" {% if pdf and not oa and status != 'PAYWALLED' %}selected{% endif %}>On server (PDF saved)</option>
           <option value="open" {% if oa %}selected{% endif %}>Open access</option>
@@ -127,8 +128,9 @@
     {% if category %}<input type="hidden" name="category" value="{{ category }}">{% endif %}
     {% if year %}<input type="hidden" name="year" value="{{ year }}">{% endif %}
     {% if sort and sort != 'relevance' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+    {% if view and view != 'compact' %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
     <label class="lib-filter-label mb-0" for="per_page">Per page</label>
-    <select class="form-select form-select-sm" id="per_page" name="per_page" onchange="this.form.submit()" aria-label="Results per page">
+    <select class="form-select form-select-sm" id="per_page" name="per_page" data-auto-submit aria-label="Results per page">
       {% for size in page_sizes %}
       <option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size }}</option>
       {% endfor %}
@@ -137,9 +139,16 @@
   {% if pager.total_pages > 1 %}
   {{ library_pager(pager, filters) }}
   {% endif %}
+  <div class="lib-view-toggle" role="group" aria-label="Library view">
+    <a class="chip {% if view == 'compact' %}active{% endif %}" href="{{ library_href(filters, view='compact', page=1) }}">Compact</a>
+    <a class="chip {% if view == 'table' %}active{% endif %}" href="{{ library_href(filters, view='table', page=1) }}">Table</a>
+    <a class="chip {% if view == 'card' %}active{% endif %}" href="{{ library_href(filters, view='card', page=1) }}">Card</a>
+  </div>
 </div>
 {% endif %}
 
+{% if papers %}
+{% if view == 'table' %}
 <div class="table-responsive card lib-table-card">
   <table class="table align-middle mb-0 lib-table">
     <thead>
@@ -158,7 +167,7 @@
       {% set detail = {
         "authors": paper_authors_line(p, none) or "—",
         "year": p.publication_year,
-        "rating": p.user_rating or 0,
+        "rating": p.workspace_rating or p.user_rating or 0,
         "paper_id": p.id,
         "status_label": status_meta(p.status).label,
         "status_tone": status_meta(p.status).tone,
@@ -168,6 +177,7 @@
         <td class="lib-num">{{ pager.start + loop.index0 }}</td>
         <td>
           <div class="paper-title" title="{{ p.title }}">{{ p.title }}</div>
+          <div class="paper-meta">{{ paper_authors_line(p, none) or "—" }} · {{ p.publication_year or "n.d." }}{% if p.journal %} · {{ p.journal }}{% endif %}</div>
         </td>
         <td class="lib-col-source">
           {% if p.source %}
@@ -222,24 +232,84 @@
           {% endif %}
         </td>
       </tr>
-    {% else %}
-      <tr><td colspan="6" class="p-0">
-        {% if search_running %}
-          {{ empty_state("Search in progress", "Results will appear here automatically. Keep this page open.") }}
-        {% elif latest %}
-          {{ empty_state("No papers in this search", "Try a broader topic, or browse the full library.", "/library", "View library") }}
-        {% elif has_filters %}
-          {{ empty_state("Nothing matches this filter", "Clear the filter or try another keyword.", library_href({'latest': latest}), "Show all papers") }}
-        {% elif not show_paywalled %}
-          {{ empty_state("Paywalled papers are hidden", "Turn them back on in Settings, or filter the library by Paywalled.", "/settings?section=workspace" if is_admin else "/library?status=PAYWALLED", "Open settings" if is_admin else "View paywalled") }}
-        {% else %}
-          {{ empty_state("Library is empty", "Run a topic search to collect metadata and open-access PDFs.", "/search", "Start a search") }}
-        {% endif %}
-      </td></tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
+{% elif view == 'card' %}
+<div class="lib-card-grid">
+  {% for p in papers %}
+  {% set state = pdf_button_state(p) %}
+  <article class="lib-card">
+    <h2 class="paper-title">{{ p.title }}</h2>
+    <p class="paper-meta mb-2">{{ paper_authors_line(p, none) or "—" }} · {{ p.publication_year or "n.d." }}{% if p.journal %} · {{ p.journal }}{% endif %}</p>
+    <div class="chip-row mb-2">
+      {{ status_badge(p.status) }}
+      {% if p.open_access %}<span class="status-badge status-success">OA</span>{% endif %}
+      {% if can_preview(p) %}<span class="status-badge status-primary">PDF</span>{% endif %}
+      {% if p.citation_count %}<span class="chip">{{ p.citation_count }} cites</span>{% endif %}
+    </div>
+    <div class="lib-actions">
+      <button class="btn btn-sm btn-outline-secondary detail-btn" type="button" data-detail-title="{{ p.title|e }}" data-detail='{{ {"authors": paper_authors_line(p, none) or "—", "year": p.publication_year, "rating": p.workspace_rating or 0, "paper_id": p.id, "status_label": status_meta(p.status).label, "status_tone": status_meta(p.status).tone, "categories": paper_categories(p)}|tojson }}'>Detail</button>
+      <button class="btn btn-sm btn-outline-secondary cite-btn" type="button" data-cite-title="{{ p.title|e }}" data-cite='{{ paper_citations(p)|tojson }}'>Cite</button>
+      {% if state == "download" %}<a class="btn btn-sm btn-primary" href="/papers/{{ p.id }}/pdf">PDF</a>{% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<ul class="lib-compact" aria-label="Library papers">
+  {% for p in papers %}
+  {% set state = pdf_button_state(p) %}
+  <li class="lib-compact-item">
+    <div class="min-w-0 flex-grow-1">
+      <div class="paper-title">{{ p.title }}</div>
+      <div class="paper-meta">{{ paper_authors_line(p, none) or "—" }} · {{ p.journal or p.conference or "—" }} · {{ p.publication_year or "n.d." }}{% set downloader = paper_downloader_name(p) %}{% if downloader %} · Downloaded by {{ downloader }}{% endif %} · <span class="lib-date">{{ paper_record_date(p)|localdt or "—" }}</span></div>
+      <div class="chip-row mt-1">
+        {{ status_badge(p.status) }}
+        {% if p.open_access %}<span class="status-badge status-success">OA</span>{% endif %}
+        {% if can_preview(p) %}<span class="status-badge status-primary">PDF on server</span>{% endif %}
+        {% if p.citation_count %}<span class="chip">{{ p.citation_count }} cites</span>{% endif %}
+        {% if p.workspace_rating %}<span class="chip">Rated {{ p.workspace_rating }}/5</span>{% endif %}
+        {% if p.workspace_reading and p.workspace_reading != 'unread' %}<span class="chip">{{ p.workspace_reading }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="lib-actions">
+      <button class="btn btn-sm btn-outline-secondary detail-btn" type="button" data-detail-title="{{ p.title|e }}" data-detail='{{ {"authors": paper_authors_line(p, none) or "—", "year": p.publication_year, "rating": p.workspace_rating or 0, "paper_id": p.id, "status_label": status_meta(p.status).label, "status_tone": status_meta(p.status).tone, "categories": paper_categories(p)}|tojson }}'>Detail</button>
+      <button class="btn btn-sm btn-outline-secondary cite-btn" type="button" data-cite-title="{{ p.title|e }}" data-cite='{{ paper_citations(p)|tojson }}'>Cite</button>
+      {% if p.abstract %}
+      <button class="btn btn-sm btn-outline-secondary abstract-btn" type="button" data-abstract-title="{{ p.title }}" data-abstract-meta="{{ paper_abstract_meta(p) }}">Notes</button>
+      <template class="paper-abstract-text">{{ p.abstract }}</template>
+      {% endif %}
+      {% if can_preview(p) %}
+      <button class="btn btn-sm btn-outline-primary preview-btn" type="button" data-preview-url="/papers/{{ p.id }}/preview" data-preview-title="{{ p.title|e }}">Open PDF</button>
+      {% elif state == "download" %}
+      <a class="btn btn-sm btn-primary" href="/papers/{{ p.id }}/pdf">PDF</a>
+      {% endif %}
+      {% if is_admin and not can_preview(p) %}
+      <form method="post" action="/papers/{{ p.id }}/delete" class="d-inline" data-confirm="Delete this paper? No PDF file exists on the server for this record.">
+        <input type="hidden" name="next" value="{{ library_href(filters, page=pager.page) }}">
+        <button class="btn btn-sm btn-outline-danger paper-action-btn" type="submit">Delete</button>
+      </form>
+      {% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% else %}
+  {% if search_running %}
+    {{ empty_state("Search in progress", "Results will appear here automatically. Keep this page open.") }}
+  {% elif latest %}
+    {{ empty_state("No papers in this search", "Try a broader topic, or browse the full library.", "/library", "View library") }}
+  {% elif has_filters %}
+    {{ empty_state("Nothing matches this filter", "Clear the filter or try another keyword.", library_href({'latest': latest}), "Show all papers") }}
+  {% elif not show_paywalled %}
+    {{ empty_state("Paywalled papers are hidden", "Turn them back on in Settings, or filter the library by Paywalled.", "/settings?section=workspace" if is_admin else "/library?status=PAYWALLED", "Open settings" if is_admin else "View paywalled") }}
+  {% else %}
+    {{ empty_state("Library is empty", "Run a topic search to collect metadata and open-access PDFs.", "/discover", "Start a search") }}
+  {% endif %}
+{% endif %}
 
 {% if papers and pager.total_pages > 1 %}
 <div class="lib-toolbar lib-toolbar-bottom">

@@ -1,0 +1,7 @@
+{% macro render_project_tabs(tabs, active) -%}
+<nav class="project-tabs" aria-label="Project sections">
+  {% for tab in tabs %}
+  <a class="project-tab {% if tab.key == active %}is-active{% endif %}" href="{{ tab.href }}" {% if tab.key == active %}aria-current="page"{% endif %}>{{ tab.label }}</a>
+  {% endfor %}
+</nav>
+{%- endmacro %}

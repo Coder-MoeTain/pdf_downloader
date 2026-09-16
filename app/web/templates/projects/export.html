@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "projects/_tabs.html" import render_project_tabs %}
+{% block title %}Export · {{ project.title }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1 class="h3 mb-0">Export</h1></div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-primary" href="/projects/{{ project.id }}/snapshot.zip">Project snapshot ZIP</a>
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/report.md">Markdown</a>
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/report.html">HTML</a>
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/report.tex">LaTeX</a>
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/report.docx">DOCX</a>
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/bibliography.bib">BibTeX</a>
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/zotero.json">Zotero JSON</a>
+  </div>
+</div>
+{{ render_project_tabs(project_tabs, active_tab) }}
+<p class="small text-muted">Zotero push is optional. Configure <code>ZOTERO_API_KEY</code> and <code>ZOTERO_USER_ID</code> to send items; otherwise download BibTeX or Zotero JSON.</p>
+{% if project_role in ("owner","editor") %}
+<form method="post" action="/projects/{{ project.id }}/zotero/push" class="mb-3">
+  <button class="btn btn-outline-primary" type="submit">Push included papers to Zotero</button>
+</form>
+{% endif %}
+<pre class="card card-body" style="white-space:pre-wrap">{{ preview }}</pre>
+{% endblock %}

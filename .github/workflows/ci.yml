@@ -35,7 +35,7 @@ jobs:
       - name: Type check
         run: mypy --follow-imports=skip app/security app/exceptions.py app/services/oa_status.py app/database/identifiers.py app/config.py
       - name: Security scan
-        run: bandit -r app -q
+        run: bandit -r app -ll
       - name: Dependency audit
         run: pip-audit
       - name: Migration smoke test

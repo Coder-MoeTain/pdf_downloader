@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "projects/_tabs.html" import render_project_tabs %}
+{% block title %}Conflicts · {{ project.title }}{% endblock %}
+{% block content %}
+<div class="page-head"><h1 class="h3 mb-0">Conflict resolution</h1></div>
+{{ render_project_tabs(project_tabs, active_tab) }}
+{% for row in conflicts %}
+<div class="card mb-3"><div class="card-body">
+  <h2 class="h5">{{ row.paper.title if row.paper else "Paper" }}</h2>
+  {% for d in row.decisions %}
+  <p class="mb-1">Reviewer {{ d.reviewer_id }}: {{ d.decision }} {% if d.reason %}({{ d.reason }}){% endif %}</p>
+  {% endfor %}
+  <form method="post" action="/projects/{{ project.id }}/screening/conflicts/{{ row.project_paper.id }}" class="row g-2">
+    <input type="hidden" name="stage" value="{{ stage }}">
+    <div class="col-md-3"><select class="form-select" name="decision"><option value="include">Include</option><option value="exclude">Exclude</option><option value="maybe">Maybe</option></select></div>
+    <div class="col-md-5"><select class="form-select" name="reason"><option value="">Reason if exclude</option>{% for r in reasons %}<option value="{{ r.code }}">{{ r.label }}</option>{% endfor %}</select></div>
+    <div class="col-md-2"><button class="btn btn-primary" type="submit">Final decision</button></div>
+  </form>
+</div></div>
+{% else %}
+<p class="text-muted">No unresolved conflicts.</p>
+{% endfor %}
+{% endblock %}

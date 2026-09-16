@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "projects/_tabs.html" import render_project_tabs %}
+{% block title %}Matrix · {{ project.title }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1 class="h3 mb-0">Research matrix</h1></div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/matrix.csv">CSV</a>
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/matrix.xlsx">XLSX</a>
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/matrix.json">JSON</a>
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/matrix.tex">LaTeX</a>
+  </div>
+</div>
+{{ render_project_tabs(project_tabs, active_tab) }}
+<div class="matrix-wrap">
+<table class="matrix-table">
+  <thead>
+    <tr>
+      <th>Paper</th><th>Year</th>
+      {% for field in matrix.fields %}<th>{{ field.label }}</th>{% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in matrix.rows %}
+    <tr>
+      <td><a href="/projects/{{ project.id }}/papers/{{ row.paper_id }}/reader">{{ row.title }}</a></td>
+      <td>{{ row.year or "" }}</td>
+      {% for cell in row.cells %}
+      <td>
+        {{ cell.value or "—" }}
+        {% if cell.method == "ai_assisted" %}<span class="badge-ai">AI</span>{% endif %}
+        {% if cell.state == "user_verified" %}<span class="badge-ok" title="Verified">✓</span>{% elif cell.state == "ai_suggested" %}<span class="badge-warn" title="Unverified">!</span>{% endif %}
+        {% if cell.page %}<div class="small text-muted">p.{{ cell.page }} {{ cell.section }}</div>{% endif %}
+      </td>
+      {% endfor %}
+    </tr>
+    {% else %}
+    <tr><td colspan="8" class="text-muted">No rows yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

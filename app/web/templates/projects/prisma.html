@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% from "projects/_tabs.html" import render_project_tabs %}
+{% block title %}PRISMA · {{ project.title }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1 class="h3 mb-0">PRISMA</h1><p class="small text-muted mb-0">Counts come from stored screening data. They are not estimates.</p></div>
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/prisma.svg">SVG</a>
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/prisma.png">PNG</a>
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/prisma.pdf">PDF</a>
+    <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/prisma.json">Counts JSON</a>
+  </div>
+</div>
+{{ render_project_tabs(project_tabs, active_tab) }}
+<div class="card mb-3"><div class="card-body">{{ svg|safe }}</div></div>
+<ul>
+  {% for key, label in [("identified","Records identified"),("duplicates_removed","Duplicates removed"),("records_screened","Records screened"),("records_excluded","Records excluded"),("reports_sought","Reports sought"),("reports_not_retrieved","Reports not retrieved"),("reports_assessed","Reports assessed"),("reports_excluded","Reports excluded"),("studies_included","Studies included")] %}
+  <li>{{ label }}: {{ counts[key] }}</li>
+  {% endfor %}
+</ul>
+{% endblock %}

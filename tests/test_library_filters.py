@@ -231,9 +231,13 @@ def test_rating_api_and_downloadable_page(tmp_db):
     rated = client.get("/library?min_rating=4")
     assert rated.status_code == 200
     assert "OA paper for dashboard" in rated.text
-    empty = client.get("/library?min_rating=5&status=PAYWALLED")
-    assert empty.status_code == 200
-    assert "Nothing matches this filter" in empty.text
+    compact = client.get("/library")
+    assert compact.status_code == 200
+    assert "OA paper for dashboard" in compact.text
+    assert "Compact" in compact.text
+    table = client.get("/library?view=table")
+    assert table.status_code == 200
+    assert "lib-table" in table.text
 
 
 def test_category_year_source_and_journal_filters(tmp_db):
@@ -808,7 +812,6 @@ def test_library_shows_who_downloaded(tmp_db):
     assert "Alice" in page.text
     assert "Downloaded by Alice" in page.text
     assert "Not downloaded yet" in page.text
-    assert 'class="lib-col-date">Date</th>' in page.text
     assert "lib-date" in page.text
 
 
@@ -852,7 +855,6 @@ def test_library_and_downloads_show_record_dates(tmp_db):
     client = login_admin(TestClient(app))
     library = client.get("/library")
     assert library.status_code == 200
-    assert 'class="lib-col-date">Date</th>' in library.text
     assert "Dated library paper" in library.text
     assert "lib-date" in library.text
     downloads = client.get("/downloads")

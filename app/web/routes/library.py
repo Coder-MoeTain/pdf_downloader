@@ -65,6 +65,7 @@ def library_page(
     user: QueryInt = 0,
     sort: str = DEFAULT_SORT,
     per_page: QueryInt = DEFAULT_PAGE_SIZE,
+    view: str = "compact",
 ):
     status = status.strip().upper()
     access = access.strip().lower()
@@ -99,6 +100,7 @@ def library_page(
     per_page = clamp_page_size(per_page)
     year = year if year and year > 0 else 0
     user_id = user if user and user > 0 else 0
+    view = view if view in {"compact", "table", "card"} else "compact"
     latest_search = None
     papers = []
     total = 0
@@ -124,6 +126,7 @@ def library_page(
                 source=source,
                 journal=journal,
                 user_id=user_id or None,
+                rater_user_id=_request_user_id(request),
                 sort=sort,
                 latest_search_id=latest_search.id if use_latest else None,
                 limit=per_page,
@@ -208,13 +211,14 @@ def library_page(
         "user": user_id,
         "sort": sort,
         "per_page": per_page,
+        "view": view,
     }
     user_label = next((item["name"] for item in user_options if item["id"] == user_id), "")
     has_filters = bool(
         q or status or downloadable or open_access or min_rating or category or year or source or journal or user_id
     )
     stats = library_status_panel(facets)
-    base_filters = {"latest": use_latest, "sort": sort, "per_page": per_page}
+    base_filters = {"latest": use_latest, "sort": sort, "per_page": per_page, "view": view}
     kpis = [
         {
             "href": library_href(base_filters),
@@ -284,6 +288,7 @@ def library_page(
             kpis=kpis,
             has_library_stats=stats["has_stats"],
             source_catalog={row["slug"]: row for row in _source_rows()},
+            view=view,
         ),
     )
 
@@ -336,7 +341,7 @@ def paper_workspace(paper_id: int, request: Request):
     user_id = _request_user_id(request)
     if user_id is None:
         return JSONResponse({"ok": False, "error": "Sign in required"}, status_code=401)
-    from app.database.repository import list_user_collections, related_papers, user_paper_workspace
+    from app.database.repository import list_user_collections, related_papers_with_reasons, user_paper_workspace
 
     with session_scope() as session:
         paper = session.get(Paper, paper_id)
@@ -348,8 +353,14 @@ def paper_workspace(paper_id: int, request: Request):
             for row in list_user_collections(session, user_id)
         ]
         related = [
-            {"id": row.id, "title": row.title, "year": row.publication_year, "citations": row.citation_count or 0}
-            for row in related_papers(session, paper_id)
+            {
+                "id": row["paper"].id,
+                "title": row["paper"].title,
+                "year": row["paper"].publication_year,
+                "citations": row["paper"].citation_count or 0,
+                "reasons": row["reasons"],
+            }
+            for row in related_papers_with_reasons(session, paper_id)
         ]
     return JSONResponse({"ok": True, "paper_id": paper_id, **workspace, "collections": collections, "related": related})
 

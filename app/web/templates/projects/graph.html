@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "projects/_tabs.html" import render_project_tabs %}
+{% block title %}Citation graph · {{ project.title }}{% endblock %}
+{% block extra_js %}<script src="/static/graph.js?v={{ version }}"></script>{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="h3 mb-0">Citation graph</h1>
+    <p class="small text-muted mb-0">Click a node to expand related papers. Edges use stored metadata overlap, not verified citations.</p>
+  </div>
+  <a class="btn btn-outline-secondary" href="/projects/{{ project.id }}/graph?included={{ '0' if included_only else '1' }}">{{ "All project papers" if included_only else "Included only" }}</a>
+</div>
+{{ render_project_tabs(project_tabs, active_tab) }}
+<div id="citationGraph" class="graph-canvas" data-url="/projects/{{ project.id }}/graph.json?included={{ '1' if included_only else '0' }}"></div>
+<p class="small text-muted mt-2" id="citationGraphNote"></p>
+{% endblock %}

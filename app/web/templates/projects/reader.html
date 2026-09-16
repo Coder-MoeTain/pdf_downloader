@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% if project %}{% from "projects/_tabs.html" import render_project_tabs %}{% endif %}
+{% block title %}{{ paper.title[:60] }} · Reader{% endblock %}
+{% block extra_js %}<script src="/static/reader.js?v={{ version }}"></script>{% endblock %}
+{% block content %}
+{% if project %}{{ render_project_tabs(project_tabs, active_tab) }}{% endif %}
+<h1 class="h4">{{ paper.title }}</h1>
+<p class="text-muted">{{ paper.publication_year or "" }} {% if paper.doi %}· {{ paper.doi }}{% endif %}</p>
+<div class="reader-grid">
+  <iframe class="reader-frame" title="PDF" src="{{ pdf_url }}"></iframe>
+  <aside class="card"><div class="card-body">
+    <h2 class="h6">Notes and highlights</h2>
+    <p class="small text-muted">Annotations are private to your account. The original PDF is never modified.</p>
+    {% for note in annotations %}
+    <p class="small mb-2"><strong>{{ note.annotation_type }}</strong> p.{{ note.page_number }} — {{ note.comment or note.selected_text }}</p>
+    {% else %}<p class="text-muted small">No annotations yet.</p>{% endfor %}
+    <form method="post" action="/api/papers/{{ paper.id }}/annotations">
+      {% if project %}<input type="hidden" name="project_id" value="{{ project.id }}">{% endif %}
+      <input class="form-control mb-2" name="page_number" value="1" type="number" min="1">
+      <select class="form-select mb-2" name="annotation_type"><option>highlight</option><option>note</option><option>bookmark</option></select>
+      <textarea class="form-control mb-2" name="comment" placeholder="Note"></textarea>
+      <button class="btn btn-sm btn-primary" type="submit">Save annotation</button>
+    </form>
+    <hr>
+    <hr>
+    <h2 class="h6">Related papers</h2>
+    {% for item in related or [] %}
+    <p class="small mb-2">
+      {% if project %}
+      <a href="/projects/{{ project.id }}/papers/{{ item.paper.id }}/reader">{{ item.paper.title }}</a>
+      {% else %}
+      <a href="/library/papers/{{ item.paper.id }}/reader">{{ item.paper.title }}</a>
+      {% endif %}
+      <span class="paper-meta">{{ item.reasons|join(" · ") }}</span>
+    </p>
+    {% else %}<p class="text-muted small">No close bibliographic matches yet.</p>{% endfor %}
+    <h2 class="h6">Ask this paper</h2>
+    <form method="post" action="/api/papers/{{ paper.id }}/ask" data-ask-paper>
+      <textarea class="form-control mb-2" name="question" placeholder="What dataset does this study use?"></textarea>
+      <button class="btn btn-sm btn-outline-primary" type="submit">Ask</button>
+    </form>
+    <div id="askPaperResult" class="small mt-2"></div>
+  </div></aside>
+</div>
+{% endblock %}

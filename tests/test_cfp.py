@@ -185,3 +185,10 @@ def test_cfp_page_renders_upcoming(tmp_db):
     assert "https://agentic.example/cfp" in page.text
     assert "WikiCFP →" not in page.text
     assert "Hidden Far Away" not in page.text
+    filtered = client.get("/cfp?q=Agentic")
+    assert filtered.status_code == 200
+    assert "Agentic AI Symposium" in filtered.text
+    empty = client.get("/cfp?q=no-such-conference-xyz")
+    assert empty.status_code == 200
+    assert "Agentic AI Symposium" not in empty.text
+    assert "Nothing matches this filter" in empty.text

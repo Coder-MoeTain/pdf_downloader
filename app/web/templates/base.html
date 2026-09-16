@@ -1,20 +1,12 @@
+{% from "_macros.html" import nav_icon, brand_mark, theme_toggle %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <script>
-  (function () {
-    var key = "cs-theme";
-    var stored = localStorage.getItem(key);
-    var theme = stored === "dark" || stored === "light"
-      ? stored
-      : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-    document.documentElement.setAttribute("data-bs-theme", theme);
-  })();
-  </script>
+  <script src="/static/theme-boot.js"></script>
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/logo.svg">
@@ -24,65 +16,68 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="/static/app.css?v={{ version }}">
   <link rel="stylesheet" href="/static/theme.css?v={{ version }}">
+  <link rel="stylesheet" href="/static/shell.css?v={{ version }}">
   {% block extra_head %}{% endblock %}
 </head>
-<body class="{% block body_class %}{% endblock %}">
-{% from "_macros.html" import nav_icon, brand_mark, theme_toggle %}
+<body class="app-body {% block body_class %}{% endblock %}">
 <a class="skip-link" href="#main">Skip to content</a>
-<nav class="navbar navbar-expand-xl navbar-dark app-nav sticky-top" aria-label="Main">
-  <div class="container-xl app-nav-inner">
-    <a class="navbar-brand" href="/" title="{{ app_name }} · {{ app_subtitle }}">
+<div class="app-frame">
+  <aside class="app-sidebar" id="appSidebar" aria-label="Primary">
+    <a class="sidebar-brand" href="/" title="{{ app_name }} · {{ app_subtitle }}">
       {{ brand_mark() }}
       <span class="brand-copy">
         <span class="brand-text">{{ app_name }}</span>
         <span class="brand-sub">{{ app_subtitle }}</span>
       </span>
     </a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav" aria-controls="nav" aria-expanded="false" aria-label="Open menu">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="nav">
-      <ul class="navbar-nav nav-primary">
-        {% for href, label, key in [
-          ("/", "Dashboard", "dashboard"),
-          ("/library", "Library", "library"),
-          ("/downloads", "Downloads", "downloads"),
-          ("/cfp", "Call for papers", "cfp"),
-          ("/reports", "Reports", "reports"),
-          ("/sources", "Sources", "sources"),
-          ("/crawler", "Crawler", "crawler"),
-          ("/search", "Search", "search"),
-          ("/system", "System", "system"),
-        ] if is_admin or key not in ("sources", "crawler", "system") %}
-        <li class="nav-item">
-          <a class="nav-link {% if page == key %}active{% endif %}" href="{{ href }}" title="{{ label }}" {% if page == key %}aria-current="page"{% endif %}>
-            {{ nav_icon(key) }}
-            <span class="nav-link-label">{{ label }}</span>
-          </a>
-        </li>
-        {% endfor %}
-      </ul>
-      <div class="nav-aside">
+    <nav class="sidebar-nav" aria-label="Workspace">
+      <p class="sidebar-label">Workspace</p>
+      {% for href, label, key in [
+        ("/", "Dashboard", "dashboard"),
+        ("/projects", "Projects", "projects"),
+        ("/discover", "Discover", "discover"),
+        ("/library", "Library", "library"),
+        ("/cfp", "Call for Papers", "cfp"),
+        ("/analytics", "Analytics", "analytics"),
+      ] %}
+      <a class="sidebar-link {% if page == key %}is-active{% endif %}" href="{{ href }}" {% if page == key %}aria-current="page"{% endif %}>
+        {{ nav_icon(key) }}
+        <span>{{ label }}</span>
+      </a>
+      {% endfor %}
+      {% if is_admin %}
+      <p class="sidebar-label">Administration</p>
+      {% for href, label, key in [
+        ("/sources", "Sources", "sources"),
+        ("/system", "System", "system"),
+        ("/settings", "Settings", "settings"),
+      ] %}
+      <a class="sidebar-link {% if page == key %}is-active{% endif %}" href="{{ href }}" {% if page == key %}aria-current="page"{% endif %}>
+        {{ nav_icon(key) }}
+        <span>{{ label }}</span>
+      </a>
+      {% endfor %}
+      {% endif %}
+    </nav>
+    <div class="sidebar-foot">
+      <span class="nav-version">v{{ version }}</span>
+    </div>
+  </aside>
+  <div class="app-main">
+    <header class="app-topbar">
+      <button class="sidebar-toggle" type="button" data-sidebar-toggle aria-controls="appSidebar" aria-expanded="false" aria-label="Open navigation">☰</button>
+      <form class="global-search" method="get" action="/library" role="search">
+        <label class="visually-hidden" for="globalSearch">Search library</label>
+        <input id="globalSearch" name="q" type="search" placeholder="Search library…" value="">
+      </form>
+      <div class="topbar-actions">
         {% if progress and progress.active %}
-        {% if progress.kind == "search" %}
-        <a class="nav-live" href="/search?live=1" title="Search in progress">
+        <a class="nav-live" href="{{ '/discover?live=1' if progress.kind == 'search' else '/downloads' }}" title="Work in progress">
           <span class="nav-live-dot" aria-hidden="true"></span>
-          <span class="nav-link-label">Searching…</span>
+          <span class="nav-link-label">{% if progress.kind == 'search' %}Searching…{% else %}Downloading{% endif %}</span>
         </a>
-        {% else %}
-        <a class="nav-live" href="/downloads" title="Downloads in progress">
-          <span class="nav-live-dot" aria-hidden="true"></span>
-          <span class="nav-link-label">Downloading {{ progress.current }}/{{ progress.total }}</span>
-        </a>
-        {% endif %}
         {% endif %}
         {{ theme_toggle() }}
-        {% if is_admin and page != 'login' %}
-        <a class="nav-link nav-settings {% if page == 'settings' %}active{% endif %}" href="/settings" title="Settings" {% if page == 'settings' %}aria-current="page"{% endif %}>
-          {{ nav_icon("settings") }}
-          <span class="nav-link-label">Settings</span>
-        </a>
-        {% endif %}
         {% if user %}
         <div class="nav-user">
           {% if user.picture %}<img class="nav-user-pic" src="{{ user.picture }}" alt="" width="28" height="28">{% endif %}
@@ -96,29 +91,36 @@
           </form>
         </div>
         {% else %}
-        <a class="nav-link nav-login {% if page == 'login' %}active{% endif %}" href="/login">Log in</a>
+        <a class="nav-link nav-login" href="/login">Log in</a>
         {% endif %}
-        <span class="nav-version">v{{ version }}</span>
       </div>
-    </div>
+    </header>
+    {% if breadcrumbs %}
+    <nav class="app-breadcrumb" aria-label="Breadcrumb">
+      <ol>
+        {% for crumb in breadcrumbs %}
+        <li>{% if not loop.last %}<a href="{{ crumb.href }}">{{ crumb.label }}</a>{% else %}<span aria-current="page">{{ crumb.label }}</span>{% endif %}</li>
+        {% endfor %}
+      </ol>
+    </nav>
+    {% endif %}
+    <main id="main" class="app-content">
+      {% if flash and flash.text %}
+      <div class="alert alert-{{ flash.level or 'info' }} alert-dismissible fade show" role="status">
+        {{ flash.text }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button>
+      </div>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="app-footer">
+      <span>Make with love by Coder-MoeTain</span>
+      <span>Times in {{ timezone }} ({{ timezone_offset }})</span>
+      <a href="/discover">New search</a>
+    </footer>
   </div>
-</nav>
-<main id="main" class="container-xl py-4">
-  {% if flash and flash.text %}
-  <div class="alert alert-{{ flash.level or 'info' }} alert-dismissible fade show" role="status">
-    {{ flash.text }}
-    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Dismiss"></button>
-  </div>
-  {% endif %}
-  {% block content %}{% endblock %}
-</main>
-<footer class="app-footer">
-  <div class="container-xl d-flex flex-wrap justify-content-between gap-2">
-    <span>Make with love by Coder-MoeTain</span>
-    <span>Times in {{ timezone }} ({{ timezone_offset }})</span>
-    <a href="/search">New search</a>
-  </div>
-</footer>
+</div>
+<div class="sidebar-backdrop" data-sidebar-backdrop hidden></div>
 <dialog id="paperDetailDialog" class="paper-detail-dialog" aria-labelledby="paperDetailTitle">
   <div class="paper-detail-shell">
     <header class="paper-detail-header">
@@ -197,6 +199,7 @@
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="/static/app.js?v={{ version }}"></script>
+<script src="/static/shell.js?v={{ version }}"></script>
 {% block extra_js %}{% endblock %}
 </body>
 </html>

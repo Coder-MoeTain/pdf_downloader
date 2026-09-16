@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from typing import Any
-from xml.etree import ElementTree as ET
+
+from defusedxml import ElementTree as ET
 
 from app.models.paper import AuthorRecord, PaperRecord
 from app.models.search import SearchFilters

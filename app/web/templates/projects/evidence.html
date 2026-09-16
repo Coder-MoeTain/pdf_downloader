@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "projects/_tabs.html" import render_project_tabs %}
+{% block title %}Evidence · {{ project.title }}{% endblock %}
+{% block content %}
+<div class="page-head"><h1 class="h3 mb-0">Evidence synthesis</h1></div>
+{{ render_project_tabs(project_tabs, active_tab) }}
+{% for group in groups %}
+<div class="card mb-3"><div class="card-body">
+  <h2 class="h5">{% if group.question %}{{ group.question.code }} — {{ group.question.question }}{% else %}Unassigned evidence{% endif %}</h2>
+  {% for stance in ["supporting","conflicting","inconclusive"] %}
+  <h3 class="h6 text-capitalize">{{ stance }}</h3>
+  {% for item in group[stance] %}
+  <p class="small mb-1">{{ item.paper.title if item.paper else "Paper" }}{% if item.evidence.page_number %} · p.{{ item.evidence.page_number }}{% endif %} — {{ item.evidence.evidence_text }}</p>
+  {% else %}<p class="text-muted small">None</p>{% endfor %}
+  {% endfor %}
+</div></div>
+{% else %}
+<p class="text-muted">Add evidence excerpts with paper and page numbers.</p>
+{% endfor %}
+{% if project_role in ("owner","editor") %}
+<form method="post" action="/projects/{{ project.id }}/evidence" class="card mb-4"><div class="card-body row g-2">
+  <div class="col-md-2"><input class="form-control" name="paper_id" required placeholder="Paper id"></div>
+  <div class="col-md-2"><select class="form-select" name="stance"><option>supporting</option><option>conflicting</option><option>inconclusive</option></select></div>
+  <div class="col-md-2"><input class="form-control" name="page_number" placeholder="Page"></div>
+  <div class="col-md-6"><input class="form-control" name="text" required placeholder="Evidence excerpt"></div>
+  <div class="col-12"><button class="btn btn-primary" type="submit">Add evidence</button></div>
+</div></form>
+{% endif %}
+<h2 class="h5">Themes</h2>
+{% for theme in themes %}
+<span class="chip">{{ theme.name }}</span>
+{% else %}<p class="text-muted">No themes yet.</p>{% endfor %}
+{% if project_role in ("owner","editor") %}
+<form method="post" action="/projects/{{ project.id }}/themes" class="d-flex gap-2 mb-4">
+  <input class="form-control" name="name" required placeholder="Theme name">
+  <button class="btn btn-outline-secondary" type="submit">Add theme</button>
+</form>
+{% endif %}
+<h2 class="h5">Potential research gaps</h2>
+<p class="small text-muted">Evidence-based recurring limitations. This is not a claim that a gap is proven.</p>
+{% for gap in gaps %}
+<div class="card mb-2"><div class="card-body">
+  <strong>{{ gap.label }}</strong> · {{ gap.share }}
+  <div class="small">{{ gap.caveat }}</div>
+</div></div>
+{% else %}
+<p class="text-muted">Extract limitations on multiple papers to cluster recurring statements.</p>
+{% endfor %}
+{% endblock %}

@@ -24,6 +24,7 @@ from app.database.repository import (
 )
 from app.providers import provider_status
 from app.services.progress import tracker
+from app.services.project_service import list_user_projects, workspace_summary
 from app.services.search_queue import cancel_search, enqueue_search, queue_snapshot, search_progress_snapshot
 from app.services.search_service import filters_from_cli
 from app.services.usage import record_usage
@@ -51,7 +52,27 @@ router = APIRouter()
 def dashboard(request: Request):
     def _load() -> dict:
         with session_scope() as session:
-            return dashboard_stats(session)
+            stats = dashboard_stats(session)
+            user_id = _request_user_id(request)
+            stats["workspace"] = (
+                workspace_summary(session, user_id)
+                if user_id
+                else {
+                    "projects": [],
+                    "project_count": 0,
+                    "screening_pending": 0,
+                    "active": 0,
+                }
+            )
+            from app.database.repository import list_saved_searches, list_upcoming_cfps
+
+            stats["upcoming_cfps"] = list_upcoming_cfps(session, limit=5)
+            stats["search_alerts"] = (
+                [row for row in list_saved_searches(session, user_id) if row.alert_enabled or row.new_paper_count]
+                if user_id
+                else []
+            )
+            return stats
 
     try:
         stats = retry_on_sqlite_lock(_load)
@@ -73,6 +94,9 @@ def dashboard(request: Request):
             "top_cited": [],
             "recent": [],
             "topics": [],
+            "workspace": {"projects": [], "project_count": 0, "screening_pending": 0, "active": 0},
+            "upcoming_cfps": [],
+            "search_alerts": [],
         }
 
     total = int(stats["total"])
@@ -169,6 +193,10 @@ def dashboard(request: Request):
             downloadable=downloadable,
             failed=failed,
             stored_total=stored_total,
+            workspace=stats.get("workspace")
+            or {"projects": [], "project_count": 0, "screening_pending": 0, "active": 0},
+            upcoming_cfps=stats.get("upcoming_cfps") or [],
+            search_alerts=stats.get("search_alerts") or [],
         ),
     )
 
@@ -184,10 +212,17 @@ def search_page(request: Request):
         active_job = active_search_job_for_user(session, user_id)
         focus_job = active_job
         saved_searches = []
+        latest_papers: list = []
+        user_projects = []
+        from app.database.repository import list_saved_searches, query_library
+
         if user_id is not None:
-            from app.database.repository import list_saved_searches
+            from app.services.alert_service import alert_preview
 
             saved_searches = list_saved_searches(session, user_id)
+            for row in saved_searches:
+                row.alert_preview = alert_preview(row)
+            user_projects = list_user_projects(session, user_id)
         if focus_job is None and job_id_param:
             try:
                 jid = int(job_id_param)
@@ -197,24 +232,39 @@ def search_page(request: Request):
                         focus_job = row
             except ValueError:
                 pass
-    available = [row for row in provider_status() if row.get("available")]
-    job_progress = search_progress_snapshot(focus_job.id) if focus_job else tracker.snapshot()
-    queue = queue_snapshot(user_id=user_id, is_admin=is_admin)
-    return templates.TemplateResponse(
-        request,
-        "search.html",
-        _ctx(
+        latest_search = recent[0] if recent else None
+        if latest_search is not None:
+            latest_papers, _total = query_library(
+                session,
+                latest_search_id=latest_search.id,
+                rater_user_id=user_id,
+                limit=20,
+            )
+        available = [row for row in provider_status() if row.get("available")]
+        job_progress = search_progress_snapshot(focus_job.id) if focus_job else tracker.snapshot()
+        queue = queue_snapshot(user_id=user_id, is_admin=is_admin)
+        return templates.TemplateResponse(
             request,
-            config=cfg,
-            recent_searches=recent,
-            available_sources=available,
-            job=job_progress or tracker.snapshot(),
-            active_job_id=focus_job.id if focus_job else None,
-            search_queue=queue,
-            topics=cfg.topics,
-            saved_searches=saved_searches,
-        ),
-    )
+            "search.html",
+            _ctx(
+                request,
+                config=cfg,
+                recent_searches=recent,
+                available_sources=available,
+                job=job_progress or tracker.snapshot(),
+                active_job_id=focus_job.id if focus_job else None,
+                search_queue=queue,
+                topics=cfg.topics,
+                saved_searches=saved_searches,
+                user_projects=user_projects,
+                latest_papers=latest_papers,
+            ),
+        )
+
+
+@router.get("/discover", response_class=HTMLResponse)
+def discover_page(request: Request):
+    return search_page(request)
 
 
 @router.post("/search")
@@ -247,7 +297,7 @@ async def search_submit(
         f"Search queued (job #{job_id}). Sources and PDF downloads run in parallel — watch the live log.",
         "info",
     )
-    return RedirectResponse(f"/search?live=1&job={job_id}", status_code=303)
+    return RedirectResponse(f"/discover?live=1&job={job_id}", status_code=303)
 
 
 @router.post("/search/save")
@@ -261,6 +311,8 @@ def search_save(
     open_access_only: str | None = Form(None),
     sort: str = Form("relevance"),
     source: str = Form(""),
+    alert_enabled: str | None = Form(None),
+    alert_frequency: str = Form("weekly"),
 ):
     user_id = _request_user_id(request)
     if user_id is None:
@@ -276,8 +328,64 @@ def search_save(
         "source": source.strip() or None,
     }
     with session_scope() as session:
-        saved = save_search_config(session, user_id, name, query, filters)
+        saved = save_search_config(
+            session,
+            user_id,
+            name,
+            query,
+            filters,
+            alert_enabled=bool(alert_enabled),
+            alert_frequency=alert_frequency,
+        )
     set_flash(request, f"Saved search “{saved.name}”.", "success")
+    return RedirectResponse("/search", status_code=303)
+
+
+@router.post("/search/saved/{search_id}/alert")
+def search_alert_update(
+    request: Request,
+    search_id: int,
+    alert_enabled: str | None = Form(None),
+    alert_frequency: str = Form("weekly"),
+):
+    user_id = _request_user_id(request)
+    if user_id is None:
+        return RedirectResponse("/login?next=/search", status_code=302)
+    from app.database.repository import update_saved_search_alert
+
+    with session_scope() as session:
+        row = update_saved_search_alert(
+            session, user_id, search_id, enabled=bool(alert_enabled), frequency=alert_frequency
+        )
+    if row is None:
+        set_flash(request, "Saved search not found.", "danger")
+    else:
+        set_flash(request, "Alert settings updated. Alerts never download PDFs automatically.", "success")
+    return RedirectResponse("/search", status_code=303)
+
+
+@router.post("/search/saved/{search_id}/run-alert")
+async def search_alert_run(request: Request, search_id: int):
+    user_id = _request_user_id(request)
+    if user_id is None:
+        return RedirectResponse("/login?next=/search", status_code=302)
+    from app.database.repository import get_saved_search
+    from app.services.alert_service import run_saved_search_alert
+
+    with session_scope() as session:
+        row = get_saved_search(session, user_id, search_id)
+        if row is None:
+            set_flash(request, "Saved search not found.", "danger")
+            return RedirectResponse("/search", status_code=303)
+    result = await run_saved_search_alert(search_id)
+    if not result.get("ok"):
+        set_flash(request, result.get("error") or "Alert check failed.", "danger")
+    else:
+        set_flash(
+            request,
+            f"Alert check found {result.get('new_count', 0)} new paper(s). No PDFs were downloaded.",
+            "info",
+        )
     return RedirectResponse("/search", status_code=303)
 
 

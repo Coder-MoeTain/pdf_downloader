@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% from "projects/_tabs.html" import render_project_tabs %}
+{% block title %}Catalogs · {{ project.title }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1 class="h3 mb-0">Datasets, algorithms, and reproducibility</h1>
+    <p class="small text-muted mb-0">Built from extracted fields. Catalog counts are not a meta-analysis.</p>
+  </div>
+  {% if project_role in ("owner","editor") %}
+  <form method="post" action="/projects/{{ project.id }}/catalogs/refresh">
+    <button class="btn btn-outline-primary" type="submit">Rebuild catalogs</button>
+  </form>
+  {% endif %}
+</div>
+{{ render_project_tabs(project_tabs, active_tab) }}
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card"><div class="card-body">
+      <h2 class="h6">Datasets</h2>
+      {% for row in catalogs.datasets %}
+      <div class="funnel-row"><span>{{ row.name }}{% if row.version %} · {{ row.version }}{% endif %}</span><strong>{{ row.paper_count }}</strong></div>
+      {% else %}<p class="text-muted mb-0">Extract dataset names to populate this catalog.</p>{% endfor %}
+    </div></div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card"><div class="card-body">
+      <h2 class="h6">Algorithms / models</h2>
+      {% for row in catalogs.algorithms %}
+      <div class="funnel-row">
+        <span>{{ row.name }}{% if row.datasets %}<div class="small text-muted">{{ row.datasets }}</div>{% endif %}</span>
+        <strong>{{ row.paper_count }}</strong>
+      </div>
+      {% else %}<p class="text-muted mb-0">Extract algorithms or models to populate this catalog.</p>{% endfor %}
+    </div></div>
+  </div>
+  <div class="col-12">
+    <div class="card"><div class="card-body">
+      <h2 class="h6">Reported metrics</h2>
+      <p class="small text-muted">{{ catalogs.metrics_caveat }}</p>
+      {% for row in catalogs.metrics %}
+      <div class="funnel-row"><span>{{ row.name }}</span><strong>{{ row.count }}</strong></div>
+      {% else %}<p class="text-muted mb-0">Extract metric fields to list reported measures.</p>{% endfor %}
+    </div></div>
+  </div>
+</div>
+<h2 class="h5 mt-4" id="reproducibility">Reproducibility tracker</h2>
+{% for row in repro %}
+<div class="card mb-3" id="repro-{{ row.item.id }}"><div class="card-body">
+  <div class="d-flex justify-content-between gap-3">
+    <h3 class="h6 mb-2"><a href="/projects/{{ project.id }}/papers/{{ row.paper.id }}/reader">{{ row.paper.title }}</a></h3>
+    <span class="paper-meta">Score {{ row.score }}/8</span>
+  </div>
+  {% if project_role in ("owner","editor") %}
+  <form method="post" action="/projects/{{ project.id }}/reproducibility/{{ row.item.id }}" class="row g-2">
+    {% set rec = row.record %}
+    <div class="col-md-3"><label class="form-label">Code</label><select class="form-select" name="code_available"><option value="">Unknown</option><option value="yes" {% if rec and rec.code_available == true %}selected{% endif %}>Yes</option><option value="no" {% if rec and rec.code_available == false %}selected{% endif %}>No</option></select></div>
+    <div class="col-md-3"><label class="form-label">Code URL</label><input class="form-control" name="code_url" value="{{ rec.code_url if rec else '' }}"></div>
+    <div class="col-md-3"><label class="form-label">Dataset</label><select class="form-select" name="dataset_available"><option value="">Unknown</option><option value="yes" {% if rec and rec.dataset_available == true %}selected{% endif %}>Yes</option><option value="no" {% if rec and rec.dataset_available == false %}selected{% endif %}>No</option></select></div>
+    <div class="col-md-3"><label class="form-label">Dataset URL</label><input class="form-control" name="dataset_url" value="{{ rec.dataset_url if rec else '' }}"></div>
+    <div class="col-md-3"><label class="form-label">Environment</label><select class="form-select" name="environment_described"><option value="">Unknown</option><option value="yes" {% if rec and rec.environment_described == true %}selected{% endif %}>Yes</option><option value="no" {% if rec and rec.environment_described == false %}selected{% endif %}>No</option></select></div>
+    <div class="col-md-3"><label class="form-label">Hyperparameters</label><select class="form-select" name="hyperparameters_reported"><option value="">Unknown</option><option value="yes" {% if rec and rec.hyperparameters_reported == true %}selected{% endif %}>Yes</option><option value="no" {% if rec and rec.hyperparameters_reported == false %}selected{% endif %}>No</option></select></div>
+    <div class="col-md-3"><label class="form-label">Random seed</label><select class="form-select" name="random_seed_reported"><option value="">Unknown</option><option value="yes" {% if rec and rec.random_seed_reported == true %}selected{% endif %}>Yes</option><option value="no" {% if rec and rec.random_seed_reported == false %}selected{% endif %}>No</option></select></div>
+    <div class="col-md-3"><label class="form-label">License</label><select class="form-select" name="license_available"><option value="">Unknown</option><option value="yes" {% if rec and rec.license_available == true %}selected{% endif %}>Yes</option><option value="no" {% if rec and rec.license_available == false %}selected{% endif %}>No</option></select></div>
+    <div class="col-md-3"><label class="form-label">Reproduced locally</label><select class="form-select" name="reproduced_by_user"><option value="no">No</option><option value="yes" {% if rec and rec.reproduced_by_user %}selected{% endif %}>Yes</option></select></div>
+    <div class="col-md-9"><label class="form-label">Notes</label><input class="form-control" name="reproduction_notes" value="{{ rec.reproduction_notes if rec else '' }}"></div>
+    <div class="col-12"><button class="btn btn-sm btn-outline-primary" type="submit">Save tracker</button></div>
+  </form>
+  {% else %}
+  <p class="small text-muted mb-0">{% if row.record %}{% if row.record.code_available %}Code available.{% endif %} {{ row.record.reproduction_notes }}{% else %}No reproducibility notes yet.{% endif %}</p>
+  {% endif %}
+</div></div>
+{% else %}
+<p class="text-muted">Add papers to track code, data, and environment reporting.</p>
+{% endfor %}
+{% endblock %}

@@ -123,13 +123,16 @@ def share(count: int, total: int) -> float:
 
 def active_page(path: str) -> str:
     mapping = (
-        ("/search", "search"),
+        ("/discover", "discover"),
+        ("/search", "discover"),
+        ("/projects", "projects"),
         ("/library", "library"),
-        ("/downloads", "downloads"),
+        ("/downloads", "library"),
         ("/cfp", "cfp"),
-        ("/reports", "reports"),
+        ("/analytics", "analytics"),
+        ("/reports", "analytics"),
         ("/sources", "sources"),
-        ("/crawler", "crawler"),
+        ("/crawler", "sources"),
         ("/system", "system"),
         ("/settings", "settings"),
         ("/account", "account"),
@@ -314,6 +317,9 @@ def library_href(current: dict | None = None, **overrides) -> str:
     per_page = clamp_page_size(merged.get("per_page") or DEFAULT_PAGE_SIZE)
     if per_page != DEFAULT_PAGE_SIZE:
         pairs.append(("per_page", str(per_page)))
+    view = str(merged.get("view") or "compact").strip() or "compact"
+    if view in {"table", "card"}:
+        pairs.append(("view", view))
     try:
         page = int(merged.get("page") or 1)
     except (TypeError, ValueError):

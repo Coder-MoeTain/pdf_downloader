@@ -1,14 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Search · {{ app_name }}{% endblock %}
+{% block title %}Discover · {{ app_name }}{% endblock %}
 {% block extra_js %}
 <script src="/static/search.js?v={{ version }}"></script>
+{% if user_projects %}
+<script src="/static/discover-projects.js?v={{ version }}"></script>
+{% endif %}
 {% endblock %}
 {% block content %}
 {% set phase_rank = {"idle": -1, "starting": 0, "searching": 1, "merging": 2, "oa": 3, "storing": 4, "downloading": 5, "done": 6, "error": 6, "cancelled": 6} %}
 {% set rank = phase_rank.get(job.phase, -1) %}
 <div class="page-head">
   <div>
-    <h1 class="h2 mb-0">Search</h1>
+    <h1 class="h2 mb-0">Discover</h1>
   </div>
   {% if is_admin %}<a class="store-pill is-mysql" href="/sources">{% else %}<div class="store-pill is-mysql">{% endif %}
     <span class="store-dot" aria-hidden="true"></span>
@@ -18,9 +21,19 @@
     </div>
   {% if is_admin %}</a>{% else %}</div>{% endif %}
 </div>
+{% if user_projects %}
+<form method="post" id="bulkProjectForm" class="mb-3 d-flex gap-2">
+  <label class="visually-hidden" for="bulkProject">Add selected library papers to project</label>
+  <select class="form-select" id="bulkProject" name="project_select">
+    {% for p in user_projects %}<option value="{{ p.id }}">{{ p.title }}</option>{% endfor %}
+  </select>
+  <input type="hidden" name="paper_ids" id="bulkPaperIds" value="">
+  <button class="btn btn-outline-primary" type="submit">Add selected to project</button>
+</form>
+{% endif %}
 
-<div class="row g-4">
-  <div class="col-lg-7">
+<div class="discover-layout">
+  <div class="discover-search">
     <form method="post" action="/search" class="card search-form" data-busy="Starting…">
       <fieldset>
       <div class="card-body">
@@ -100,6 +113,15 @@
             <input class="form-check-input" type="checkbox" name="download" id="dl" value="1" checked>
             <label class="form-check-label" for="dl">Download legal PDFs during this run</label>
           </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="alert_enabled" id="alertEnabled" value="1">
+            <label class="form-check-label" for="alertEnabled">When saving, watch for new papers (never auto-downloads PDFs)</label>
+          </div>
+          <select class="form-select form-select-sm" name="alert_frequency" id="alertFrequency" aria-label="Alert frequency">
+            <option value="weekly">Weekly</option>
+            <option value="daily">Daily</option>
+            <option value="monthly">Monthly</option>
+          </select>
         </div>
       </div>
       </fieldset>
@@ -109,37 +131,45 @@
       </div>
     </form>
     <form method="post" action="/search/save" id="saveSearchForm" class="d-none"></form>
-    <script>
-      (function () {
-        var searchForm = document.querySelector("form.search-form");
-        var saveForm = document.getElementById("saveSearchForm");
-        if (!searchForm || !saveForm) return;
-        saveForm.addEventListener("submit", function () {
-          saveForm.innerHTML = "";
-          Array.prototype.forEach.call(searchForm.elements, function (el) {
-            if (!el.name || el.type === "submit") return;
-            var input = document.createElement("input");
-            input.type = "hidden";
-            input.name = el.name === "query" ? "query" : el.name;
-            if (el.type === "checkbox") {
-              if (!el.checked) return;
-              input.value = el.value || "1";
-            } else {
-              input.value = el.value;
-            }
-            saveForm.appendChild(input);
-          });
-          var name = document.createElement("input");
-          name.type = "hidden";
-          name.name = "name";
-          name.value = (searchForm.querySelector("#query") || {}).value || "Saved search";
-          saveForm.appendChild(name);
-        });
-      })();
-    </script>
   </div>
 
-  <div class="col-lg-5">
+  <div class="discover-results">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between">
+        <span>Results</span>
+        <a class="small" href="/library?latest=1">Open in library</a>
+      </div>
+      <div class="card-body p-0">
+        {% if latest_papers %}
+        <ul class="list-group list-group-flush">
+          {% for p in latest_papers %}
+          <li class="list-group-item discover-result">
+            {% if user_projects %}
+            <label class="discover-check"><input class="paper-select form-check-input" type="checkbox" value="{{ p.id }}" aria-label="Select {{ p.title }}"></label>
+            {% endif %}
+            <div class="min-w-0">
+              <div class="paper-title">{{ p.title }}</div>
+              <div class="paper-meta">{{ paper_authors_line(p, none) or "—" }} · {{ p.publication_year or "n.d." }}{% if p.journal %} · {{ p.journal }}{% endif %}</div>
+              <div class="chip-row mt-1">
+                {% if p.open_access %}<span class="status-badge status-success">OA</span>{% endif %}
+                {% if p.citation_count %}<span class="chip">{{ p.citation_count }} cites</span>{% endif %}
+              </div>
+            </div>
+            <div class="lib-actions">
+              <button class="btn btn-sm btn-outline-secondary detail-btn" type="button" data-detail-title="{{ p.title|e }}" data-detail='{{ {"authors": paper_authors_line(p, none) or "—", "year": p.publication_year, "rating": p.workspace_rating or 0, "paper_id": p.id, "status_label": status_meta(p.status).label, "status_tone": status_meta(p.status).tone, "categories": paper_categories(p)}|tojson }}'>Detail</button>
+              <button class="btn btn-sm btn-outline-secondary cite-btn" type="button" data-cite-title="{{ p.title|e }}" data-cite='{{ paper_citations(p)|tojson }}'>Cite</button>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="paper-meta p-3 mb-0">Run a search to fill this panel. Use Detail on a result to inspect metadata without leaving Discover.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="discover-side">
     <div class="card search-job {% if job.active %}is-live{% elif job.phase == 'done' %}is-done{% elif job.phase in ['error', 'cancelled'] %}is-error{% endif %}" id="searchJob" data-active="{{ 'true' if job.active else 'false' }}" data-job-id="{{ active_job_id or '' }}">
       <div class="card-header d-flex justify-content-between align-items-baseline gap-2">
         <span class="job-live-mark" id="jobTitleWrap">
@@ -237,14 +267,40 @@
       <div class="card-header">Saved searches</div>
       <ul class="list-group list-group-flush">
         {% for row in saved_searches %}
-        <li class="list-group-item d-flex justify-content-between gap-3">
-          <div>
-            <strong>{{ row.name }}</strong>
-            <div class="paper-meta mb-0">{{ row.query }}</div>
+        <li class="list-group-item">
+          <div class="d-flex justify-content-between gap-3">
+            <div>
+              <strong>{{ row.name }}</strong>
+              {% if row.alert_enabled %}<span class="chip">{{ row.alert_frequency }} alert</span>{% endif %}
+              {% if row.new_paper_count %}<span class="chip">{{ row.new_paper_count }} new</span>{% endif %}
+              <div class="paper-meta mb-0">{{ row.query }}</div>
+              {% if row.alert_preview %}
+              <ul class="small mb-0 mt-1">
+                {% for item in row.alert_preview[:5] %}
+                <li>{{ item.title }}{% if item.year %} ({{ item.year }}){% endif %}{% if item.in_library %} · already in library{% endif %}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+            </div>
+            <form method="post" action="/search">
+              <input type="hidden" name="query" value="{{ row.query }}">
+              <button class="btn btn-sm btn-outline-primary" type="submit">Run</button>
+            </form>
           </div>
-          <form method="post" action="/search">
-            <input type="hidden" name="query" value="{{ row.query }}">
-            <button class="btn btn-sm btn-outline-primary" type="submit">Run</button>
+          <form method="post" action="/search/saved/{{ row.id }}/alert" class="d-flex flex-wrap gap-2 mt-2 align-items-center">
+            <div class="form-check mb-0">
+              <input class="form-check-input" type="checkbox" name="alert_enabled" value="1" id="alert-{{ row.id }}" {% if row.alert_enabled %}checked{% endif %}>
+              <label class="form-check-label" for="alert-{{ row.id }}">Alert</label>
+            </div>
+            <select class="form-select form-select-sm" name="alert_frequency" style="width:auto">
+              <option value="daily" {% if row.alert_frequency=='daily' %}selected{% endif %}>Daily</option>
+              <option value="weekly" {% if row.alert_frequency=='weekly' %}selected{% endif %}>Weekly</option>
+              <option value="monthly" {% if row.alert_frequency=='monthly' %}selected{% endif %}>Monthly</option>
+            </select>
+            <button class="btn btn-sm btn-outline-secondary" type="submit">Save alert</button>
+          </form>
+          <form method="post" action="/search/saved/{{ row.id }}/run-alert" class="mt-2">
+            <button class="btn btn-sm btn-outline-secondary" type="submit">Check now (metadata only)</button>
           </form>
         </li>
         {% endfor %}

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from typing import Any
-from xml.etree import ElementTree as ET
+
+from defusedxml import ElementTree as ET
 
 from app.models.crawl import BrowsePage, CrawlFilters
 from app.models.paper import AuthorRecord, PaperRecord
