@@ -127,6 +127,7 @@ def active_page(path: str) -> str:
         ("/library", "library"),
         ("/downloads", "downloads"),
         ("/cfp", "cfp"),
+        ("/projects", "projects"),
         ("/reports", "reports"),
         ("/sources", "sources"),
         ("/crawler", "crawler"),

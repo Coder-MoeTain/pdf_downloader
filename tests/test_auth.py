@@ -120,7 +120,7 @@ def test_admin_can_open_sources_and_settings(tmp_db, monkeypatch):
     sources = client.get("/sources")
     assert sources.status_code == 200
     home = client.get("/")
-    assert 'href="/sources"' in home.text
+    assert 'href="/sources"' not in home.text
     assert 'href="/settings"' in home.text
     assert "Log out" in home.text
 
@@ -189,7 +189,7 @@ def test_local_admin_login_logout_and_user_settings(auth_client):
 
 def test_library_and_downloads_keep_login_session(auth_client):
     client = auth_client
-    for path in ("/library", "/downloads", "/reports"):
+    for path in ("/library", "/downloads", "/projects"):
         page = client.get(path)
         assert page.status_code == 200
         assert "Pytest Admin" in page.text

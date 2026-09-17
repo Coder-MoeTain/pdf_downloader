@@ -21,6 +21,7 @@ from app.database.models import (
     CollectionPaper,
     CrawlJob,
     Download,
+    GithubRepo,
     Paper,
     PaperAuthor,
     PaperFulltext,
@@ -1572,6 +1573,59 @@ def upsert_cfp_call(session: Session, payload: dict) -> CfpCall:
     row.updated_at = now
     session.flush()
     return row
+
+
+def list_github_repos(session: Session, *, category: str | None = None) -> list[GithubRepo]:
+    stmt = select(GithubRepo).order_by(GithubRepo.category.asc(), GithubRepo.rank.asc())
+    if category:
+        stmt = stmt.where(GithubRepo.category == category)
+    return list(session.scalars(stmt).all())
+
+
+def latest_github_fetch_at(session: Session) -> datetime | None:
+    return session.scalar(select(func.max(GithubRepo.fetched_at)))
+
+
+def replace_github_category_repos(session: Session, category: str, repos: list[dict]) -> int:
+    """Replace the cached top repos for one category."""
+    slug = str(category or "").strip()
+    if not slug:
+        raise ValueError("category is required")
+    session.execute(delete(GithubRepo).where(GithubRepo.category == slug))
+    now = utc_now()
+    saved = 0
+    for rank, payload in enumerate(repos, start=1):
+        full_name = str(payload.get("full_name") or "").strip()
+        html_url = str(payload.get("html_url") or "").strip()
+        if not full_name or not html_url:
+            continue
+        session.add(
+            GithubRepo(
+                category=slug,
+                full_name=full_name[:255],
+                name=str(payload.get("name") or full_name.split("/")[-1])[:255],
+                description=(str(payload.get("description") or "").strip() or None),
+                html_url=html_url,
+                homepage=(str(payload.get("homepage") or "").strip() or None),
+                language=(str(payload.get("language") or "").strip() or None),
+                stars=int(payload.get("stars") or 0),
+                forks=int(payload.get("forks") or 0),
+                rank=rank,
+                topics=(str(payload.get("topics") or "").strip() or None),
+                owner_login=(str(payload.get("owner_login") or "").strip()[:255] or None),
+                owner_avatar_url=(str(payload.get("owner_avatar_url") or "").strip() or None),
+                fetched_at=payload.get("fetched_at") or now,
+                updated_at=now,
+            )
+        )
+        saved += 1
+    session.flush()
+    return saved
+
+
+def github_category_counts(session: Session) -> dict[str, int]:
+    rows = session.execute(select(GithubRepo.category, func.count()).group_by(GithubRepo.category)).all()
+    return {str(category): int(count) for category, count in rows}
 
 
 def get_or_create_user_paper(session: Session, user_id: int, paper_id: int) -> UserPaper:

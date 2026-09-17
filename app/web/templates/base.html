@@ -39,12 +39,11 @@
           ("/library", "Library", "library"),
           ("/downloads", "Downloads", "downloads"),
           ("/cfp", "Call for papers", "cfp"),
-          ("/reports", "Reports", "reports"),
-          ("/sources", "Sources", "sources"),
+          ("/projects", "Top projects", "projects"),
           ("/crawler", "Crawler", "crawler"),
           ("/search", "Search", "search"),
           ("/system", "System", "system"),
-        ] if is_admin or key not in ("sources", "crawler", "system") %}
+        ] if is_admin or key not in ("crawler", "system") %}
         <li class="nav-item">
           <a class="nav-link {% if page == key %}active{% endif %}" href="{{ href }}" title="{{ label }}" {% if page == key %}aria-current="page"{% endif %}>
             {{ nav_icon(key) }}

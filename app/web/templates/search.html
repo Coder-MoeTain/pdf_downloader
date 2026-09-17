@@ -10,7 +10,7 @@
   <div>
     <h1 class="h2 mb-0">Search</h1>
   </div>
-  {% if is_admin %}<a class="store-pill is-mysql" href="/sources">{% else %}<div class="store-pill is-mysql">{% endif %}
+  {% if is_admin %}<a class="store-pill is-mysql" href="/settings?section=sources">{% else %}<div class="store-pill is-mysql">{% endif %}
     <span class="store-dot" aria-hidden="true"></span>
     <div>
       <strong>{{ available_sources|length }} sources ready</strong>

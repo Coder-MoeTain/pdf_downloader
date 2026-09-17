@@ -192,6 +192,9 @@
   var paperDetailDialog = document.getElementById("paperDetailDialog");
   var paperDetailTitle = document.getElementById("paperDetailTitle");
   var paperDetailBody = document.getElementById("paperDetailBody");
+  var projDetailDialog = document.getElementById("projDetailDialog");
+  var projDetailTitle = document.getElementById("projDetailTitle");
+  var projDetailBody = document.getElementById("projDetailBody");
 
   function escapeHtml(text) {
     return String(text)
@@ -251,6 +254,85 @@
       (categories.length ? '<div class="paper-detail-tags">' + categoryHtml + "</div>" : "—") +
       "</div></div></div>"
     );
+  }
+
+  function projectDetailsMap() {
+    var configEl = document.getElementById("proj-page-config");
+    if (!configEl) return {};
+    try {
+      var parsed = JSON.parse(configEl.textContent || "{}") || {};
+      return parsed.details || {};
+    } catch (error) {
+      return {};
+    }
+  }
+
+  function renderProjectDetailBody(item) {
+    var topics = item.topics || [];
+    var topicHtml = topics.length
+      ? '<div class="paper-detail-tags">' +
+        topics
+          .map(function (topic) {
+            return '<span class="paper-detail-tag">' + escapeHtml(topic) + "</span>";
+          })
+          .join("") +
+        "</div>"
+      : "—";
+    var avatar = item.avatar
+      ? '<img class="proj-avatar proj-detail-avatar" src="' +
+        escapeHtml(item.avatar) +
+        '" alt="" width="44" height="44">'
+      : "";
+    function linkHtml(href, label) {
+      if (!href) return "—";
+      return (
+        '<a href="' +
+        escapeHtml(href) +
+        '" target="_blank" rel="noopener noreferrer">' +
+        escapeHtml(label || href) +
+        "</a>"
+      );
+    }
+    return (
+      '<div class="proj-detail-hero">' +
+      avatar +
+      "<div><div class=\"proj-owner\">" +
+      escapeHtml(item.owner || "") +
+      '</div><div class="proj-detail-full">' +
+      escapeHtml(item.full_name || "") +
+      "</div></div></div>" +
+      '<div class="paper-detail-dl">' +
+      '<div class="paper-detail-row"><div class="paper-detail-label">About</div><div class="paper-detail-value">' +
+      escapeHtml(item.description || "No description") +
+      "</div></div>" +
+      '<div class="paper-detail-row"><div class="paper-detail-label">Language</div><div class="paper-detail-value">' +
+      escapeHtml(item.language || "—") +
+      "</div></div>" +
+      '<div class="paper-detail-row"><div class="paper-detail-label">Stars</div><div class="paper-detail-value">' +
+      escapeHtml(item.stars_label || "0") +
+      "</div></div>" +
+      '<div class="paper-detail-row"><div class="paper-detail-label">Forks</div><div class="paper-detail-value">' +
+      escapeHtml(item.forks_label || "0") +
+      "</div></div>" +
+      '<div class="paper-detail-row"><div class="paper-detail-label">Topics</div><div class="paper-detail-value">' +
+      topicHtml +
+      "</div></div>" +
+      '<div class="paper-detail-row"><div class="paper-detail-label">Website</div><div class="paper-detail-value">' +
+      linkHtml(item.homepage, item.homepage) +
+      "</div></div>" +
+      '<div class="paper-detail-row"><div class="paper-detail-label">GitHub</div><div class="paper-detail-value">' +
+      linkHtml(item.html_url, item.full_name || "Open repository") +
+      "</div></div>" +
+      "</div>"
+    );
+  }
+
+  function openProjectDetail(key) {
+    var item = projectDetailsMap()[key];
+    if (!item || !projDetailDialog) return;
+    if (projDetailTitle) projDetailTitle.textContent = item.name || "Project";
+    if (projDetailBody) projDetailBody.innerHTML = renderProjectDetailBody(item);
+    if (typeof projDetailDialog.showModal === "function") projDetailDialog.showModal();
   }
 
   function openPaperDetail(button) {
@@ -388,6 +470,20 @@
   }
 
   document.addEventListener("click", function (event) {
+    var projButton = event.target.closest("[data-proj-key]");
+    if (projButton) {
+      event.preventDefault();
+      openProjectDetail(projButton.getAttribute("data-proj-key") || "");
+      return;
+    }
+    if (event.target.closest("[data-proj-close]")) {
+      projDetailDialog && projDetailDialog.close();
+      return;
+    }
+    if (projDetailDialog && event.target === projDetailDialog) {
+      projDetailDialog.close();
+      return;
+    }
     var detailButton = event.target.closest(".detail-btn");
     if (detailButton) {
       event.preventDefault();

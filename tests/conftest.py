@@ -60,6 +60,7 @@ _WEB_PATCH_MODULES = (
     "app.web.routes.library",
     "app.web.routes.downloads",
     "app.web.routes.cfp",
+    "app.web.routes.projects",
     "app.web.routes.settings",
     "app.web.routes.admin",
     "app.web.routes.system",

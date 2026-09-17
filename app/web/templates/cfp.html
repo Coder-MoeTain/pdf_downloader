@@ -9,6 +9,7 @@
     <p class="page-lead mb-0">
       Upcoming submission deadlines in the next {{ window_days }} days
       {% if fetched_at %}· updated {{ fetched_at|localdt("%Y-%m-%d %H:%M") }}{% endif %}
+      · refreshed every day at 06:00
     </p>
   </div>
   <form method="post" action="/cfp/refresh" data-busy="Refreshing…">

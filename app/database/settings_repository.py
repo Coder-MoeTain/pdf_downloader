@@ -100,6 +100,7 @@ def seed_default_settings() -> None:
             ("crawl_schedule_max_pages", 5, "crawl", False),
             ("crawl_schedule_max_papers", 500, "crawl", False),
             ("crawl_schedule_last_run", "", "crawl", False),
+            ("daily_refresh_last_run", "", "crawl", False),
         ]
         for key, value, group, secret in defaults:
             if key not in existing:
@@ -504,6 +505,18 @@ def mark_crawl_schedule_run(when: Any | None = None) -> None:
     value = stamp.isoformat() if hasattr(stamp, "isoformat") else str(stamp)
     with settings_session() as session:
         set_setting(session, "crawl_schedule_last_run", value, group="crawl")
+
+
+def load_daily_refresh_last_run() -> str:
+    with settings_session() as session:
+        return str(get_setting(session, "daily_refresh_last_run") or "").strip()
+
+
+def mark_daily_refresh_run(when: Any | None = None) -> None:
+    stamp = when or utc_now()
+    value = stamp.isoformat() if hasattr(stamp, "isoformat") else str(stamp)
+    with settings_session() as session:
+        set_setting(session, "daily_refresh_last_run", value, group="crawl")
 
 
 def source_has_key(row: AcademicSource) -> bool:

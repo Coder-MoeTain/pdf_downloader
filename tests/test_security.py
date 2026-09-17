@@ -70,3 +70,11 @@ def test_library_preview_csp_and_theme_script(auth_client):
     assert "frame-src 'self'" in csp
     assert "frame-ancestors 'self'" in csp
     assert page.headers["x-frame-options"] == "SAMEORIGIN"
+
+
+def test_static_javascript_is_executable_mime(auth_client):
+    for path in ("/static/theme-init.js", "/static/app.js"):
+        response = auth_client.get(path)
+        assert response.status_code == 200, path
+        content_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+        assert content_type in {"application/javascript", "text/javascript"}, (path, content_type)

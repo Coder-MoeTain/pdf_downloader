@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% from "_macros.html" import empty_state %}
+{% block title %}{% if selected_label %}{{ selected_label }} · {% endif %}Top projects · {{ app_name }}{% endblock %}
+{% block body_class %}page-projects{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="page-kicker">GitHub leaderboard</div>
+    <h1 class="h2 mb-0">{% if selected_label %}{{ selected_label }}{% else %}Top projects{% endif %}</h1>
+    <p class="lede mb-0 mt-1">
+      {% if selected_label %}
+      Highest-starred research <strong>projects</strong> in this topic. Frameworks and libraries are omitted.
+      {% else %}
+      Highest-starred research <strong>projects</strong> across every topic, ranked together by stars. Frameworks and libraries are omitted.
+      {% endif %}
+      {% if fetched_at %} · updated {{ fetched_at|localdt("%Y-%m-%d %H:%M") }}{% endif %}
+    </p>
+  </div>
+  <form method="post" action="/projects/refresh" data-busy="Refreshing…">
+    {% if selected %}<input type="hidden" name="category" value="{{ selected }}">{% endif %}
+    <button class="btn btn-outline-primary" type="submit" {% if refresh and refresh.running %}disabled{% endif %}>
+      {% if refresh and refresh.running %}Refreshing…{% else %}Refresh from GitHub{% endif %}
+    </button>
+  </form>
+</div>
+
+<div class="alert alert-info mb-3" id="projectsRefreshAlert" role="status" {% if not (refresh and refresh.message) %}hidden{% endif %}>
+  {{ (refresh.message if refresh else '') or 'Loading GitHub projects in the background…' }}
+</div>
+
+<nav class="proj-filters" aria-label="Project topics">
+  <a class="chip {% if not selected %}active{% endif %}" href="/projects">All</a>
+  {% for cat in categories %}
+  {% set count = category_counts.get(cat.slug, 0) %}
+  <a class="chip {% if selected == cat.slug %}active{% endif %}" href="/projects?category={{ cat.slug }}">
+    {{ cat.label }}{% if count %} <span class="proj-chip-count">{{ count }}</span>{% endif %}
+  </a>
+  {% endfor %}
+</nav>
+
+{% if repos %}
+<div class="proj-toolbar">
+  <p class="proj-count mb-0" id="projCount" data-total="{{ repos|length }}">
+    <strong>{{ repos|length }}</strong> project{{ "s" if repos|length != 1 else "" }} · ranked by GitHub stars
+  </p>
+  <label class="proj-search">
+    <span class="visually-hidden">Filter projects</span>
+    <input class="form-control" id="projSearch" type="search" placeholder="Filter by name, owner, or topic" autocomplete="off">
+  </label>
+</div>
+<ol class="proj-list" aria-label="{% if selected_label %}{{ selected_label }} projects{% else %}Top projects{% endif %}">
+  {% for repo in repos %}
+  <li class="proj-row{% if repo.rank <= 3 %} is-top is-top-{{ repo.rank }}{% endif %}" data-proj-key="{{ repo.key }}" data-proj-search="{{ repo.search }}" tabindex="0">
+    <div class="proj-rank" aria-label="Rank {{ repo.rank }}"><span>{{ "%02d"|format(repo.rank) }}</span></div>
+    {% if repo.avatar %}
+    <img class="proj-avatar" src="{{ repo.avatar }}" alt="" width="44" height="44">
+    {% else %}
+    <span class="proj-avatar proj-avatar-fallback" aria-hidden="true">{{ ((repo.owner[:1] if repo.owner else "G") or "G")|upper }}</span>
+    {% endif %}
+    <div class="proj-identity">
+      <span class="proj-name" title="{{ repo.full_name }}">{{ repo.name }}</span>
+      <div class="proj-owner">{{ repo.owner }}{% if repo.full_name %} · {{ repo.full_name }}{% endif %}</div>
+      {% if repo.description %}<p class="proj-summary">{{ repo.description[:180] }}{% if repo.description|length > 180 %}…{% endif %}</p>{% endif %}
+      <div class="proj-tags">
+        {% if repo.language %}<span class="status-badge status-primary">{{ repo.language }}</span>{% endif %}
+        {% if not selected %}
+        {% for cat in repo.categories %}
+        <a class="proj-cat" href="/projects?category={{ cat.slug }}">{{ cat.label }}</a>
+        {% endfor %}
+        {% endif %}
+        {% if repo.homepage %}
+        <a class="proj-site" href="{{ repo.homepage }}" target="_blank" rel="noopener noreferrer">Website</a>
+        {% endif %}
+      </div>
+    </div>
+    <dl class="proj-metrics">
+      <div>
+        <dt>Stars</dt>
+        <dd title="{{ '{:,}'.format(repo.stars) }} stars"><span class="proj-star" aria-hidden="true">★</span>{{ repo.stars_label }}</dd>
+      </div>
+      <div>
+        <dt>Forks</dt>
+        <dd>{{ repo.forks_label }}</dd>
+      </div>
+    </dl>
+    <div class="proj-actions">
+      <button type="button" class="btn btn-sm btn-primary proj-detail-btn" data-proj-key="{{ repo.key }}">Details</button>
+      <a class="btn btn-sm btn-outline-primary" href="{{ repo.html_url }}" target="_blank" rel="noopener noreferrer">GitHub</a>
+    </div>
+  </li>
+  {% endfor %}
+</ol>
+<p class="proj-empty" id="projSearchEmpty" hidden>No projects match that filter.</p>
+{% elif selected %}
+  {{ empty_state(
+    "No projects in this topic yet" if raw_counts.get(selected) else "No repositories in this category yet",
+    "Frameworks and libraries are omitted from this list. Refresh from GitHub to fetch more project results." if raw_counts.get(selected) else "GitHub results for this topic are not cached. Refresh from GitHub to fetch the current top 10.",
+    "/projects",
+    "View all projects"
+  ) }}
+{% else %}
+  {{ empty_state(
+    "Loading top GitHub projects…",
+    "The page is ready. GitHub results are fetched in the background and this view reloads when they arrive. A full refresh also runs every day at 06:00.",
+    "",
+    ""
+  ) }}
+{% endif %}
+
+<dialog id="projDetailDialog" class="paper-detail-dialog" aria-labelledby="projDetailTitle">
+  <div class="paper-detail-shell">
+    <header class="paper-detail-header">
+      <div class="paper-detail-heading">
+        <div class="paper-detail-kicker">Project detail</div>
+        <h2 class="paper-detail-title" id="projDetailTitle">Project</h2>
+      </div>
+      <button type="button" class="btn-close paper-detail-close" data-proj-close aria-label="Close project details"></button>
+    </header>
+    <div class="paper-detail-body" id="projDetailBody"></div>
+  </div>
+</dialog>
+{% endblock %}
+
+{% block extra_js %}
+<script type="application/json" id="proj-page-config">{{ project_page_json|safe }}</script>
+<script src="/static/projects.js?v={{ version }}"></script>
+{% endblock %}

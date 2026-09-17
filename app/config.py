@@ -39,6 +39,7 @@ class EnvSettings(BaseSettings):
     ieee_api_key: str = ""
     ncbi_api_key: str = ""
     nasa_ads_token: str = ""
+    github_token: str = ""
     max_concurrent_requests: int = 8
     max_concurrent_downloads: int = 3
     request_timeout_seconds: float = 15

@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import mimetypes
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+# Windows registry often maps .js to text/plain; X-Content-Type-Options: nosniff
+# then blocks the scripts in Chrome/Edge.
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("image/svg+xml", ".svg")
 
 from app import __app_name__, __version__
 
@@ -43,6 +51,7 @@ from app.security.csrf import CsrfMiddleware, csrf_failure, csrf_protect
 from app.security.headers import SecurityHeadersMiddleware
 from app.services.crawl_queue import start_crawl_queue_worker
 from app.services.crawl_schedule import start_crawl_schedule_worker
+from app.services.daily_refresh import start_daily_refresh_worker
 from app.services.download_queue import start_download_worker
 from app.services.download_service import ensure_local_pdf as ensure_local_pdf
 from app.services.search_queue import start_search_queue_worker
@@ -58,6 +67,7 @@ from app.web.routes.auth import router as auth_router
 from app.web.routes.cfp import router as cfp_router
 from app.web.routes.downloads import router as downloads_router
 from app.web.routes.library import router as library_router
+from app.web.routes.projects import router as projects_router
 from app.web.routes.search import router as search_router
 from app.web.routes.settings import router as settings_router
 from app.web.routes.system import router as system_router
@@ -99,6 +109,7 @@ app.include_router(search_router)
 app.include_router(library_router)
 app.include_router(downloads_router)
 app.include_router(cfp_router)
+app.include_router(projects_router)
 app.include_router(settings_router)
 app.include_router(admin_router)
 app.include_router(system_router)
@@ -125,6 +136,7 @@ async def _startup() -> None:
     await start_crawl_queue_worker()
     await start_download_worker()
     await start_crawl_schedule_worker()
+    await start_daily_refresh_worker()
 
     try:
         from app.services.lms_watch import schedule_lms_sync, start_lms_watch

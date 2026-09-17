@@ -325,6 +325,34 @@ class CfpCall(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
+class GithubRepo(Base):
+    """Cached top GitHub repositories for a research category."""
+
+    __tablename__ = "github_repos"
+    __table_args__ = (
+        UniqueConstraint("category", "full_name", name="uq_github_repo_cat_name"),
+        Index("ix_github_repos_category_rank", "category", "rank"),
+        Index("ix_github_repos_fetched_at", "fetched_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    html_url: Mapped[str] = mapped_column(Text, nullable=False)
+    homepage: Mapped[str | None] = mapped_column(Text, nullable=True)
+    language: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    stars: Mapped[int] = mapped_column(Integer, default=0)
+    forks: Mapped[int] = mapped_column(Integer, default=0)
+    rank: Mapped[int] = mapped_column(Integer, default=1)
+    topics: Mapped[str | None] = mapped_column(Text, nullable=True)
+    owner_login: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    owner_avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class UserPaper(Base):
     """Per-user library metadata. Never store private notes globally on Paper."""
 
