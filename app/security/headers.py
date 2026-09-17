@@ -15,9 +15,10 @@ def security_headers(*, production: bool, https: bool) -> dict[str, str]:
         "img-src 'self' data: https:; "
         "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
-        "script-src 'self' https://cdn.jsdelivr.net; "
-        "connect-src 'self'; "
-        "frame-ancestors 'none'; "
+        "script-src 'self' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
+        "connect-src 'self' https://cdn.jsdelivr.net https://static.cloudflareinsights.com https://cloudflareinsights.com; "
+        "frame-src 'self'; "
+        "frame-ancestors 'self'; "
         "base-uri 'self'; "
         "form-action 'self'; "
         "object-src 'none'"
@@ -26,7 +27,7 @@ def security_headers(*, production: bool, https: bool) -> dict[str, str]:
         "Content-Security-Policy": csp,
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "strict-origin-when-cross-origin",
-        "X-Frame-Options": "DENY",
+        "X-Frame-Options": "SAMEORIGIN",
         "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
         "X-DNS-Prefetch-Control": "off",
         "Cross-Origin-Opener-Policy": "same-origin",

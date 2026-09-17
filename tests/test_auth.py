@@ -66,7 +66,7 @@ def test_unauthenticated_user_is_sent_to_login(tmp_db, monkeypatch):
     assert "Continue with Gmail" in login.text
     assert "/static/theme.css" in login.text
     assert "data-theme-toggle" in login.text
-    assert "data-bs-theme" in login.text
+    assert "/static/theme-init.js" in login.text
     assert "Create the admin account" not in login.text
 
 

@@ -46,3 +46,27 @@ def test_parse_json_response_bot_challenge():
             ),
             "https://dblp.org/search/publ/api",
         )
+
+
+def test_csp_allows_same_origin_pdf_iframes():
+    from app.security.headers import security_headers
+
+    headers = security_headers(production=True, https=True)
+    csp = headers["Content-Security-Policy"]
+    assert "frame-src 'self'" in csp
+    assert "frame-ancestors 'self'" in csp
+    assert "frame-ancestors 'none'" not in csp
+    assert headers["X-Frame-Options"] == "SAMEORIGIN"
+    script_src = csp.split("script-src", 1)[1].split(";", 1)[0]
+    assert "unsafe-inline" not in script_src
+
+
+def test_library_preview_csp_and_theme_script(auth_client):
+    page = auth_client.get("/library")
+    assert page.status_code == 200
+    assert "/static/theme-init.js" in page.text
+    assert "document.documentElement.setAttribute" not in page.text
+    csp = page.headers["content-security-policy"]
+    assert "frame-src 'self'" in csp
+    assert "frame-ancestors 'self'" in csp
+    assert page.headers["x-frame-options"] == "SAMEORIGIN"
