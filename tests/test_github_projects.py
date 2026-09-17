@@ -232,7 +232,6 @@ def test_projects_page_filters_by_category(tmp_db):
     all_page = client.get("/projects")
     assert all_page.status_code == 200
     assert "Top projects" in all_page.text
-    assert "ranked together" in all_page.text
     assert "ML-For-Beginners" in all_page.text
     assert "microsoft/ML-For-Beginners" in all_page.text
     assert "Details" in all_page.text

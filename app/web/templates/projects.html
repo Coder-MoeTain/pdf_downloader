@@ -7,14 +7,6 @@
   <div>
     <div class="page-kicker">GitHub leaderboard</div>
     <h1 class="h2 mb-0">{% if selected_label %}{{ selected_label }}{% else %}Top projects{% endif %}</h1>
-    <p class="lede mb-0 mt-1">
-      {% if selected_label %}
-      Highest-starred research <strong>projects</strong> in this topic. Frameworks and libraries are omitted.
-      {% else %}
-      Highest-starred research <strong>projects</strong> across every topic, ranked together by stars. Frameworks and libraries are omitted.
-      {% endif %}
-      {% if fetched_at %} · updated {{ fetched_at|localdt("%Y-%m-%d %H:%M") }}{% endif %}
-    </p>
   </div>
   <form method="post" action="/projects/refresh" data-busy="Refreshing…">
     {% if selected %}<input type="hidden" name="category" value="{{ selected }}">{% endif %}
