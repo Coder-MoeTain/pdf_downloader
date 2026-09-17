@@ -579,16 +579,38 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
 
                 schedule_lms_sync(paper_ids=[paper_id])
                 return existing
-            if paper.status == PaperStatus.PAYWALLED.value and not paper.pdf_url:
-                if own_batch:
-                    download_tracker.finish_item("FAILED", error="Paywalled and no legal PDF URL")
-                raise DownloadError("This paper is paywalled and has no legal PDF URL")
             record = paper_to_record(paper)
-            if not record.pdf_url:
+            title = paper.title
+            needs_oa = not is_direct_pdf_url(record.pdf_url, prefer_https=False)
+
+        if needs_oa:
+            async with AsyncHttpClient(cfg) as client:
+                await OpenAccessService(client, cfg).resolve(record)
+            with session_scope() as session:
+                from app.database.repository import save_paper
+
+                saved = save_paper(session, record)
+                saved.pdf_url = record.pdf_url
+                upsert_download(
+                    session,
+                    paper_id,
+                    pdf_url=record.pdf_url,
+                    status=record.status.value,
+                    error=None
+                    if is_direct_pdf_url(record.pdf_url, prefer_https=False)
+                    else "No legally available PDF URL",
+                )
+            if not is_direct_pdf_url(record.pdf_url, prefer_https=False):
                 if own_batch:
                     download_tracker.finish_item("FAILED", error="No legally available PDF URL")
-                raise DownloadError("No legally available PDF URL")
-            title = paper.title
+                raise DownloadError(
+                    "No legally available PDF URL. Unpaywall found no open copy for this paper."
+                )
+
+        if not record.pdf_url:
+            if own_batch:
+                download_tracker.finish_item("FAILED", error="No legally available PDF URL")
+            raise DownloadError("No legally available PDF URL")
 
         async with AsyncHttpClient(cfg) as client:
             downloader = DownloadService(client, cfg)
@@ -628,6 +650,7 @@ async def download_papers_parallel(
     concurrency: int | None = None,
     job_progress: ProgressTracker | None = None,
     use_download_tracker: bool = True,
+    claim_download_batch: bool = True,
     checkpoint: Callable[[], Awaitable[None]] | None = None,
 ) -> list[tuple[int, PaperRecord]]:
     """Download many PDFs concurrently with a shared progress tracker."""
@@ -644,7 +667,9 @@ async def download_papers_parallel(
 
     batch_token: object | None = None
     track_downloads = False
-    if use_download_tracker:
+    if use_download_tracker and not claim_download_batch:
+        track_downloads = True
+    elif use_download_tracker:
         # Wait for any other Downloads-page batch so we never finish_batch mid-flight.
         while True:
             if job_progress is not None and job_progress.is_cancelled():
@@ -895,6 +920,124 @@ async def resume_downloading_papers(
 
         schedule_lms_sync()
     return stats
+
+
+OA_RECHECK_STATUSES = (
+    PaperStatus.PAYWALLED.value,
+    PaperStatus.NO_OA_COPY_FOUND.value,
+    PaperStatus.OA_UNKNOWN.value,
+    PaperStatus.NO_PDF.value,
+    PaperStatus.FAILED.value,
+)
+
+
+async def recheck_paywalled_open_access(
+    *,
+    paper_id: int | None = None,
+    limit: int | None = None,
+    user_id: int | None = None,
+) -> dict[str, int]:
+    """Ask Unpaywall again for papers stored without a legal PDF, then download any hits."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.database.connection import session_scope
+    from app.database.models import PaperAuthor
+    from app.database.repository import paper_to_record, save_paper
+
+    cfg = get_runtime_config()
+    cap = None if paper_id else resolve_download_limit(limit, fallback=cfg.download_limit)
+    stats = {"checked": 0, "found": 0, "downloaded": 0, "still_closed": 0, "skipped": 0}
+    token = None
+    try:
+        with session_scope() as session:
+            stmt = (
+                select(Paper)
+                .options(
+                    selectinload(Paper.authors).selectinload(PaperAuthor.author),
+                    selectinload(Paper.downloads),
+                )
+            )
+            if paper_id is not None:
+                stmt = stmt.where(Paper.id == paper_id)
+            else:
+                stmt = stmt.where(Paper.status.in_(OA_RECHECK_STATUSES)).order_by(Paper.id.desc())
+                if cap is not None:
+                    stmt = stmt.limit(cap)
+            candidates = session.scalars(stmt).unique().all()
+            jobs: list[tuple[int, PaperRecord]] = []
+            for paper in candidates:
+                if existing_pdf_path(paper):
+                    stats["skipped"] += 1
+                    continue
+                jobs.append((paper.id, paper_to_record(paper)))
+        if not jobs:
+            return stats
+        token = try_claim_download_batch(len(jobs), "Re-checking Unpaywall")
+        async with AsyncHttpClient(cfg) as client:
+            oa = OpenAccessService(client, cfg)
+            downloader = DownloadService(client, cfg)
+            ready: list[tuple[int, PaperRecord]] = []
+            for index, (pid, record) in enumerate(jobs, start=1):
+                if download_stop_requested():
+                    break
+                stats["checked"] += 1
+                if token:
+                    download_tracker.begin_item(pid, record.title, index)
+                    download_tracker.log(f"Unpaywall lookup: {record.title[:70]}", "info")
+                await oa.resolve(record)
+                with session_scope() as session:
+                    saved = save_paper(session, record)
+                    saved.pdf_url = record.pdf_url
+                    upsert_download(
+                        session,
+                        pid,
+                        pdf_url=record.pdf_url,
+                        status=record.status.value,
+                        error=None
+                        if is_direct_pdf_url(record.pdf_url, prefer_https=False)
+                        else "No legally available PDF URL",
+                    )
+                if is_direct_pdf_url(record.pdf_url, prefer_https=False):
+                    stats["found"] += 1
+                    ready.append((pid, record))
+                    if token:
+                        download_tracker.log(f"Open copy found: {record.pdf_url}", "success")
+                else:
+                    stats["still_closed"] += 1
+                    if token:
+                        download_tracker.finish_item(
+                            "SKIPPED",
+                            error="No legally available PDF URL",
+                            title=record.title,
+                        )
+            if ready and not download_stop_requested():
+                results = await download_papers_parallel(
+                    downloader,
+                    ready,
+                    topic_slug="library",
+                    user_id=user_id,
+                    use_download_tracker=bool(token),
+                    claim_download_batch=False,
+                )
+                for _pid, updated in results:
+                    if updated.status == PaperStatus.DOWNLOADED:
+                        stats["downloaded"] += 1
+                    elif updated.status in {
+                        PaperStatus.FAILED,
+                        PaperStatus.PAYWALLED,
+                        PaperStatus.NO_PDF,
+                    }:
+                        stats["still_closed"] += 1
+                    else:
+                        stats["skipped"] += 1
+        if stats["downloaded"] > 0:
+            from app.services.lms_watch import schedule_lms_sync
+
+            schedule_lms_sync()
+        return stats
+    finally:
+        release_download_batch(token)
 
 
 def stop_downloads(*, clear_stuck: bool = True) -> dict[str, int | bool]:

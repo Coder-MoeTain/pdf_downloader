@@ -26,6 +26,9 @@
       <button class="btn btn-primary" type="submit">Download {{ oa_pending }} open-access PDF{{ "s" if oa_pending != 1 else "" }}</button>
     </form>
     {% endif %}
+    <form method="post" action="/library/recheck-oa" class="m-0" data-busy="Checking…">
+      <button class="btn btn-outline-primary" type="submit"{% if oa_recheck_pending %} title="Ask Unpaywall again for {{ oa_recheck_pending }} paywalled paper{{ 's' if oa_recheck_pending != 1 else '' }}"{% endif %}>Re-check Unpaywall{% if oa_recheck_pending %} ({{ oa_recheck_pending }}){% endif %}</button>
+    </form>
   </div>
 </div>
 
@@ -209,10 +212,14 @@
           {% endif %}
           {% if state == "download" %}
           <a class="btn btn-sm btn-primary paper-action-btn" href="/papers/{{ p.id }}/pdf">Download</a>
-          {% elif state == "paywalled" %}
-          <span class="text-muted small">Publisher access required</span>
+          {% elif state == "paywalled" or state == "unavailable" %}
+          {% if p.doi or p.arxiv_id or p.pmcid %}
+          <form method="post" action="/papers/{{ p.id }}/recheck-oa" class="d-inline" data-busy="Checking…">
+            <button class="btn btn-sm btn-outline-primary paper-action-btn" type="submit" title="Ask Unpaywall again for a legal PDF">Re-check OA</button>
+          </form>
           {% else %}
-          <span class="text-muted small">No legal PDF</span>
+          <span class="text-muted small">{% if state == "paywalled" %}Publisher access required{% else %}No legal PDF{% endif %}</span>
+          {% endif %}
           {% endif %}
           {% if is_admin and not on_server %}
           <form method="post" action="/papers/{{ p.id }}/delete" class="d-inline" data-confirm="Delete this paper? No PDF file exists on the server for this record.">

@@ -20,7 +20,6 @@ from app.database.models import Download, Paper, PaperAuthor, SearchQuery
 from app.database.repository import (
     apply_paper_filters,
     library_search,
-    list_failed_downloads,
     paper_to_record,
     save_paper,
 )
@@ -137,7 +136,7 @@ def stats() -> None:
 
 @app.command()
 def retry() -> None:
-    """Retry failed or interrupted PDF downloads."""
+    """Re-check Unpaywall for paywalled papers and retry failed downloads."""
     _run(_retry_failed())
 
 
@@ -377,7 +376,7 @@ def interactive_menu() -> None:
         console.print("  [bold cyan]1[/]  Search papers")
         console.print("  [bold cyan]2[/]  Search and download open-access PDFs")
         console.print("  [bold cyan]3[/]  View library")
-        console.print("  [bold cyan]4[/]  Retry failed downloads")
+        console.print("  [bold cyan]4[/]  Retry failed / re-check Unpaywall")
         console.print("  [bold cyan]5[/]  Export metadata")
         console.print("  [bold cyan]6[/]  Statistics")
         console.print("  [bold cyan]7[/]  Show sources")
@@ -483,26 +482,22 @@ async def _download_pending(download_limit: int | None, max_file_size: str | Non
 
 
 async def _retry_failed() -> None:
-    cfg = get_runtime_config()
-    async with AsyncHttpClient(cfg) as client:
-        downloader = DownloadService(client, cfg)
-        with session_scope() as session:
-            rows = list_failed_downloads(session)
-            if not rows:
-                console.print("No failed downloads to retry.")
-                return
-            for row in rows:
-                if not row.paper:
-                    continue
-                record = paper_to_record(row.paper)
-                record.pdf_url = row.pdf_url or record.pdf_url
-                console.print(f"Retrying: {record.title[:70]}")
-                await downloader.download_paper(row.paper_id, record, "library")
-                session.commit()
-            console.print(f"Retried {len(rows)} downloads.")
-    from app.services.lms_watch import schedule_lms_sync
+    from app.services.download_service import recheck_paywalled_open_access, resume_downloading_papers
 
-    schedule_lms_sync()
+    oa_stats = await recheck_paywalled_open_access()
+    resume_stats = await resume_downloading_papers()
+    if oa_stats["checked"] == 0 and resume_stats["attempted"] == 0:
+        console.print("No paywalled or failed downloads to retry.")
+        return
+    console.print(
+        f"Unpaywall re-check: {oa_stats['checked']} looked up, {oa_stats['found']} open copies, "
+        f"{oa_stats['downloaded']} downloaded, {oa_stats['still_closed']} still closed."
+    )
+    if resume_stats["attempted"]:
+        console.print(
+            f"Resumed interrupted downloads: {resume_stats['downloaded']} saved, "
+            f"{resume_stats['failed']} failed."
+        )
 
 
 async def _update_topics() -> None:

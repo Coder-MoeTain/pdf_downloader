@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.download_queue import DownloadJob, enqueue_oa_download, oa_download_active
+from app.services.download_queue import DownloadJob, enqueue_oa_download, enqueue_oa_recheck, oa_download_active
 from app.services.progress import download_tracker
 
 
@@ -50,4 +50,15 @@ async def test_download_worker_processes_queue(monkeypatch):
     assert enqueue_oa_download(search_id=9, user_id=3) is True
     await download_queue._queue.join()
     assert calls == [DownloadJob(kind="oa", search_id=9, user_id=3)]
+    assert enqueue_oa_recheck(user_id=4, paper_id=12) is True
+    await download_queue._queue.join()
+    assert calls[-1] == DownloadJob(kind="recheck", paper_id=12, user_id=4)
     await download_queue.stop_download_worker()
+
+
+def test_enqueue_oa_recheck_rejects_when_active():
+    download_tracker.start_batch(1, "Test batch")
+    try:
+        assert enqueue_oa_recheck(user_id=1) is False
+    finally:
+        download_tracker.finish_batch()

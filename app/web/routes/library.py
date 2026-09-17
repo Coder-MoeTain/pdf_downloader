@@ -20,6 +20,7 @@ from app.database.repository import (
     set_paper_rating,
 )
 from app.models.paper import PaperStatus
+from app.services.download_queue import enqueue_oa_recheck, oa_download_active
 from app.services.download_service import (
     safe_library_pdf,
 )
@@ -280,12 +281,45 @@ def library_page(
             latest=use_latest,
             latest_search=latest_search,
             oa_pending=oa_pending,
+            oa_recheck_pending=int(facets.get("paywalled") or 0),
             search_running=bool(use_latest and latest_search and latest_search.status == "running"),
             kpis=kpis,
             has_library_stats=stats["has_stats"],
             source_catalog={row["slug"]: row for row in _source_rows()},
         ),
     )
+
+
+@router.post("/library/recheck-oa")
+def library_recheck_oa(request: Request):
+    user_id = _request_user_id(request)
+    if oa_download_active():
+        set_flash(request, "A PDF download is already running. Watch progress on the Downloads page.", "info")
+    elif enqueue_oa_recheck(user_id=user_id):
+        set_flash(
+            request,
+            "Re-checking Unpaywall for paywalled papers. If a legal PDF exists, it will download in the background.",
+            "info",
+        )
+    else:
+        set_flash(request, "Could not start the Unpaywall re-check. Try again in a moment.", "warning")
+    return RedirectResponse("/downloads", status_code=303)
+
+
+@router.post("/papers/{paper_id}/recheck-oa")
+def paper_recheck_oa(request: Request, paper_id: int):
+    user_id = _request_user_id(request)
+    if oa_download_active():
+        set_flash(request, "A PDF download is already running. Watch progress on the Downloads page.", "info")
+    elif enqueue_oa_recheck(user_id=user_id, paper_id=paper_id):
+        set_flash(
+            request,
+            "Re-checking Unpaywall for this paper. If a legal PDF exists, it will download in the background.",
+            "info",
+        )
+    else:
+        set_flash(request, "Could not start the Unpaywall re-check. Try again in a moment.", "warning")
+    return RedirectResponse("/downloads", status_code=303)
 
 
 @router.post("/api/papers/{paper_id}/rating")

@@ -6,7 +6,11 @@ import asyncio
 import dataclasses
 from typing import Literal
 
-from app.services.download_service import download_open_access_papers, resume_downloading_papers
+from app.services.download_service import (
+    download_open_access_papers,
+    recheck_paywalled_open_access,
+    resume_downloading_papers,
+)
 from app.services.progress import download_tracker
 from app.utils.logger import get_logger
 
@@ -19,8 +23,9 @@ _running = False
 
 @dataclasses.dataclass(frozen=True)
 class DownloadJob:
-    kind: Literal["oa", "resume"] = "oa"
+    kind: Literal["oa", "resume", "recheck"] = "oa"
     search_id: int | None = None
+    paper_id: int | None = None
     user_id: int | None = None
     limit: int = 0
 
@@ -47,9 +52,21 @@ def enqueue_resume_downloads(*, user_id: int | None, limit: int = 0) -> bool:
     return True
 
 
+def enqueue_oa_recheck(*, user_id: int | None, paper_id: int | None = None, limit: int = 0) -> bool:
+    """Queue an Unpaywall re-check of paywalled/no-PDF papers. Returns False when busy."""
+    if _running or oa_download_active():
+        return False
+    _queue.put_nowait(DownloadJob(kind="recheck", paper_id=paper_id, user_id=user_id, limit=limit))
+    return True
+
+
 def _run_batch_sync(job: DownloadJob) -> dict[str, int]:
     if job.kind == "resume":
         return asyncio.run(resume_downloading_papers(user_id=job.user_id, limit=job.limit))
+    if job.kind == "recheck":
+        return asyncio.run(
+            recheck_paywalled_open_access(paper_id=job.paper_id, user_id=job.user_id, limit=job.limit)
+        )
     return asyncio.run(download_open_access_papers(search_id=job.search_id, user_id=job.user_id, limit=job.limit))
 
 
@@ -63,12 +80,12 @@ async def _worker_loop() -> None:
         _running = True
         try:
             stats = await asyncio.to_thread(_run_batch_sync, job)
-            label = "Resume" if job.kind == "resume" else "OA"
+            label = {"resume": "Resume", "recheck": "Unpaywall re-check"}.get(job.kind, "OA")
             logger.info(
                 "%s download batch finished: %s saved, %s failed, %s skipped",
                 label,
                 stats.get("downloaded", 0),
-                stats.get("failed", 0),
+                stats.get("failed", stats.get("still_closed", 0)),
                 stats.get("skipped", 0),
             )
         except Exception:
