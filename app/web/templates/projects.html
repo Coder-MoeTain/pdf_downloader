@@ -40,9 +40,9 @@
     <input class="form-control" id="projSearch" type="search" placeholder="Filter by name, owner, or topic" autocomplete="off">
   </label>
 </div>
-<ol class="proj-list" aria-label="{% if selected_label %}{{ selected_label }} projects{% else %}Top projects{% endif %}">
+<div class="proj-list" role="list" aria-label="{% if selected_label %}{{ selected_label }} projects{% else %}Top projects{% endif %}">
   {% for repo in repos %}
-  <li class="proj-row{% if repo.rank <= 3 %} is-top is-top-{{ repo.rank }}{% endif %}" data-proj-key="{{ repo.key }}" data-proj-search="{{ repo.search }}" tabindex="0">
+  <article class="proj-row{% if repo.rank <= 3 %} is-top is-top-{{ repo.rank }}{% endif %}" role="listitem" data-proj-key="{{ repo.key }}" data-proj-search="{{ repo.search }}" tabindex="0">
     <div class="proj-rank" aria-label="Rank {{ repo.rank }}"><span>{{ "%02d"|format(repo.rank) }}</span></div>
     {% if repo.avatar %}
     <img class="proj-avatar" src="{{ repo.avatar }}" alt="" width="44" height="44">
@@ -79,9 +79,9 @@
       <button type="button" class="btn btn-sm btn-primary proj-detail-btn" data-proj-key="{{ repo.key }}">Details</button>
       <a class="btn btn-sm btn-outline-primary" href="{{ repo.html_url }}" target="_blank" rel="noopener noreferrer">GitHub</a>
     </div>
-  </li>
+  </article>
   {% endfor %}
-</ol>
+</div>
 <p class="proj-empty" id="projSearchEmpty" hidden>No projects match that filter.</p>
 {% elif selected %}
   {{ empty_state(

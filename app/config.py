@@ -130,7 +130,7 @@ class TopicConfig(BaseModel):
 class AppConfig(BaseModel):
     name: str = "Cyber Scholar"
     subtitle: str = "Myanmar Space Agency"
-    version: str = "2.0.0"
+    version: str = "2.0.1"
     user_agent: str = "CyberScholar/1.2 (academic research; mailto:{email})"
     library_dir: Path = Path("research_library")
     exports_dir: Path = Path("exports")

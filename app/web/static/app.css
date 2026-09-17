@@ -3107,11 +3107,16 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
   font-variant-numeric: tabular-nums;
 }
 .page-projects .proj-search {
+  display: block;
   flex: 1 1 16rem;
-  max-width: 22rem;
+  max-width: 28rem;
+  width: 100%;
+  min-width: min(100%, 16rem);
   margin-left: auto;
 }
 .page-projects .proj-search .form-control {
+  width: 100%;
+  min-height: 2.5rem;
   border-radius: 999px;
   padding-left: 0.95rem;
 }
@@ -3133,7 +3138,9 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
   grid-template-columns: 3.4rem 2.75rem minmax(0, 1fr) auto auto;
   align-items: start;
   gap: 0.85rem 1rem;
+  margin: 0;
   padding: 1rem 1.1rem;
+  list-style: none;
   background: var(--glass-strong);
   backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
