@@ -494,6 +494,12 @@
       openPaperDetail(detailButton);
       return;
     }
+    var remarkButton = event.target.closest(".remark-btn");
+    if (remarkButton) {
+      event.preventDefault();
+      openPaperRemark(remarkButton);
+      return;
+    }
     if (event.target.closest("[data-close-detail]")) {
       paperDetailDialog && paperDetailDialog.close();
       return;
@@ -514,46 +520,104 @@
   var remarkText = document.getElementById("paperRemarkText");
   var remarkUserId = document.getElementById("paperRemarkUserId");
   var remarkAccount = document.getElementById("paperRemarkAccount");
+  var remarkAccountWrap = document.getElementById("paperRemarkAccountWrap");
   var remarkPaperTitle = document.getElementById("paperRemarkPaperTitle");
-  if (remarkModalEl && remarkForm && typeof bootstrap !== "undefined") {
-    var remarkModal = bootstrap.Modal.getOrCreateInstance(remarkModalEl);
-    document.querySelectorAll(".remark-btn").forEach(function (button) {
-      button.addEventListener("click", function () {
-        var paperId = button.getAttribute("data-remark-paper-id") || "";
-        var accountId = button.getAttribute("data-remark-user-id") || "";
-        remarkForm.action = "/papers/" + encodeURIComponent(paperId) + "/notes";
-        if (remarkText) remarkText.value = button.getAttribute("data-remark-text") || "";
-        if (remarkUserId) remarkUserId.value = accountId;
-        if (remarkAccount && accountId) remarkAccount.value = accountId;
-        if (remarkPaperTitle) {
-          remarkPaperTitle.textContent = button.getAttribute("data-remark-title") || "";
-        }
-        remarkModal.show();
-        if (remarkAccount) {
-          remarkAccount.onchange = function () {
-            if (remarkUserId) remarkUserId.value = remarkAccount.value;
-            var url =
-              "/api/papers/" +
-              encodeURIComponent(paperId) +
-              "/workspace?for_user_id=" +
-              encodeURIComponent(remarkAccount.value);
-            fetch(url, {
-              credentials: "same-origin",
-              headers: { Accept: "application/json", "X-CSRF-Token": csrfHeader() },
-            })
-              .then(function (response) {
-                return response.json();
-              })
-              .then(function (payload) {
-                if (payload && payload.ok && remarkText) {
-                  remarkText.value = payload.notes || "";
-                }
-              })
-              .catch(function () {});
-          };
-        }
-      });
+  var remarkNext = document.getElementById("paperRemarkNext");
+  var remarkModal = null;
+  if (remarkModalEl && typeof bootstrap !== "undefined") {
+    remarkModal = bootstrap.Modal.getOrCreateInstance(remarkModalEl);
+  }
+
+  function remarkAccounts() {
+    var el = document.getElementById("lib-remark-accounts");
+    if (!el) return [];
+    try {
+      return JSON.parse(el.textContent || "[]") || [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function fillRemarkAccounts(selectedId) {
+    if (!remarkAccount || !remarkAccountWrap) return;
+    var accounts = remarkAccounts();
+    remarkAccount.innerHTML = "";
+    if (!accounts.length) {
+      remarkAccountWrap.classList.add("d-none");
+      return;
+    }
+    accounts.forEach(function (account) {
+      var option = document.createElement("option");
+      option.value = String(account.id);
+      option.textContent = account.name || account.email || String(account.id);
+      if (account.email && account.email !== account.name) {
+        option.textContent += " · " + account.email;
+      }
+      if (String(account.id) === String(selectedId)) option.selected = true;
+      remarkAccount.appendChild(option);
     });
+    remarkAccountWrap.classList.toggle("d-none", accounts.length < 2);
+  }
+
+  function loadRemarkNotes(paperId, accountId) {
+    if (!remarkText || !paperId) return;
+    remarkText.value = "Loading…";
+    remarkText.disabled = true;
+    var url =
+      "/api/papers/" +
+      encodeURIComponent(paperId) +
+      "/workspace?for_user_id=" +
+      encodeURIComponent(accountId || "");
+    fetch(url, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json", "X-CSRF-Token": csrfHeader() },
+    })
+      .then(function (response) {
+        return response.json();
+      })
+      .then(function (payload) {
+        remarkText.disabled = false;
+        if (payload && payload.ok) {
+          remarkText.value = payload.notes || "";
+        } else {
+          remarkText.value = "";
+        }
+      })
+      .catch(function () {
+        remarkText.disabled = false;
+        remarkText.value = "";
+      });
+  }
+
+  function openPaperRemark(button) {
+    if (!remarkForm || !remarkModalEl) return;
+    var paperId = button.getAttribute("data-remark-paper-id") || "";
+    var accountId = button.getAttribute("data-remark-user-id") || "";
+    if (!paperId) return;
+    remarkForm.action = "/papers/" + encodeURIComponent(paperId) + "/notes";
+    if (remarkNext) remarkNext.value = window.location.pathname + window.location.search;
+    if (remarkPaperTitle) {
+      remarkPaperTitle.textContent = button.getAttribute("data-remark-title") || "";
+    }
+    fillRemarkAccounts(accountId);
+    if (remarkAccount && remarkAccount.options.length) {
+      accountId = remarkAccount.value || accountId;
+    }
+    if (remarkUserId) remarkUserId.value = accountId;
+    if (remarkAccount) {
+      remarkAccount.onchange = function () {
+        if (remarkUserId) remarkUserId.value = remarkAccount.value;
+        loadRemarkNotes(paperId, remarkAccount.value);
+      };
+    }
+    loadRemarkNotes(paperId, accountId);
+    if (remarkModal) {
+      remarkModal.show();
+    } else {
+      remarkModalEl.classList.add("show");
+      remarkModalEl.style.display = "block";
+      remarkModalEl.removeAttribute("aria-hidden");
+    }
   }
 
   var modalEl = document.getElementById("pdfPreviewModal");
