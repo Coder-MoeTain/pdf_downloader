@@ -167,35 +167,12 @@ def library_page(
         pager = pagination_spec(1, 0, per_page)
 
     account_id = _request_user_id(request)
-    remark_user_id = account_id
-    remark_accounts: list[dict] = []
     remarks: dict[int, str] = {}
-    if account_id is not None:
-        from app.auth import list_users
+    if account_id is not None and papers:
         from app.database.repository import user_paper_remarks_map
 
-        remark_param = request.query_params.get("remark_user")
-        if user_is_admin(request) and remark_param:
-            try:
-                candidate = int(remark_param)
-            except (TypeError, ValueError):
-                candidate = 0
-            if candidate > 0:
-                remark_user_id = candidate
         with session_scope() as session:
-            if papers:
-                remarks = user_paper_remarks_map(
-                    session, remark_user_id or account_id, [p.id for p in papers]
-                )
-            if user_is_admin(request):
-                remark_accounts = [
-                    {
-                        "id": row.id,
-                        "name": row.name or row.email,
-                        "email": row.email,
-                    }
-                    for row in list_users(session)
-                ]
+            remarks = user_paper_remarks_map(session, account_id, [p.id for p in papers])
 
     def _load_facets() -> dict:
         with session_scope() as session:
@@ -318,8 +295,6 @@ def library_page(
             has_library_stats=stats["has_stats"],
             source_catalog={row["slug"]: row for row in _source_rows()},
             remarks=remarks,
-            remark_user_id=remark_user_id,
-            remark_accounts=remark_accounts,
         ),
     )
 

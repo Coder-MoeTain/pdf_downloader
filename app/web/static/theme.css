@@ -619,6 +619,9 @@ a.stat-card:hover {
 [data-bs-theme="dark"] .page-sources .lib-table-card thead th {
   background: var(--table-head-bg);
 }
+[data-bs-theme="dark"] .page-library .paper-remark {
+  color: #8fd992;
+}
 
 [data-bs-theme="dark"] .lib-topic.is-active,
 [data-bs-theme="dark"] .lib-topic:hover {

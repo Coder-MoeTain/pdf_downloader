@@ -114,26 +114,6 @@
     {% if status == 'PAYWALLED' %}<a class="lib-active-pill" href="{{ library_href(filters, status='', page=1) }}">Paywalled <span aria-hidden="true">×</span></a>{% endif %}
   </div>
   {% endif %}
-
-  {% if is_admin and remark_accounts and remark_accounts|length > 1 %}
-  <form class="lib-remark-account mt-2" method="get" action="/library">
-    {% if latest %}<input type="hidden" name="latest" value="1">{% endif %}
-    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
-    {% if pdf %}<input type="hidden" name="pdf" value="1">{% endif %}
-    {% if oa %}<input type="hidden" name="oa" value="1">{% endif %}
-    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
-    {% if category %}<input type="hidden" name="category" value="{{ category }}">{% endif %}
-    {% if year %}<input type="hidden" name="year" value="{{ year }}">{% endif %}
-    {% if sort and sort != 'relevance' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
-    {% if per_page != 25 %}<input type="hidden" name="per_page" value="{{ per_page }}">{% endif %}
-    <label class="lib-filter-label mb-0" for="remark_user">Show remarks for</label>
-    <select class="form-select form-select-sm" id="remark_user" name="remark_user" onchange="this.form.submit()" aria-label="Account for remarks">
-      {% for account in remark_accounts %}
-      <option value="{{ account.id }}" {% if remark_user_id == account.id %}selected{% endif %}>{{ account.name }}{% if account.email and account.email != account.name %} · {{ account.email }}{% endif %}</option>
-      {% endfor %}
-    </select>
-  </form>
-  {% endif %}
 </section>
 
 <div class="lib-body">
@@ -220,7 +200,7 @@
           <button class="btn btn-sm btn-outline-secondary remark-btn paper-action-btn" type="button"
                   data-remark-paper-id="{{ p.id }}"
                   data-remark-title="{{ p.title|e }}"
-                  data-remark-user-id="{{ remark_user_id or user.id }}"
+                  data-remark-user-id="{{ user.id }}"
                   aria-haspopup="dialog"
                   aria-controls="paperRemarkModal">Remark</button>
           {% endif %}
@@ -288,8 +268,4 @@
 {% endif %}
 </div>
 </div>
-
-{% if user and remark_accounts %}
-<script type="application/json" id="lib-remark-accounts">{{ remark_accounts|tojson }}</script>
-{% endif %}
 {% endblock %}

@@ -519,44 +519,11 @@
   var remarkForm = document.getElementById("paperRemarkForm");
   var remarkText = document.getElementById("paperRemarkText");
   var remarkUserId = document.getElementById("paperRemarkUserId");
-  var remarkAccount = document.getElementById("paperRemarkAccount");
-  var remarkAccountWrap = document.getElementById("paperRemarkAccountWrap");
   var remarkPaperTitle = document.getElementById("paperRemarkPaperTitle");
   var remarkNext = document.getElementById("paperRemarkNext");
   var remarkModal = null;
   if (remarkModalEl && typeof bootstrap !== "undefined") {
     remarkModal = bootstrap.Modal.getOrCreateInstance(remarkModalEl);
-  }
-
-  function remarkAccounts() {
-    var el = document.getElementById("lib-remark-accounts");
-    if (!el) return [];
-    try {
-      return JSON.parse(el.textContent || "[]") || [];
-    } catch (error) {
-      return [];
-    }
-  }
-
-  function fillRemarkAccounts(selectedId) {
-    if (!remarkAccount || !remarkAccountWrap) return;
-    var accounts = remarkAccounts();
-    remarkAccount.innerHTML = "";
-    if (!accounts.length) {
-      remarkAccountWrap.classList.add("d-none");
-      return;
-    }
-    accounts.forEach(function (account) {
-      var option = document.createElement("option");
-      option.value = String(account.id);
-      option.textContent = account.name || account.email || String(account.id);
-      if (account.email && account.email !== account.name) {
-        option.textContent += " · " + account.email;
-      }
-      if (String(account.id) === String(selectedId)) option.selected = true;
-      remarkAccount.appendChild(option);
-    });
-    remarkAccountWrap.classList.toggle("d-none", accounts.length < 2);
   }
 
   function loadRemarkNotes(paperId, accountId) {
@@ -566,8 +533,8 @@
     var url =
       "/api/papers/" +
       encodeURIComponent(paperId) +
-      "/workspace?for_user_id=" +
-      encodeURIComponent(accountId || "");
+      "/workspace" +
+      (accountId ? "?for_user_id=" + encodeURIComponent(accountId) : "");
     fetch(url, {
       credentials: "same-origin",
       headers: { Accept: "application/json", "X-CSRF-Token": csrfHeader() },
@@ -599,17 +566,7 @@
     if (remarkPaperTitle) {
       remarkPaperTitle.textContent = button.getAttribute("data-remark-title") || "";
     }
-    fillRemarkAccounts(accountId);
-    if (remarkAccount && remarkAccount.options.length) {
-      accountId = remarkAccount.value || accountId;
-    }
     if (remarkUserId) remarkUserId.value = accountId;
-    if (remarkAccount) {
-      remarkAccount.onchange = function () {
-        if (remarkUserId) remarkUserId.value = remarkAccount.value;
-        loadRemarkNotes(paperId, remarkAccount.value);
-      };
-    }
     loadRemarkNotes(paperId, accountId);
     if (remarkModal) {
       remarkModal.show();
