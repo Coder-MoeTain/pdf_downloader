@@ -114,6 +114,26 @@
     {% if status == 'PAYWALLED' %}<a class="lib-active-pill" href="{{ library_href(filters, status='', page=1) }}">Paywalled <span aria-hidden="true">×</span></a>{% endif %}
   </div>
   {% endif %}
+
+  {% if is_admin and remark_accounts and remark_accounts|length > 1 %}
+  <form class="lib-remark-account mt-2" method="get" action="/library">
+    {% if latest %}<input type="hidden" name="latest" value="1">{% endif %}
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    {% if pdf %}<input type="hidden" name="pdf" value="1">{% endif %}
+    {% if oa %}<input type="hidden" name="oa" value="1">{% endif %}
+    {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+    {% if category %}<input type="hidden" name="category" value="{{ category }}">{% endif %}
+    {% if year %}<input type="hidden" name="year" value="{{ year }}">{% endif %}
+    {% if sort and sort != 'relevance' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+    {% if per_page != 25 %}<input type="hidden" name="per_page" value="{{ per_page }}">{% endif %}
+    <label class="lib-filter-label mb-0" for="remark_user">Show remarks for</label>
+    <select class="form-select form-select-sm" id="remark_user" name="remark_user" onchange="this.form.submit()" aria-label="Account for remarks">
+      {% for account in remark_accounts %}
+      <option value="{{ account.id }}" {% if remark_user_id == account.id %}selected{% endif %}>{{ account.name }}{% if account.email and account.email != account.name %} · {{ account.email }}{% endif %}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
 </section>
 
 <div class="lib-body">
@@ -171,6 +191,10 @@
         <td class="lib-num">{{ pager.start + loop.index0 }}</td>
         <td>
           <div class="paper-title" title="{{ p.title }}">{{ p.title }}</div>
+          {% set remark = remarks.get(p.id) if remarks else none %}
+          {% if remark %}
+          <div class="paper-remark" title="{{ remark }}">{{ remark }}</div>
+          {% endif %}
         </td>
         <td class="lib-col-source">
           {% if p.source %}
@@ -192,6 +216,15 @@
                   data-detail='{{ detail|tojson }}'
                   aria-haspopup="dialog"
                   aria-controls="paperDetailDialog">Detail</button>
+          {% if user %}
+          <button class="btn btn-sm btn-outline-secondary remark-btn paper-action-btn" type="button"
+                  data-remark-paper-id="{{ p.id }}"
+                  data-remark-title="{{ p.title|e }}"
+                  data-remark-text="{{ (remarks.get(p.id) if remarks else '')|e }}"
+                  data-remark-user-id="{{ remark_user_id or user.id }}"
+                  aria-haspopup="dialog"
+                  aria-controls="paperRemarkModal">Remark</button>
+          {% endif %}
           {% if p.abstract %}
           <button class="btn btn-sm btn-outline-secondary abstract-btn paper-action-btn" type="button"
                   data-abstract-title="{{ p.title }}"
@@ -256,4 +289,44 @@
 {% endif %}
 </div>
 </div>
+
+{% if user %}
+<div class="modal fade" id="paperRemarkModal" tabindex="-1" aria-labelledby="paperRemarkTitle" aria-hidden="true"
+     data-remark-accounts='{{ (remark_accounts or [])|tojson }}'>
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="/papers/0/notes" id="paperRemarkForm">
+        <div class="modal-header">
+          <div>
+            <div class="abstract-modal-kicker">Account remark</div>
+            <h2 class="modal-title h5" id="paperRemarkTitle">Remark</h2>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close remark"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="next" id="paperRemarkNext" value="{{ library_href(filters, page=pager.page) if filters is defined else '/library' }}">
+          <input type="hidden" name="for_user_id" id="paperRemarkUserId" value="{{ remark_user_id or user.id }}">
+          <p class="paper-meta mb-2" id="paperRemarkPaperTitle"></p>
+          {% if is_admin and remark_accounts and remark_accounts|length > 1 %}
+          <label class="form-label" for="paperRemarkAccount">Account</label>
+          <select class="form-select mb-2" id="paperRemarkAccount">
+            {% for account in remark_accounts %}
+            <option value="{{ account.id }}" {% if remark_user_id == account.id %}selected{% endif %}>{{ account.name }}{% if account.email and account.email != account.name %} · {{ account.email }}{% endif %}</option>
+            {% endfor %}
+          </select>
+          {% endif %}
+          <label class="form-label" for="paperRemarkText">Remark</label>
+          <textarea class="form-control" id="paperRemarkText" name="notes" rows="5" placeholder="Private note for this account on this paper"></textarea>
+          <p class="form-text mb-0">Saved only for the selected account. Other users cannot see it.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save remark</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

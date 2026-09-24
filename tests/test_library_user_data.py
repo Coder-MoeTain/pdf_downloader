@@ -21,6 +21,11 @@ def test_user_notes_and_ratings_are_scoped(tmp_db):
         assert notes.notes == "Need to cite"
         assert other.notes == "Different user"
         assert notes.id != other.id
+        from app.database.repository import user_paper_remarks_map
+
+        mapped = user_paper_remarks_map(session, user_a.id, [paper.id])
+        assert mapped[paper.id] == "Need to cite"
+        assert user_paper_remarks_map(session, user_b.id, [paper.id])[paper.id] == "Different user"
 
 
 def test_default_collections_and_saved_search(tmp_db):
@@ -72,7 +77,7 @@ def test_workspace_and_saved_search_routes(tmp_db):
     assert payload["reading_status"] == "unread"
     notes = client.post(
         f"/papers/{paper_id}/notes",
-        data={"notes": "Cite this", "tags": "ai; security", "next": "/library"},
+        data={"notes": "Cite this", "tags": "ai; security", "save_tags": "1", "next": "/library"},
         follow_redirects=False,
     )
     assert notes.status_code == 303

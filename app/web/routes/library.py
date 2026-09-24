@@ -166,6 +166,37 @@ def library_page(
         papers, total, oa_pending, user_options = [], 0, 0, []
         pager = pagination_spec(1, 0, per_page)
 
+    account_id = _request_user_id(request)
+    remark_user_id = account_id
+    remark_accounts: list[dict] = []
+    remarks: dict[int, str] = {}
+    if account_id is not None:
+        from app.auth import list_users
+        from app.database.repository import user_paper_remarks_map
+
+        remark_param = request.query_params.get("remark_user")
+        if user_is_admin(request) and remark_param:
+            try:
+                candidate = int(remark_param)
+            except (TypeError, ValueError):
+                candidate = 0
+            if candidate > 0:
+                remark_user_id = candidate
+        with session_scope() as session:
+            if papers:
+                remarks = user_paper_remarks_map(
+                    session, remark_user_id or account_id, [p.id for p in papers]
+                )
+            if user_is_admin(request):
+                remark_accounts = [
+                    {
+                        "id": row.id,
+                        "name": row.name or row.email,
+                        "email": row.email,
+                    }
+                    for row in list_users(session)
+                ]
+
     def _load_facets() -> dict:
         with session_scope() as session:
             return library_facets(session, light=True)
@@ -286,6 +317,9 @@ def library_page(
             kpis=kpis,
             has_library_stats=stats["has_stats"],
             source_catalog={row["slug"]: row for row in _source_rows()},
+            remarks=remarks,
+            remark_user_id=remark_user_id,
+            remark_accounts=remark_accounts,
         ),
     )
 
@@ -366,44 +400,72 @@ def library_delete_paper(request: Request, paper_id: int, next: str = Form("")):
 
 
 @router.get("/api/papers/{paper_id}/workspace")
-def paper_workspace(paper_id: int, request: Request):
+def paper_workspace(paper_id: int, request: Request, for_user_id: int | None = None):
     user_id = _request_user_id(request)
     if user_id is None:
         return JSONResponse({"ok": False, "error": "Sign in required"}, status_code=401)
     from app.database.repository import list_user_collections, related_papers, user_paper_workspace
 
+    target_user_id = user_id
+    if for_user_id and for_user_id > 0 and for_user_id != user_id:
+        if not user_is_admin(request):
+            return JSONResponse({"ok": False, "error": "Admin access required"}, status_code=403)
+        target_user_id = for_user_id
     with session_scope() as session:
         paper = session.get(Paper, paper_id)
         if paper is None:
             return JSONResponse({"ok": False, "error": "Paper not found"}, status_code=404)
-        workspace = user_paper_workspace(session, user_id, paper_id)
+        workspace = user_paper_workspace(session, target_user_id, paper_id)
         collections = [
             {"id": row.id, "name": row.name, "slug": row.slug, "selected": row.id in workspace["collection_ids"]}
-            for row in list_user_collections(session, user_id)
+            for row in list_user_collections(session, target_user_id)
         ]
         related = [
             {"id": row.id, "title": row.title, "year": row.publication_year, "citations": row.citation_count or 0}
             for row in related_papers(session, paper_id)
         ]
-    return JSONResponse({"ok": True, "paper_id": paper_id, **workspace, "collections": collections, "related": related})
+    return JSONResponse(
+        {
+            "ok": True,
+            "paper_id": paper_id,
+            "for_user_id": target_user_id,
+            **workspace,
+            "collections": collections,
+            "related": related,
+        }
+    )
 
 
 @router.post("/papers/{paper_id}/notes")
 def paper_save_notes(
-    paper_id: int, request: Request, notes: str = Form(""), tags: str = Form(""), next: str = Form("")
+    paper_id: int,
+    request: Request,
+    notes: str = Form(""),
+    tags: str = Form(""),
+    next: str = Form(""),
+    for_user_id: int | None = Form(None),
+    save_tags: str | None = Form(None),
 ):
     user_id = _request_user_id(request)
     if user_id is None:
         return RedirectResponse("/login?next=/library", status_code=302)
     from app.database.repository import set_user_paper_notes, set_user_paper_tags, split_tags
 
+    target_user_id = user_id
+    if for_user_id and int(for_user_id) > 0 and int(for_user_id) != user_id:
+        if not user_is_admin(request):
+            set_flash(request, "Only admins can save remarks for another account.", "warning")
+            return RedirectResponse(_safe_next(next, "/library"), status_code=303)
+        target_user_id = int(for_user_id)
+
     with session_scope() as session:
         if session.get(Paper, paper_id) is None:
             set_flash(request, "Paper not found.", "danger")
             return RedirectResponse(_safe_next(next, "/library"), status_code=303)
-        set_user_paper_notes(session, user_id, paper_id, notes)
-        set_user_paper_tags(session, user_id, paper_id, split_tags(tags))
-    set_flash(request, "Notes saved.", "success")
+        set_user_paper_notes(session, target_user_id, paper_id, notes)
+        if save_tags:
+            set_user_paper_tags(session, target_user_id, paper_id, split_tags(tags))
+    set_flash(request, "Remark saved.", "success")
     return RedirectResponse(_safe_next(next, "/library"), status_code=303)
 
 

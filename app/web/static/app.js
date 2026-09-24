@@ -439,7 +439,11 @@
       escapeHtml(csrfToken()) +
       '">' +
       '<input type="hidden" name="next" value="/library">' +
-      '<label class="form-label" for="paperNotes">Private notes</label>' +
+      '<input type="hidden" name="save_tags" value="1">' +
+      (payload.for_user_id
+        ? '<input type="hidden" name="for_user_id" value="' + escapeHtml(String(payload.for_user_id)) + '">'
+        : "") +
+      '<label class="form-label" for="paperNotes">Remark (this account)</label>' +
       '<textarea class="form-control" id="paperNotes" name="notes" rows="3">' +
       escapeHtml(payload.notes || "") +
       "</textarea>" +
@@ -447,7 +451,7 @@
       '<input class="form-control" id="paperTags" name="tags" value="' +
       escapeHtml(payload.tags || "") +
       '">' +
-      '<button class="btn btn-sm btn-primary mt-2" type="submit">Save notes</button></form>' +
+      '<button class="btn btn-sm btn-primary mt-2" type="submit">Save remark</button></form>' +
       (collections
         ? '<form method="post" action="/papers/' +
           payload.paper_id +
@@ -504,6 +508,53 @@
       paperDetailDialog.close();
     }
   });
+
+  var remarkModalEl = document.getElementById("paperRemarkModal");
+  var remarkForm = document.getElementById("paperRemarkForm");
+  var remarkText = document.getElementById("paperRemarkText");
+  var remarkUserId = document.getElementById("paperRemarkUserId");
+  var remarkAccount = document.getElementById("paperRemarkAccount");
+  var remarkPaperTitle = document.getElementById("paperRemarkPaperTitle");
+  if (remarkModalEl && remarkForm && typeof bootstrap !== "undefined") {
+    var remarkModal = bootstrap.Modal.getOrCreateInstance(remarkModalEl);
+    document.querySelectorAll(".remark-btn").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var paperId = button.getAttribute("data-remark-paper-id") || "";
+        var accountId = button.getAttribute("data-remark-user-id") || "";
+        remarkForm.action = "/papers/" + encodeURIComponent(paperId) + "/notes";
+        if (remarkText) remarkText.value = button.getAttribute("data-remark-text") || "";
+        if (remarkUserId) remarkUserId.value = accountId;
+        if (remarkAccount && accountId) remarkAccount.value = accountId;
+        if (remarkPaperTitle) {
+          remarkPaperTitle.textContent = button.getAttribute("data-remark-title") || "";
+        }
+        remarkModal.show();
+        if (remarkAccount) {
+          remarkAccount.onchange = function () {
+            if (remarkUserId) remarkUserId.value = remarkAccount.value;
+            var url =
+              "/api/papers/" +
+              encodeURIComponent(paperId) +
+              "/workspace?for_user_id=" +
+              encodeURIComponent(remarkAccount.value);
+            fetch(url, {
+              credentials: "same-origin",
+              headers: { Accept: "application/json", "X-CSRF-Token": csrfHeader() },
+            })
+              .then(function (response) {
+                return response.json();
+              })
+              .then(function (payload) {
+                if (payload && payload.ok && remarkText) {
+                  remarkText.value = payload.notes || "";
+                }
+              })
+              .catch(function () {});
+          };
+        }
+      });
+    });
+  }
 
   var modalEl = document.getElementById("pdfPreviewModal");
   var title = document.getElementById("pdfPreviewTitle");

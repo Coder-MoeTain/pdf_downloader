@@ -1737,6 +1737,21 @@ def user_paper_workspace(session: Session, user_id: int, paper_id: int) -> dict:
     }
 
 
+def user_paper_remarks_map(session: Session, user_id: int, paper_ids: list[int]) -> dict[int, str]:
+    """Return {paper_id: remark} for one account across a page of library papers."""
+    if user_id is None or not paper_ids:
+        return {}
+    rows = session.scalars(
+        select(UserPaper).where(
+            UserPaper.user_id == user_id,
+            UserPaper.paper_id.in_(paper_ids),
+            UserPaper.notes.is_not(None),
+            UserPaper.notes != "",
+        )
+    ).all()
+    return {int(row.paper_id): str(row.notes or "").strip() for row in rows if str(row.notes or "").strip()}
+
+
 def related_papers(session: Session, paper_id: int, *, limit: int = 8) -> list[Paper]:
     paper = session.get(Paper, paper_id)
     if paper is None:
