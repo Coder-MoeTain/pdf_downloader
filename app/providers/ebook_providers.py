@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 from urllib.parse import quote
 
@@ -9,7 +10,6 @@ from app.database.ebook_sources import EBOOK_SOURCES
 from app.models.paper import AuthorRecord, PaperRecord
 from app.models.search import SearchFilters
 from app.providers.base import ResearchProvider
-from app.providers.extra import NasaNtrsProvider
 from app.providers.free import (
     _authors_from,
     _DspaceRestProvider,
@@ -93,18 +93,28 @@ class _OapenSubjectProvider(_DoabSubjectProvider):
     rate_group = "oapen"
 
 
-_OPENALEX_BOOK_TYPES = frozenset(
-    {"book", "book-chapter", "edited-book", "monograph", "reference-book"}
+_OPENALEX_BOOK_TYPES = frozenset({"book", "edited-book", "monograph", "reference-book"})
+_PAPER_LIKE_RE = re.compile(
+    r"\b(arxiv|doi:|proceedings of|journal of|technical (memorandum|report|note)|"
+    r"nasa/?tm|conference paper)\b",
+    re.I,
 )
+
+
+def _looks_like_research_paper(title: str, description: str = "") -> bool:
+    hay = f"{title} {description}".strip()
+    return bool(hay) and bool(_PAPER_LIKE_RE.search(hay))
 
 
 def _openalex_is_book(item: dict[str, Any] | None) -> bool:
     if not isinstance(item, dict):
         return False
     work_type = str(item.get("type") or item.get("type_crossref") or "").strip().lower()
+    if not work_type or "article" in work_type or "chapter" in work_type:
+        return False
     if work_type in _OPENALEX_BOOK_TYPES:
         return True
-    return "book" in work_type and "article" not in work_type
+    return work_type.endswith("book")
 
 
 class _OpenAlexBookProvider(OpenAlexProvider):
@@ -196,6 +206,8 @@ class _InternetArchiveBooksProvider(ResearchProvider):
         title = _text(item.get("title"))
         ident = _text(item.get("identifier"))
         if not title or not ident:
+            return None
+        if _looks_like_research_paper(title, _text(item.get("description"))):
             return None
         creators = item.get("creator")
         year = _year(item.get("year") or item.get("publicdate"))
@@ -294,22 +306,6 @@ class _OpenStaxProvider(ResearchProvider):
         )
 
 
-class _NasaNtrsBookProvider(NasaNtrsProvider):
-    content_kind = "ebook"
-    upstream = "nasa_ntrs"
-    rate_group = "nasa_ntrs"
-    query_extra: str = ""
-    category: str = "Satellite Technology"
-    family: str = "science"
-
-    async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
-        extra = self.query_extra.strip()
-        combined = f"{query} {extra}".strip()
-        papers = await super().search(combined, filters)
-        spec = {"category": self.category, "family": self.family}
-        return [_stamp_ebook(paper, spec) for paper in papers if paper]
-
-
 def _class_name(slug: str) -> str:
     return "".join(part.title() for part in slug.replace("-", "_").split("_")) + "Provider"
 
@@ -350,15 +346,6 @@ def _build_provider(spec: dict[str, object]) -> type[ResearchProvider]:
         return type(_class_name(str(spec["slug"])), (_InternetArchiveBooksProvider,), attrs)
     if backend == "openstax":
         return type(_class_name(str(spec["slug"])), (_OpenStaxProvider,), attrs)
-    if backend == "nasa_ntrs":
-        attrs.update(
-            {
-                "query_extra": str(spec.get("query_extra") or ""),
-                "upstream": "nasa_ntrs",
-                "rate_group": "nasa_ntrs",
-            }
-        )
-        return type(_class_name(str(spec["slug"])), (_NasaNtrsBookProvider,), attrs)
     raise ValueError(f"Unknown ebook backend: {backend}")
 
 

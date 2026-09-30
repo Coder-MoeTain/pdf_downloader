@@ -193,6 +193,15 @@ def init_db(url: str | None = None) -> None:
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
         conn.commit()
+    try:
+        from app.database.repository import reclassify_non_ebook_records
+
+        with session_scope() as session:
+            moved = reclassify_non_ebook_records(session)
+        if moved:
+            logger.info("Reclassified %s paper-like library rows as articles", moved)
+    except Exception as exc:
+        logger.warning("Could not reclassify paper-like ebooks: %s", exc)
     logger.info("Database initialized (%s)", engine.dialect.name)
     try:
         from app.database.settings_store import init_settings_store

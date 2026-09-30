@@ -3,8 +3,8 @@
 Fifty catalog entries, split by family (science vs technology) and focused on
 data science, satellite technology, and electronics. Metadata-only publishers
 never bypass paywalls; PDFs are taken only from OA book APIs and public
-repositories (DOAB, OAPEN, OpenAlex books, Internet Archive texts, OpenStax,
-NASA NTRS).
+repositories (DOAB, OAPEN, OpenAlex books, Internet Archive texts, OpenStax).
+Research papers, reports, and book chapters are not ebook sources.
 """
 
 from __future__ import annotations
@@ -47,11 +47,6 @@ _OPENSTAX = {
     "homepage_url": "https://openstax.org",
     "api_base_url": "https://openstax.org/apps/cms/api/books/",
     "docs_url": "https://openstax.org/tos",
-}
-_NTRS = {
-    "homepage_url": "https://ntrs.nasa.gov",
-    "api_base_url": "https://ntrs.nasa.gov/api/citations/search",
-    "docs_url": "https://ntrs.nasa.gov/api/citations/docs",
 }
 
 
@@ -265,15 +260,15 @@ EBOOK_SOURCES: list[dict[str, object]] = [
         urls=_DOAB,
     ),
     _row(
-        slug="nasa_ntrs_eo_books",
-        display_name="NASA NTRS · Earth Observation",
-        description="Public NASA technical reports on Earth observation and remote sensing.",
+        slug="oapen_earth_observation",
+        display_name="OAPEN · Earth Observation",
+        description="OAPEN books on Earth observation, remote sensing, and geospatial science.",
         family="science",
         category="Satellite Technology",
-        backend="nasa_ntrs",
+        backend="oapen",
         sort_order=1250,
-        query_extra="remote sensing earth observation satellite",
-        urls=_NTRS,
+        subject="earth observation",
+        urls=_OAPEN,
     ),
     _row(
         slug="openalex_books_astronomy",
@@ -572,15 +567,15 @@ EBOOK_SOURCES: list[dict[str, object]] = [
         urls=_OAPEN,
     ),
     _row(
-        slug="nasa_ntrs_tech_books",
-        display_name="NASA NTRS · Space Technology",
-        description="Public NASA technical reports on spacecraft and satellite technology.",
+        slug="doab_space_systems",
+        display_name="DOAB · Space Systems",
+        description="DOAB books on spacecraft, satellites, and space systems engineering.",
         family="technology",
         category="Satellite Technology",
-        backend="nasa_ntrs",
+        backend="doab",
         sort_order=1570,
-        query_extra="spacecraft satellite technology",
-        urls=_NTRS,
+        subject="space systems",
+        urls=_DOAB,
     ),
     # Technology · computing / general (7)
     _row(
@@ -673,7 +668,12 @@ def catalog_rows_from_ebooks() -> list[dict[str, object]]:
 
 EBOOK_SOURCE_BY_SLUG: dict[str, dict[str, object]] = {str(item["slug"]): item for item in EBOOK_SOURCES}
 EBOOK_SOURCE_SLUGS: frozenset[str] = frozenset(EBOOK_SOURCE_BY_SLUG)
+# Former NTRS "ebook" catalogs were technical reports, not books.
+RETIRED_EBOOK_SOURCE_SLUGS: frozenset[str] = frozenset({"nasa_ntrs_eo_books", "nasa_ntrs_tech_books"})
+BOOK_LIBRARY_SOURCE_SLUGS: frozenset[str] = EBOOK_SOURCE_SLUGS
 
 assert len(EBOOK_SOURCES) == 50, len(EBOOK_SOURCES)
 assert len(EBOOK_SOURCE_SLUGS) == 50
+assert RETIRED_EBOOK_SOURCE_SLUGS.isdisjoint(EBOOK_SOURCE_SLUGS)
+assert all(str(item.get("backend") or "") != "nasa_ntrs" for item in EBOOK_SOURCES)
 assert all(str(item["slug"]) not in {None, ""} for item in EBOOK_SOURCES)

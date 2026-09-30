@@ -9,7 +9,7 @@ from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, case, delete, exists, func, or_, select, text
+from sqlalchemy import and_, case, delete, exists, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -593,10 +593,38 @@ def _tag_column_matches(column, tag: str):
 def work_type_clause(work_type: str = ""):
     kind = (work_type or "").strip().lower()
     if kind == "ebook":
-        return Paper.work_type == "ebook"
+        from app.database.ebook_sources import BOOK_LIBRARY_SOURCE_SLUGS
+
+        # Only catalog books: papers/reports tagged ebook must not appear here.
+        return and_(
+            Paper.work_type == "ebook",
+            or_(
+                Paper.source.is_(None),
+                Paper.source == "",
+                Paper.source.in_(tuple(BOOK_LIBRARY_SOURCE_SLUGS)),
+            ),
+        )
     if kind == "article":
         return or_(Paper.work_type == "article", Paper.work_type.is_(None), Paper.work_type == "")
     return None
+
+
+def reclassify_non_ebook_records(session: Session) -> int:
+    """Turn paper-like rows tagged as ebooks back into articles."""
+    from app.database.ebook_sources import BOOK_LIBRARY_SOURCE_SLUGS
+
+    result = session.execute(
+        update(Paper)
+        .where(Paper.work_type == "ebook")
+        .where(Paper.source.is_not(None))
+        .where(Paper.source != "")
+        .where(Paper.source.notin_(tuple(BOOK_LIBRARY_SOURCE_SLUGS)))
+        .values(work_type="article")
+    )
+    count = int(result.rowcount or 0)
+    if count:
+        invalidate_library_facets_cache()
+    return count
 
 
 def ebook_has_pdf_clause():

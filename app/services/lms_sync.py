@@ -460,7 +460,7 @@ def _record_export(paper_id: int, ebook_id: int | None, status: str, error: str 
 
 
 def _load_papers(paper_ids: list[int] | None) -> list[Paper]:
-    """Load downloaded papers. Always re-check LMS: a prior false-positive skip must retry."""
+    """Load downloaded ebooks. Always re-check LMS: a prior false-positive skip must retry."""
     with session_scope() as session:
         stmt = (
             select(Paper)
@@ -470,6 +470,7 @@ def _load_papers(paper_ids: list[int] | None) -> list[Paper]:
             )
             .join(Download, Download.paper_id == Paper.id)
             .where(
+                Paper.work_type == "ebook",
                 Download.local_path.is_not(None),
                 Download.local_path != "",
                 Download.status.in_([PaperStatus.DOWNLOADED.value, PaperStatus.DUPLICATE.value]),
@@ -491,6 +492,8 @@ def _safe_stem(title: str, paper_id: int) -> str:
 
 
 def import_paper(paper: Paper, cfg: LmsSyncConfig, catalog: LmsCatalog | None, *, dry_run: bool) -> str:
+    if (getattr(paper, "work_type", None) or "article") != "ebook":
+        return "skipped: not an ebook"
     pdf_src = existing_pdf_for_paper(paper)
     if pdf_src is None:
         return "skipped: PDF missing on disk"

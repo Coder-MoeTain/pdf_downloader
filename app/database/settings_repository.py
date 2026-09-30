@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import AppConfig, ProviderConfig, load_config
-from app.database.ebook_sources import EBOOK_SOURCE_SLUGS
+from app.database.ebook_sources import EBOOK_SOURCE_SLUGS, RETIRED_EBOOK_SOURCE_SLUGS
 from app.database.settings_models import AcademicSource, AppSetting
 from app.database.settings_store import settings_session
 from app.database.source_catalog import (
@@ -115,6 +115,11 @@ def seed_academic_sources() -> None:
     cfg = load_config()
     with settings_session() as session:
         existing = {row.slug: row for row in session.scalars(select(AcademicSource)).all()}
+        for slug in RETIRED_EBOOK_SOURCE_SLUGS:
+            row = existing.get(slug)
+            if row is not None and row.enabled:
+                row.enabled = False
+
         for item in BUILTIN_SOURCES:
             slug = str(item["slug"])
             pcfg = cfg.providers.get(slug, ProviderConfig())

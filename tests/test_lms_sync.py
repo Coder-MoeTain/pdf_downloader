@@ -209,6 +209,7 @@ def test_sync_copies_pdf_and_creates_ebook(tmp_db, tmp_path, monkeypatch):
         publication_year=2025,
         research_fields=["Cybersecurity"],
         status=PaperStatus.DOWNLOADED,
+        work_type="ebook",
         extra={"local_path": str(pdf_path)},
     )
     with session_scope() as session:
@@ -254,6 +255,38 @@ def test_sync_copies_pdf_and_creates_ebook(tmp_db, tmp_path, monkeypatch):
     assert len(catalog.ebooks) == 1
 
 
+def test_sync_skips_research_articles(tmp_db, tmp_path):
+    lms_root = _lms_layout(tmp_path)
+    pdf_path = tmp_path / "research_library" / "topic" / "article.pdf"
+    _write_pdf(pdf_path, "A journal article")
+    record = PaperRecord(
+        title="A journal article should not become an ebook",
+        authors=[AuthorRecord(name="Jane Smith")],
+        status=PaperStatus.DOWNLOADED,
+        work_type="article",
+        extra={"local_path": str(pdf_path)},
+    )
+    with session_scope() as session:
+        paper = save_paper(session, record)
+        session.add(
+            Download(
+                paper_id=paper.id,
+                local_path=str(pdf_path),
+                status=PaperStatus.DOWNLOADED.value,
+            )
+        )
+        paper_id = paper.id
+
+    catalog = FakeCatalog()
+    result = sync_downloaded_papers_to_lms(
+        paper_ids=[paper_id],
+        catalog=catalog,
+        config=_cfg(lms_root),
+    )
+    assert result.imported == 0
+    assert catalog.ebooks == []
+
+
 def test_schedule_lms_sync_is_non_blocking(tmp_db, monkeypatch):
     monkeypatch.setenv("LMS_SYNC_ENABLED", "false")
     load_config.cache_clear()
@@ -269,6 +302,7 @@ def test_sync_skips_when_pdf_missing(tmp_db, tmp_path):
         title="Missing file",
         authors=[AuthorRecord(name="Anon")],
         status=PaperStatus.DOWNLOADED,
+        work_type="ebook",
     )
     with session_scope() as session:
         paper = save_paper(session, record)
@@ -311,6 +345,7 @@ def _downloaded_paper(tmp_path: Path, title: str, doi: str | None = None, pdf_na
         authors=[AuthorRecord(name="Jane Smith")],
         publication_year=2025,
         status=PaperStatus.DOWNLOADED,
+        work_type="ebook",
         extra={"local_path": str(pdf_path)},
     )
     with session_scope() as session:

@@ -18,6 +18,9 @@ def test_fifty_ebook_sources_are_registered():
     assert "Data Science" in categories
     assert "Satellite Technology" in categories
     assert "Electronics" in categories
+    assert "nasa_ntrs_eo_books" not in slugs
+    assert "nasa_ntrs_tech_books" not in slugs
+    assert all(str(item.get("backend") or "") != "nasa_ntrs" for item in EBOOK_SOURCES)
 
 
 def test_catalog_includes_ebooks():
@@ -57,6 +60,25 @@ def test_internet_archive_parse():
     assert paper.work_type == "ebook"
     assert paper.cover_url == "https://archive.org/services/img/electronics-101"
     assert paper.extra["archive_id"] == "electronics-101"
+
+
+def test_internet_archive_skips_journal_papers():
+    from app.providers.ebook_providers import _looks_like_research_paper
+
+    provider = _InternetArchiveBooksProvider()  # type: ignore[call-arg]
+    provider.name = "ia_science_texts"
+    paper = provider._parse(
+        {
+            "identifier": "arxiv-paper",
+            "title": "Proceedings of the IEEE on remote sensing",
+            "creator": "Ada Lovelace",
+            "year": "2020",
+            "description": "A conference paper.",
+        }
+    )
+    assert paper is None
+    assert _looks_like_research_paper("Journal of Geophysical Research", "")
+    assert not _looks_like_research_paper("Introduction to Remote Sensing", "An open textbook.")
 
 
 def test_library_splits_papers_and_ebooks(tmp_db):
@@ -148,6 +170,66 @@ def test_library_ebooks_page(tmp_db):
     assert "Metadata only textbook" not in ebooks_page.text
     assert "Satellite Technology" in ebooks_page.text
     assert 'href="/library?kind=ebooks"' in papers_page.text
+
+
+def test_library_ebooks_page_hides_research_papers(tmp_db):
+    from fastapi.testclient import TestClient
+
+    from app.database.connection import session_scope
+    from app.database.repository import reclassify_non_ebook_records, save_paper
+    from app.web import app
+    from tests.conftest import login_admin
+
+    with session_scope() as session:
+        save_paper(
+            session,
+            PaperRecord(
+                title="Open Remote Sensing Handbook",
+                doi="10.1000/ebook-real",
+                status=PaperStatus.OA_AVAILABLE,
+                work_type="ebook",
+                category="Satellite Technology",
+                pdf_url="https://example.org/handbook.pdf",
+                source_provider="doab_remote_sensing",
+            ),
+        )
+        save_paper(
+            session,
+            PaperRecord(
+                title="A journal article tagged as an ebook",
+                doi="10.1000/paper-as-ebook",
+                status=PaperStatus.OA_AVAILABLE,
+                work_type="ebook",
+                category="Research Papers",
+                pdf_url="https://example.org/paper.pdf",
+                source_provider="arxiv",
+            ),
+        )
+        save_paper(
+            session,
+            PaperRecord(
+                title="NASA technical report stamped ebook",
+                doi="10.1000/ntrs-as-ebook",
+                status=PaperStatus.OA_AVAILABLE,
+                work_type="ebook",
+                pdf_url="https://example.org/ntrs.pdf",
+                source_provider="nasa_ntrs_eo_books",
+            ),
+        )
+        moved = reclassify_non_ebook_records(session)
+        assert moved == 2
+
+    client = login_admin(TestClient(app))
+    ebooks_page = client.get("/library?kind=ebooks")
+    papers_page = client.get("/library")
+    assert ebooks_page.status_code == 200
+    assert "Open Remote Sensing Handbook" in ebooks_page.text
+    assert "A journal article tagged as an ebook" not in ebooks_page.text
+    assert "NASA technical report stamped ebook" not in ebooks_page.text
+    assert papers_page.status_code == 200
+    assert "A journal article tagged as an ebook" in papers_page.text
+    assert "NASA technical report stamped ebook" in papers_page.text
+    assert "Open Remote Sensing Handbook" not in papers_page.text
 
 
 def test_search_filters_ebook_providers():
@@ -283,6 +365,7 @@ def test_openalex_book_provider_skips_articles():
     from app.providers.ebook_providers import _openalex_is_book
 
     assert _openalex_is_book({"type": "book", "display_name": "A textbook"})
-    assert _openalex_is_book({"type": "book-chapter", "display_name": "A chapter"})
+    assert _openalex_is_book({"type": "monograph", "display_name": "A monograph"})
+    assert not _openalex_is_book({"type": "book-chapter", "display_name": "A chapter"})
     assert not _openalex_is_book({"type": "article", "display_name": "A journal paper"})
     assert not _openalex_is_book({"type": "journal-article", "display_name": "A journal paper"})
