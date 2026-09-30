@@ -73,3 +73,20 @@ def test_database_url_uses_mysql_when_host_set(monkeypatch, tmp_path):
     assert "research_collector" in url
     assert "sqlite" not in url
     load_config.cache_clear()
+
+
+def test_resolve_mysql_socket_prefers_explicit_and_local_file(tmp_path, monkeypatch):
+    from app.config import mysql_connect_args, resolve_mysql_socket
+
+    sock = tmp_path / "mysqld.sock"
+    sock.write_text("")
+    assert resolve_mysql_socket("db.example.com", str(sock)) == str(sock)
+    assert resolve_mysql_socket("db.example.com") is None
+    monkeypatch.setattr(
+        "app.config._MYSQL_SOCKET_CANDIDATES",
+        (str(sock),),
+    )
+    assert resolve_mysql_socket("127.0.0.1") == str(sock)
+    args = mysql_connect_args("127.0.0.1")
+    assert args["unix_socket"] == str(sock)
+    assert int(args["connect_timeout"]) == 2

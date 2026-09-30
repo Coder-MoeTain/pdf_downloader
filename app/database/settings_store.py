@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import ROOT_DIR, load_config, mysql_url
+from app.config import ROOT_DIR, load_config, mysql_connect_args, mysql_url
 from app.database.settings_models import SettingsBase
 from app.utils.logger import get_logger
 
@@ -61,13 +61,23 @@ def store_status() -> SettingsStoreStatus:
     )
 
 
-def _mysql_url(host: str, port: int, user: str, password: str, database: str | None) -> str:
-    return mysql_url(host=host, port=port, user=user, password=password, database=database)
+def _mysql_engine(host: str, port: int, user: str, password: str, database: str | None) -> Engine:
+    cfg = load_config().env
+    args = mysql_connect_args(host, getattr(cfg, "mysql_socket", "") or "")
+    unix = args.get("unix_socket")
+    return create_engine(
+        mysql_url(host=host, port=port, user=user, password=password, database=database, unix_socket=unix if isinstance(unix, str) else None),
+        echo=False,
+        future=True,
+        pool_pre_ping=True,
+        pool_recycle=280,
+        connect_args=args,
+    )
 
 
 def _ensure_mysql_database(host: str, port: int, user: str, password: str, database: str) -> None:
     """Best-effort create when the app user has CREATE privilege. Safe to skip on denial."""
-    engine = create_engine(_mysql_url(host, port, user, password, None), echo=False, future=True, pool_pre_ping=True)
+    engine = _mysql_engine(host, port, user, password, None)
     try:
         with engine.connect() as conn:
             conn.execute(
@@ -79,14 +89,7 @@ def _ensure_mysql_database(host: str, port: int, user: str, password: str, datab
 
 
 def _connect_mysql(host: str, port: int, user: str, password: str, database: str) -> Engine:
-    engine = create_engine(
-        _mysql_url(host, port, user, password, database),
-        echo=False,
-        future=True,
-        pool_pre_ping=True,
-        pool_recycle=280,
-        connect_args={"connect_timeout": 5},
-    )
+    engine = _mysql_engine(host, port, user, password, database)
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
     return engine

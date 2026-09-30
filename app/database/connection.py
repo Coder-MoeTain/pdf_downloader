@@ -13,7 +13,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import load_config
+from app.config import load_config, mysql_connect_args
 from app.database.models import Base
 from app.utils.logger import get_logger
 
@@ -84,6 +84,7 @@ def get_engine(url: str | None = None) -> Engine:
                 )
                 event.listen(_engine, "connect", _set_sqlite_pragma)
             else:
+                args = mysql_connect_args(cfg.env.mysql_host, cfg.env.mysql_socket)
                 _engine = create_engine(
                     engine_url,
                     echo=False,
@@ -92,10 +93,13 @@ def get_engine(url: str | None = None) -> Engine:
                     pool_recycle=280,
                     pool_size=10,
                     max_overflow=20,
-                    connect_args={"connect_timeout": 5},
+                    connect_args=args,
                 )
+                if args.get("unix_socket"):
+                    logger.info("Library database: mysql via unix socket %s", args["unix_socket"])
+                else:
+                    logger.info("Library database: mysql")
             _SessionFactory = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
-            logger.info("Library database: %s", _engine.dialect.name)
         return _engine
 
 
@@ -119,14 +123,22 @@ def session_scope() -> Iterator[Session]:
         session.close()
 
 
+def _is_mysql_unreachable(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return any(token in text for token in ("2003", "timed out", "can't connect", "connection refused"))
+
+
 def init_db(url: str | None = None) -> None:
     cfg = load_config()
     engine_url = url or cfg.database_url
-    if engine_url.startswith("mysql"):
-        env = cfg.env
-        try:
+    engine = get_engine(engine_url)
+    try:
+        Base.metadata.create_all(engine)
+    except OperationalError as exc:
+        if engine_url.startswith("mysql") and "1049" in str(exc):
             from app.database.settings_store import _ensure_mysql_database
 
+            env = cfg.env
             _ensure_mysql_database(
                 env.mysql_host.strip(),
                 env.mysql_port,
@@ -134,10 +146,21 @@ def init_db(url: str | None = None) -> None:
                 env.mysql_password,
                 (env.mysql_database or "research_collector").strip(),
             )
-        except Exception as exc:
-            logger.warning("Could not CREATE DATABASE (will connect if it already exists): %s", exc)
-    engine = get_engine(engine_url)
-    Base.metadata.create_all(engine)
+            reset_engine()
+            engine = get_engine(engine_url)
+            Base.metadata.create_all(engine)
+        elif engine_url.startswith("mysql") and _is_mysql_unreachable(exc):
+            env = cfg.env
+            sock = env.mysql_socket or "auto"
+            raise RuntimeError(
+                f"MySQL is not reachable at {env.mysql_host}:{env.mysql_port} "
+                f"(socket={sock}). 127.0.0.1 uses TCP port 3306, which timed out on this host. "
+                "If MariaDB is on this server, set MYSQL_HOST=localhost or "
+                "MYSQL_SOCKET=/var/run/mysqld/mysqld.sock. If MySQL is on another machine, "
+                "set MYSQL_HOST to that address."
+            ) from exc
+        else:
+            raise
     _ensure_columns(engine)
     _run_alembic(engine)
     with engine.connect() as conn:

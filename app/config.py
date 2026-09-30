@@ -51,6 +51,7 @@ class EnvSettings(BaseSettings):
     mysql_user: str = ""
     mysql_password: str = ""
     mysql_database: str = "research_collector"
+    mysql_socket: str = ""
     settings_sqlite_path: str = "data/settings.db"
     google_client_id: str = ""
     google_client_secret: str = ""
@@ -166,12 +167,15 @@ class AppConfig(BaseModel):
     @property
     def database_url(self) -> str:
         if self.uses_mysql:
+            host = self.env.mysql_host.strip()
+            sock = resolve_mysql_socket(host, self.env.mysql_socket)
             return mysql_url(
-                host=self.env.mysql_host.strip(),
+                host=host,
                 port=self.env.mysql_port,
                 user=self.env.mysql_user,
                 password=self.env.mysql_password,
                 database=self.env.mysql_database or "research_collector",
+                unix_socket=sock,
             )
         db_path = ROOT_DIR / self.env.database_path
         db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -188,14 +192,50 @@ class AppConfig(BaseModel):
         return p
 
 
-def mysql_url(*, host: str, port: int, user: str, password: str, database: str | None) -> str:
+MYSQL_CONNECT_TIMEOUT_SECONDS = 2
+_LOCAL_MYSQL_HOSTS = {"", "localhost", "127.0.0.1", "::1"}
+_MYSQL_SOCKET_CANDIDATES = (
+    "/var/run/mysqld/mysqld.sock",
+    "/run/mysqld/mysqld.sock",
+    "/tmp/mysql.sock",
+    "/var/lib/mysql/mysql.sock",
+)
+
+
+def is_local_mysql_host(host: str) -> bool:
+    return (host or "").strip().lower() in _LOCAL_MYSQL_HOSTS
+
+
+def resolve_mysql_socket(host: str, socket: str = "") -> str | None:
+    """Prefer a Unix socket for local MariaDB/MySQL. TCP to 127.0.0.1 often times out."""
+    explicit = (socket or "").strip()
+    if explicit:
+        return explicit
+    if not is_local_mysql_host(host):
+        return None
+    for path in _MYSQL_SOCKET_CANDIDATES:
+        if Path(path).exists():
+            return path
+    return None
+
+
+def mysql_connect_args(host: str, socket: str = "") -> dict[str, object]:
+    args: dict[str, object] = {"connect_timeout": MYSQL_CONNECT_TIMEOUT_SECONDS}
+    sock = resolve_mysql_socket(host, socket)
+    if sock:
+        args["unix_socket"] = sock
+    return args
+
+
+def mysql_url(*, host: str, port: int, user: str, password: str, database: str | None, unix_socket: str | None = None) -> str:
     from urllib.parse import quote_plus
 
     auth = quote_plus(user or "")
     if password:
         auth += ":" + quote_plus(password)
+    connect_host = "localhost" if unix_socket else host
     db = f"/{database}" if database else "/"
-    return f"mysql+pymysql://{auth}@{host}:{int(port)}{db}?charset=utf8mb4"
+    return f"mysql+pymysql://{auth}@{connect_host}:{int(port)}{db}?charset=utf8mb4"
 
 
 def parse_size(value: str | int | None, default: int = 150 * 1024 * 1024) -> int:
