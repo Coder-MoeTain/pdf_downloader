@@ -98,13 +98,11 @@ def _run_loop() -> None:
             _wake.wait(timeout=_interval)
             _wake.clear()
             continue
-        woken = _wake.wait(timeout=_interval)
+        _wake.wait(timeout=_interval)
         _wake.clear()
         if _stop.is_set():
             break
         work = _take_work()
-        if work == [] and not woken:
-            work = None
         if work == []:
             continue
         maybe_sync_to_lms(paper_ids=work)

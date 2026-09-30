@@ -1,4 +1,4 @@
-"""SQLAlchemy ORM models for SQLite persistence."""
+"""SQLAlchemy ORM models for the paper library."""
 
 from __future__ import annotations
 

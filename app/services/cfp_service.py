@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import quote_plus, urlparse
 from xml.etree import ElementTree as ET
 
-from app.database.connection import session_scope
+from app.database.connection import apply_short_busy_timeout, session_scope
 from app.database.repository import latest_cfp_fetch_at, upsert_cfp_call
 from app.utils.logger import get_logger
 from app.utils.time import utc_now
@@ -329,7 +329,7 @@ def should_refresh(*, force: bool = False) -> bool:
         return True
     try:
         with session_scope() as session:
-            session.connection().exec_driver_sql("PRAGMA busy_timeout=1500")
+            apply_short_busy_timeout(session, 1500)
             latest = latest_cfp_fetch_at(session)
     except Exception:
         return True

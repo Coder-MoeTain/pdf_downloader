@@ -1,4 +1,4 @@
-"""MySQL engine for application settings. Falls back to SQLite if MySQL is unavailable."""
+"""MySQL engine for application settings. SQLite is used only when MYSQL_HOST is empty (local/dev)."""
 
 from __future__ import annotations
 
@@ -6,13 +6,12 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import ROOT_DIR, load_config
+from app.config import ROOT_DIR, load_config, mysql_url
 from app.database.settings_models import SettingsBase
 from app.utils.logger import get_logger
 
@@ -63,11 +62,7 @@ def store_status() -> SettingsStoreStatus:
 
 
 def _mysql_url(host: str, port: int, user: str, password: str, database: str | None) -> str:
-    auth = quote_plus(user)
-    if password:
-        auth += ":" + quote_plus(password)
-    db = f"/{database}" if database else "/"
-    return f"mysql+pymysql://{auth}@{host}:{port}{db}?charset=utf8mb4"
+    return mysql_url(host=host, port=port, user=user, password=password, database=database)
 
 
 def _ensure_mysql_database(host: str, port: int, user: str, password: str, database: str) -> None:
@@ -127,14 +122,14 @@ def _try_mysql() -> Engine | None:
         msg = str(last_error or "MySQL unavailable")
         if "1044" in msg or "Access denied" in msg:
             logger.warning(
-                "MySQL settings store unavailable (%s). "
-                "Grant cyber_admin access to database `%s` (SELECT/INSERT/UPDATE/CREATE TABLE), "
-                "or create the database as root; falling back to SQLite",
+                "MySQL unavailable (%s). "
+                "Grant the app user access to database `%s` (SELECT/INSERT/UPDATE/CREATE TABLE), "
+                "or create the database as root.",
                 last_error,
                 database,
             )
         else:
-            logger.warning("MySQL settings store unavailable (%s); falling back to SQLite", last_error)
+            logger.warning("MySQL unavailable (%s)", last_error)
         _status["error"] = msg
         return None
     _status.update(
@@ -157,6 +152,12 @@ def get_settings_engine() -> Engine:
         if _engine is None:
             engine = _try_mysql()
             if engine is None:
+                env = load_config().env
+                if (env.mysql_host or "").strip():
+                    raise RuntimeError(
+                        "MySQL is configured but unreachable. "
+                        f"{_status.get('error') or 'Check MYSQL_HOST / MYSQL_USER / MYSQL_PASSWORD / MYSQL_DATABASE.'}"
+                    )
                 engine = create_engine(
                     _sqlite_url(),
                     echo=False,

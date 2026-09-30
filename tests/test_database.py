@@ -1,6 +1,7 @@
 from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 
+from app.config import load_config
 from app.database.connection import (
     SQLITE_BUSY_TIMEOUT_MS,
     get_engine,
@@ -53,3 +54,22 @@ def test_retry_on_sqlite_lock():
     assert retry_on_sqlite_lock(flaky, attempts=5) == "ok"
     assert calls["n"] == 3
     assert is_sqlite_lock_error(OperationalError("INSERT", {}, Exception("database is locked")))
+
+
+def test_database_url_uses_mysql_when_host_set(monkeypatch, tmp_path):
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("MYSQL_HOST", "db.internal")
+    monkeypatch.setenv("MYSQL_PORT", "3306")
+    monkeypatch.setenv("MYSQL_USER", "cyber_admin")
+    monkeypatch.setenv("MYSQL_PASSWORD", "p@ss/word")
+    monkeypatch.setenv("MYSQL_DATABASE", "research_collector")
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "unused.db"))
+    load_config.cache_clear()
+    cfg = load_config()
+    assert cfg.uses_mysql is True
+    url = cfg.database_url
+    assert url.startswith("mysql+pymysql://")
+    assert "db.internal" in url
+    assert "research_collector" in url
+    assert "sqlite" not in url
+    load_config.cache_clear()

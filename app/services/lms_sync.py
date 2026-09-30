@@ -31,6 +31,17 @@ MAX_CATEGORY_LEN = 255
 
 # After a localhost DB connect/auth failure, skip for the rest of the process.
 _lms_skip_reason: str | None = None
+LMS_CONNECT_TIMEOUT_SECONDS = 2
+_LOCAL_CONNECT_ERROR_TOKENS = (
+    "access denied",
+    "can't connect",
+    "connection refused",
+    "unknown database",
+    "timed out",
+    "timeout",
+    "name or service not known",
+    "nodename nor servname",
+)
 
 
 def lms_sync_skip_reason() -> str | None:
@@ -48,6 +59,41 @@ def _mark_lms_skip(reason: str) -> None:
         return
     _lms_skip_reason = reason
     logger.warning("%s — further LMS sync attempts skipped", reason)
+
+
+def _remember_local_lms_failure(exc: BaseException, host: str) -> bool:
+    text = str(exc).lower()
+    if _is_local_db_host(host) and any(token in text for token in _LOCAL_CONNECT_ERROR_TOKENS):
+        _mark_lms_skip(f"LMS sync unavailable on localhost: {exc}")
+        return True
+    return False
+
+
+def _pymysql_connect(cfg: LmsSyncConfig, *, autocommit: bool = False):
+    import pymysql
+
+    return pymysql.connect(
+        host=cfg.db_host,
+        port=cfg.db_port,
+        user=cfg.db_user,
+        password=cfg.db_password,
+        database=cfg.db_name,
+        charset="utf8mb4",
+        autocommit=autocommit,
+        connect_timeout=LMS_CONNECT_TIMEOUT_SECONDS,
+        read_timeout=30,
+        write_timeout=30,
+    )
+
+
+def probe_lms_database(cfg: LmsSyncConfig) -> None:
+    """Fail fast if e-library MySQL is down. Raises on connection/auth errors."""
+    conn = _pymysql_connect(cfg, autocommit=True)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+    finally:
+        conn.close()
 
 
 CATEGORY_RULES: list[tuple[str, re.Pattern[str]]] = [
@@ -317,17 +363,7 @@ def render_cover(pdf_path: Path, dest: Path) -> bool:
 
 class MysqlLmsCatalog:
     def __init__(self, cfg: LmsSyncConfig) -> None:
-        import pymysql
-
-        self.conn = pymysql.connect(
-            host=cfg.db_host,
-            port=cfg.db_port,
-            user=cfg.db_user,
-            password=cfg.db_password,
-            database=cfg.db_name,
-            charset="utf8mb4",
-            autocommit=False,
-        )
+        self.conn = _pymysql_connect(cfg, autocommit=False)
 
     def find_or_create_author(self, name: str) -> int:
         with self.conn.cursor() as cur:
@@ -520,17 +556,24 @@ def sync_downloaded_papers_to_lms(
         result.add("LMS sync skipped: library project not found next to pdf_downloader")
         return result
 
-    papers = _load_papers(paper_ids)
-    if not papers:
-        result.add("No downloaded papers with a local PDF record to add to the library")
-        return result
-    result.add(f"Checking {len(papers)} downloaded paper(s)")
-
     owned = False
     if catalog is None and not dry_run:
+        try:
+            probe_lms_database(cfg)
+        except Exception as exc:
+            if _remember_local_lms_failure(exc, cfg.db_host):
+                result.add(_lms_skip_reason or str(exc))
+                return result
+            raise
         catalog = MysqlLmsCatalog(cfg)
         owned = True
+
     try:
+        papers = _load_papers(paper_ids)
+        if not papers:
+            result.add("No downloaded papers with a local PDF record to add to the library")
+            return result
+        result.add(f"Checking {len(papers)} downloaded paper(s)")
         for paper in papers:
             try:
                 message = import_paper(paper, cfg, catalog, dry_run=dry_run)
@@ -582,11 +625,7 @@ def maybe_sync_to_lms(*, paper_ids: list[int] | None = None) -> SyncResult | Non
             host = load_lms_sync_config().db_host
         except Exception:
             pass
-        if _is_local_db_host(host) and any(
-            token in str(exc).lower()
-            for token in ("access denied", "can't connect", "connection refused", "unknown database")
-        ):
-            _mark_lms_skip(f"LMS sync unavailable on localhost: {exc}")
-        else:
-            logger.warning("LMS sync failed: %s", exc)
+        if _remember_local_lms_failure(exc, host):
+            return None
+        logger.warning("LMS sync failed: %s", exc)
         return None

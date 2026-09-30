@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.exc import OperationalError
 
 from app.config import get_runtime_config
-from app.database.connection import session_scope
+from app.database.connection import apply_short_busy_timeout, session_scope
 from app.database.repository import (
     latest_cfp_fetch_at,
     list_upcoming_cfps,
@@ -36,7 +36,7 @@ async def cfp_page(request: Request):
         try:
             with session_scope() as session:
                 # Fail fast if another writer (background refresh) holds the DB.
-                session.connection().exec_driver_sql("PRAGMA busy_timeout=1500")
+                apply_short_busy_timeout(session, 1500)
                 rows = list_upcoming_cfps(session, limit=list_limit)
                 fetched_at = latest_cfp_fetch_at(session)
         except OperationalError:

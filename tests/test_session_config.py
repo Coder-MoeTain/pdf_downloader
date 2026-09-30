@@ -70,3 +70,26 @@ def test_production_allowed_hosts_include_bind_address(monkeypatch):
     assert "10.0.0.8" in hosts
     assert "*" not in hosts
     load_config.cache_clear()
+
+
+def test_production_requires_mysql(monkeypatch):
+    from app.config import AppConfig, EnvSettings
+
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("SESSION_SECRET", "pytest-session-secret-value-must-be-32bytes-min")
+    monkeypatch.setenv("ALLOWED_HOSTS", "research.example.com")
+    monkeypatch.setenv("TRUSTED_PROXY_IPS", "127.0.0.1")
+    monkeypatch.setenv("MYSQL_HOST", "")
+    load_config.cache_clear()
+    cfg = AppConfig(
+        env=EnvSettings(
+            app_env="production",
+            session_secret="pytest-session-secret-value-must-be-32bytes-min",
+            allowed_hosts="research.example.com",
+            trusted_proxy_ips="127.0.0.1",
+            mysql_host="",
+        )
+    )
+    with pytest.raises(ConfigurationError, match="MySQL"):
+        validate_startup_config(cfg)
+    load_config.cache_clear()

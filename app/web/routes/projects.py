@@ -10,7 +10,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.exc import OperationalError
 
-from app.database.connection import session_scope
+from app.database.connection import apply_short_busy_timeout, session_scope
 from app.database.repository import latest_github_fetch_at, list_github_repos
 from app.services.github_service import (
     GITHUB_CATEGORIES,
@@ -65,7 +65,7 @@ async def projects_page(request: Request, category: str = ""):
         fetched_at = None
         try:
             with session_scope() as session:
-                session.connection().exec_driver_sql("PRAGMA busy_timeout=1500")
+                apply_short_busy_timeout(session, 1500)
                 all_rows = list_github_repos(session)
                 fetched_at = latest_github_fetch_at(session)
         except OperationalError:

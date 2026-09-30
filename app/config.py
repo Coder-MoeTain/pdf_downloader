@@ -160,7 +160,19 @@ class AppConfig(BaseModel):
     env: EnvSettings = Field(default_factory=EnvSettings)
 
     @property
+    def uses_mysql(self) -> bool:
+        return bool((self.env.mysql_host or "").strip())
+
+    @property
     def database_url(self) -> str:
+        if self.uses_mysql:
+            return mysql_url(
+                host=self.env.mysql_host.strip(),
+                port=self.env.mysql_port,
+                user=self.env.mysql_user,
+                password=self.env.mysql_password,
+                database=self.env.mysql_database or "research_collector",
+            )
         db_path = ROOT_DIR / self.env.database_path
         db_path.parent.mkdir(parents=True, exist_ok=True)
         return f"sqlite:///{db_path.as_posix()}"
@@ -174,6 +186,16 @@ class AppConfig(BaseModel):
             p = ROOT_DIR / p
         p.mkdir(parents=True, exist_ok=True)
         return p
+
+
+def mysql_url(*, host: str, port: int, user: str, password: str, database: str | None) -> str:
+    from urllib.parse import quote_plus
+
+    auth = quote_plus(user or "")
+    if password:
+        auth += ":" + quote_plus(password)
+    db = f"/{database}" if database else "/"
+    return f"mysql+pymysql://{auth}@{host}:{int(port)}{db}?charset=utf8mb4"
 
 
 def parse_size(value: str | int | None, default: int = 150 * 1024 * 1024) -> int:
@@ -425,6 +447,11 @@ def validate_startup_config(cfg: AppConfig | None = None) -> None:
             )
         if not proxies or "*" in proxies:
             raise ConfigurationError("TRUSTED_PROXY_IPS must not be '*' in production. Example: 127.0.0.1")
+        if not (cfg.env.mysql_host or "").strip():
+            raise ConfigurationError(
+                "Production requires MySQL for the paper library and settings. "
+                "Set MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE in .env."
+            )
     if env not in {"development", "testing", "production"}:
         raise ConfigurationError(f"Invalid APP_ENV: {env}")
     if cfg.env.max_concurrent_requests < 1 or cfg.env.max_concurrent_downloads < 1:

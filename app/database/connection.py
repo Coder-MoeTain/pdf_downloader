@@ -1,4 +1,4 @@
-"""SQLite engine, session factory, and schema initialization."""
+"""SQLAlchemy engine, session factory, and schema initialization."""
 
 from __future__ import annotations
 
@@ -57,21 +57,45 @@ def retry_on_sqlite_lock(fn: Callable[[], T], *, attempts: int = 8) -> T:
     raise RuntimeError("SQLite lock retries exhausted")
 
 
+def apply_short_busy_timeout(session: Session, milliseconds: int = 1500) -> None:
+    """SQLite-only: fail fast if another writer holds the file. No-op on MySQL."""
+    bind = session.get_bind()
+    if bind is not None and bind.dialect.name == "sqlite":
+        session.connection().exec_driver_sql(f"PRAGMA busy_timeout={int(milliseconds)}")
+
+
+def is_sqlite_url(url: str) -> bool:
+    return str(url).startswith("sqlite")
+
+
 def get_engine(url: str | None = None) -> Engine:
     global _engine, _SessionFactory
     with _lock:
         if _engine is None:
             cfg = load_config()
             engine_url = url or cfg.database_url
-            _engine = create_engine(
-                engine_url,
-                echo=False,
-                future=True,
-                pool_pre_ping=True,
-                connect_args={"check_same_thread": False, "timeout": SQLITE_BUSY_TIMEOUT_SECONDS},
-            )
-            event.listen(_engine, "connect", _set_sqlite_pragma)
+            if is_sqlite_url(engine_url):
+                _engine = create_engine(
+                    engine_url,
+                    echo=False,
+                    future=True,
+                    pool_pre_ping=True,
+                    connect_args={"check_same_thread": False, "timeout": SQLITE_BUSY_TIMEOUT_SECONDS},
+                )
+                event.listen(_engine, "connect", _set_sqlite_pragma)
+            else:
+                _engine = create_engine(
+                    engine_url,
+                    echo=False,
+                    future=True,
+                    pool_pre_ping=True,
+                    pool_recycle=280,
+                    pool_size=10,
+                    max_overflow=20,
+                    connect_args={"connect_timeout": 5},
+                )
             _SessionFactory = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
+            logger.info("Library database: %s", _engine.dialect.name)
         return _engine
 
 
@@ -96,24 +120,44 @@ def session_scope() -> Iterator[Session]:
 
 
 def init_db(url: str | None = None) -> None:
-    engine = get_engine(url)
+    cfg = load_config()
+    engine_url = url or cfg.database_url
+    if engine_url.startswith("mysql"):
+        env = cfg.env
+        try:
+            from app.database.settings_store import _ensure_mysql_database
+
+            _ensure_mysql_database(
+                env.mysql_host.strip(),
+                env.mysql_port,
+                env.mysql_user,
+                env.mysql_password,
+                (env.mysql_database or "research_collector").strip(),
+            )
+        except Exception as exc:
+            logger.warning("Could not CREATE DATABASE (will connect if it already exists): %s", exc)
+    engine = get_engine(engine_url)
     Base.metadata.create_all(engine)
     _ensure_columns(engine)
     _run_alembic(engine)
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
         conn.commit()
-    logger.info("Database initialized")
+    logger.info("Database initialized (%s)", engine.dialect.name)
     try:
         from app.database.settings_store import init_settings_store
 
         init_settings_store()
     except Exception as exc:
+        if cfg.uses_mysql:
+            raise
         logger.warning("Settings store failed to initialize: %s", exc)
 
 
 def _ensure_columns(engine: Engine) -> None:
     """Add columns introduced after the first create_all, for existing SQLite files."""
+    if engine.dialect.name != "sqlite":
+        return
     with engine.connect() as conn:
         rows = conn.execute(text("PRAGMA table_info(papers)")).all()
         names = {row[1] for row in rows}

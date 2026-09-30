@@ -376,3 +376,40 @@ def test_retries_false_imported_export(tmp_db, tmp_path):
     result = sync_downloaded_papers_to_lms(catalog=catalog, config=_cfg(lms_root))
     assert result.imported == 1
     assert len(catalog.ebooks) == 1
+
+
+def test_unreachable_lms_skips_without_loading_papers(tmp_path, monkeypatch):
+    from app.services import lms_sync as mod
+
+    mod._lms_skip_reason = None
+    lms_root = _lms_layout(tmp_path)
+    loaded = {"n": 0}
+
+    def boom(_cfg):
+        raise OSError("(2003, \"Can't connect to MySQL server on '127.0.0.1' (timed out)\")")
+
+    def count_load(paper_ids=None):
+        loaded["n"] += 1
+        return []
+
+    monkeypatch.setattr(mod, "probe_lms_database", boom)
+    monkeypatch.setattr(mod, "_load_papers", count_load)
+    try:
+        result = mod.sync_downloaded_papers_to_lms(config=_cfg(lms_root))
+        assert loaded["n"] == 0
+        assert result.imported == 0
+        assert result.failed == 0
+        assert mod.lms_sync_skip_reason()
+        assert "unavailable on localhost" in (mod.lms_sync_skip_reason() or "")
+    finally:
+        mod._lms_skip_reason = None
+
+
+def test_watch_idle_does_not_queue_full_sweep():
+    from app.services import lms_watch as watch
+
+    with watch._lock:
+        watch._sweep_all = False
+        watch._pending_ids.clear()
+    work = watch._take_work()
+    assert work == []
