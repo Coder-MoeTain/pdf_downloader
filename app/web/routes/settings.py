@@ -37,11 +37,21 @@ router = APIRouter()
 
 
 @router.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request, section: str = "workspace"):
+def settings_page(request: Request, section: str = "workspace", kind: str = ""):
+    kind = kind.strip().lower()
+    if section == "ebook_sources":
+        section = "sources"
+        kind = "ebooks"
     allowed = {"workspace", "search", "crawl", "credentials", "sources", "updates", "activity", "audit"}
     if section not in allowed:
         section = "workspace"
-    return templates.TemplateResponse(request, "settings.html", _settings_ctx(request, section))
+        kind = ""
+    source_catalog = "ebooks" if section == "sources" and kind == "ebooks" else "papers"
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        _settings_ctx(request, section, source_catalog=source_catalog),
+    )
 
 
 @router.post("/settings/update")

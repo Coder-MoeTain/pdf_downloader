@@ -40,6 +40,8 @@ from app.web.ui import (
     QueryPage,
     clamp_page_size,
     pagination_spec,
+    parse_search_collection,
+    settings_sources_href,
     share,
     status_meta,
 )
@@ -197,7 +199,12 @@ def search_page(request: Request):
                         focus_job = row
             except ValueError:
                 pass
+    collection = parse_search_collection(request.query_params.get("collection"))
     available = [row for row in provider_status() if row.get("available")]
+    if collection == "ebooks":
+        available = [row for row in available if row.get("content_kind") == "ebook"]
+    else:
+        available = [row for row in available if row.get("content_kind") != "ebook"]
     job_progress = search_progress_snapshot(focus_job.id) if focus_job else tracker.snapshot()
     queue = queue_snapshot(user_id=user_id, is_admin=is_admin)
     return templates.TemplateResponse(
@@ -208,10 +215,12 @@ def search_page(request: Request):
             config=cfg,
             recent_searches=recent,
             available_sources=available,
+            collection=collection,
+            sources_settings_href=settings_sources_href(ebooks=collection == "ebooks"),
             job=job_progress or tracker.snapshot(),
             active_job_id=focus_job.id if focus_job else None,
             search_queue=queue,
-            topics=cfg.topics,
+            topics=cfg.topics if collection != "ebooks" else [],
             saved_searches=saved_searches,
         ),
     )
@@ -251,7 +260,10 @@ async def search_submit(
         f"Search queued (job #{job_id}). Sources and PDF downloads run in parallel — watch the live log.",
         "info",
     )
-    return RedirectResponse(f"/search?live=1&job={job_id}", status_code=303)
+    live = f"/search?live=1&job={job_id}"
+    if parse_search_collection(collection) == "ebooks":
+        live += "&collection=ebooks"
+    return RedirectResponse(live, status_code=303)
 
 
 @router.post("/search/save")
@@ -286,7 +298,8 @@ def search_save(
     with session_scope() as session:
         saved = save_search_config(session, user_id, name, query, filters)
     set_flash(request, f"Saved search “{saved.name}”.", "success")
-    return RedirectResponse("/search", status_code=303)
+    saved_url = "/search?collection=ebooks" if parse_search_collection(collection) == "ebooks" else "/search"
+    return RedirectResponse(saved_url, status_code=303)
 
 
 @router.post("/search/jobs/{job_id}/stop")

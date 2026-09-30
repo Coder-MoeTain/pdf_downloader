@@ -300,7 +300,7 @@
         {% elif not show_paywalled %}
           {{ empty_state("Paywalled papers are hidden", "Turn them back on in Settings, or filter the library by Paywalled.", "/settings?section=workspace" if is_admin else "/library?status=PAYWALLED", "Open settings" if is_admin else "View paywalled") }}
         {% else %}
-          {{ empty_state("No ebooks in this collection", "Search science and technology ebooks, then download legal OA PDFs.", "/search", "Search ebooks") if library_kind == 'ebooks' else empty_state("Library is empty", "Run a topic search to collect metadata and open-access PDFs.", "/search", "Start a search") }}
+          {{ empty_state("No ebooks in this collection", "Search science and technology ebooks, then download legal OA PDFs.", "/search?collection=ebooks", "Search ebooks") if library_kind == 'ebooks' else empty_state("Library is empty", "Run a topic search to collect metadata and open-access PDFs.", "/search", "Start a search") }}
         {% endif %}
       </td></tr>
     {% endfor %}

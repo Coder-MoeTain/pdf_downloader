@@ -139,3 +139,52 @@ def test_search_filters_ebook_providers():
     assert all(issubclass(cls, ResearchProvider) for cls in classes)
     matching = [cls for cls in classes if getattr(cls, "category", "") == "Data Science"]
     assert matching
+
+
+def test_settings_splits_academic_and_ebook_source_pages(tmp_db):
+    from fastapi.testclient import TestClient
+
+    from app.web import app
+    from tests.conftest import login_admin
+
+    client = login_admin(TestClient(app))
+    academic = client.get("/settings?section=sources")
+    ebooks = client.get("/settings?section=sources&kind=ebooks")
+    alias = client.get("/settings?section=ebook_sources")
+    assert academic.status_code == 200
+    assert ebooks.status_code == 200
+    assert alias.status_code == 200
+    assert "Academic sources" in academic.text
+    assert "Ebook sources" in academic.text
+    assert "<strong>OpenAlex</strong>" in academic.text
+    assert "DOAB · Data Science" not in academic.text
+    assert "All kinds" not in academic.text
+    assert "DOAB · Data Science" in ebooks.text
+    assert "Satellite Technology" in ebooks.text
+    assert 'href="/settings?section=sources&amp;kind=ebooks"' in academic.text
+    assert "DOAB · Data Science" in alias.text
+    assert "<strong>OpenAlex</strong>" not in alias.text
+
+
+def test_search_pages_split_papers_and_ebooks(tmp_db):
+    from fastapi.testclient import TestClient
+
+    from app.web import app
+    from tests.conftest import login_admin
+
+    client = login_admin(TestClient(app))
+    papers = client.get("/search")
+    ebooks = client.get("/search?collection=ebooks")
+    assert papers.status_code == 200
+    assert ebooks.status_code == 200
+    assert "Search papers" in papers.text
+    assert "Research papers" in papers.text
+    assert 'value="papers"' in papers.text
+    assert "Ebook subject" not in papers.text
+    assert "DOAB · Data Science" not in papers.text
+    assert "Search ebooks" in ebooks.text
+    assert "Ebook subject" in ebooks.text
+    assert 'value="ebooks"' in ebooks.text
+    assert "DOAB · Data Science" in ebooks.text
+    assert "<strong>OpenAlex</strong>" not in ebooks.text
+    assert "OpenAlex Books" in ebooks.text

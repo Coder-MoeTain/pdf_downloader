@@ -1,35 +1,59 @@
 {% extends "base.html" %}
-{% block title %}Search · {{ app_name }}{% endblock %}
+{% block title %}{% if collection == 'ebooks' %}Search ebooks{% else %}Search papers{% endif %} · {{ app_name }}{% endblock %}
 {% block extra_js %}
 <script src="/static/search.js?v={{ version }}"></script>
 {% endblock %}
 {% block content %}
+{% set collection = collection|default('papers') %}
 {% set phase_rank = {"idle": -1, "starting": 0, "searching": 1, "merging": 2, "oa": 3, "storing": 4, "downloading": 5, "done": 6, "error": 6, "cancelled": 6} %}
 {% set rank = phase_rank.get(job.phase, -1) %}
 <div class="page-head">
   <div>
-    <h1 class="h2 mb-0">Search</h1>
+    <h1 class="h2 mb-0">{% if collection == 'ebooks' %}Search ebooks{% else %}Search papers{% endif %}</h1>
+    <p class="lede mb-0 mt-1">{% if collection == 'ebooks' %}Find open-access science and technology books — data science, satellite technology, and electronics.{% else %}Search journal articles and preprints across official academic APIs.{% endif %}</p>
   </div>
-  {% if is_admin %}<a class="store-pill is-mysql" href="/settings?section=sources">{% else %}<div class="store-pill is-mysql">{% endif %}
+  {% if is_admin %}<a class="store-pill is-mysql" href="{{ sources_settings_href|default('/settings?section=sources') }}">{% else %}<div class="store-pill is-mysql">{% endif %}
     <span class="store-dot" aria-hidden="true"></span>
     <div>
       <strong>{{ available_sources|length }} sources ready</strong>
-      <div class="store-meta">{% if is_admin %}Manage in Settings{% else %}Official academic APIs{% endif %}</div>
+      <div class="store-meta">{% if is_admin %}Manage in Settings{% elif collection == 'ebooks' %}Open-access ebook catalogs{% else %}Official academic APIs{% endif %}</div>
     </div>
   {% if is_admin %}</a>{% else %}</div>{% endif %}
+</div>
+
+<div class="chip-row mb-3" role="tablist" aria-label="Search collection">
+  <a class="chip {% if collection != 'ebooks' %}active{% endif %}" href="/search" role="tab" aria-selected="{{ 'true' if collection != 'ebooks' else 'false' }}">Research papers</a>
+  <a class="chip {% if collection == 'ebooks' %}active{% endif %}" href="/search?collection=ebooks" role="tab" aria-selected="{{ 'true' if collection == 'ebooks' else 'false' }}">Ebooks</a>
 </div>
 
 <div class="row g-4">
   <div class="col-lg-7">
     <form method="post" action="/search" class="card search-form" data-busy="Starting…">
       <fieldset>
+      <input type="hidden" name="collection" id="collection" value="{{ collection }}">
       <div class="card-body">
         <div class="mb-3">
-          <label class="form-label" for="query">Research topic</label>
+          <label class="form-label" for="query">{% if collection == 'ebooks' %}Ebook topic{% else %}Research topic{% endif %}</label>
           <input class="form-control form-control-lg" id="query" name="query" required autocomplete="off"
-                 placeholder="e.g. reinforcement learning for intrusion detection"
+                 placeholder="{% if collection == 'ebooks' %}e.g. satellite communications, CMOS analog, data science textbooks{% else %}e.g. reinforcement learning for intrusion detection{% endif %}"
                  value="{{ job.query if job.query else '' }}">
-          <div class="chip-row mt-2" aria-label="Hot research keywords 2026">
+          <div class="chip-row mt-2" aria-label="{% if collection == 'ebooks' %}Ebook subjects{% else %}Hot research keywords 2026{% endif %}">
+            {% if collection == 'ebooks' %}
+            {% for example in [
+              "Data science textbooks",
+              "Python for data analysis",
+              "Machine learning for engineers",
+              "Satellite communications",
+              "Synthetic aperture radar",
+              "GNSS and remote sensing",
+              "CMOS analog design",
+              "Power electronics",
+              "Digital signal processing",
+              "Embedded systems"
+            ] %}
+            <button class="topic-chip" type="button" data-query="{{ example }}">{{ example }}</button>
+            {% endfor %}
+            {% else %}
             {% for topic in topics %}
             <button class="topic-chip" type="button" data-query="{{ topic.query }}">{{ topic.name }}</button>
             {% else %}
@@ -58,6 +82,7 @@
             <button class="topic-chip" type="button" data-query="{{ example }}">{{ example }}</button>
             {% endfor %}
             {% endfor %}
+            {% endif %}
           </div>
         </div>
         <div class="row">
@@ -82,14 +107,8 @@
             </select>
           </div>
         </div>
-        <div class="mb-3">
-          <label class="form-label" for="collection">Collection</label>
-          <select class="form-select" id="collection" name="collection">
-            <option value="papers" selected>Research papers</option>
-            <option value="ebooks">Science &amp; technology ebooks</option>
-          </select>
-        </div>
-        <div class="mb-3" id="ebookCategoryWrap" hidden>
+        {% if collection == 'ebooks' %}
+        <div class="mb-3" id="ebookCategoryWrap">
           <label class="form-label" for="ebook_category">Ebook subject</label>
           <select class="form-select" id="ebook_category" name="ebook_category">
             <option value="">All ebook subjects</option>
@@ -100,25 +119,27 @@
             <option value="Technology">Technology</option>
           </select>
         </div>
+        {% endif %}
         <div class="mb-3">
-          <label class="form-label" for="source">Academic source</label>
+          <label class="form-label" for="source">{% if collection == 'ebooks' %}Ebook source{% else %}Academic source{% endif %}</label>
           <select class="form-select" id="source" name="source">
-            <option value="" data-kind="any">All available sources</option>
-            <optgroup label="Research papers" data-kind="article">
-            {% for src in available_sources if src.content_kind != 'ebook' %}
-            <option value="{{ src.name }}" data-kind="article">{{ src.display_name }}</option>
+            <option value="">All available sources</option>
+            {% if collection == 'ebooks' %}
+            <optgroup label="Science ebooks">
+            {% for src in available_sources if src.family == 'science' %}
+            <option value="{{ src.name }}">{{ src.display_name }}</option>
             {% endfor %}
             </optgroup>
-            <optgroup label="Science ebooks" data-kind="ebook">
-            {% for src in available_sources if src.content_kind == 'ebook' and src.family == 'science' %}
-            <option value="{{ src.name }}" data-kind="ebook" data-category="{{ src.ebook_category }}">{{ src.display_name }}</option>
+            <optgroup label="Technology ebooks">
+            {% for src in available_sources if src.family == 'technology' %}
+            <option value="{{ src.name }}">{{ src.display_name }}</option>
             {% endfor %}
             </optgroup>
-            <optgroup label="Technology ebooks" data-kind="ebook">
-            {% for src in available_sources if src.content_kind == 'ebook' and src.family == 'technology' %}
-            <option value="{{ src.name }}" data-kind="ebook" data-category="{{ src.ebook_category }}">{{ src.display_name }}</option>
+            {% else %}
+            {% for src in available_sources %}
+            <option value="{{ src.name }}">{{ src.display_name }}</option>
             {% endfor %}
-            </optgroup>
+            {% endif %}
           </select>
         </div>
         <div class="search-options">
@@ -143,30 +164,6 @@
       (function () {
         var searchForm = document.querySelector("form.search-form");
         var saveForm = document.getElementById("saveSearchForm");
-        var collection = document.getElementById("collection");
-        var ebookWrap = document.getElementById("ebookCategoryWrap");
-        var source = document.getElementById("source");
-        function syncCollection() {
-          var isEbook = collection && collection.value === "ebooks";
-          if (ebookWrap) ebookWrap.hidden = !isEbook;
-          if (!source) return;
-          var groups = source.querySelectorAll("optgroup");
-          groups.forEach(function (group) {
-            var kind = group.getAttribute("data-kind");
-            group.hidden = isEbook ? kind === "article" : kind === "ebook";
-          });
-          var selected = source.options[source.selectedIndex];
-          if (selected && selected.value) {
-            var kind = selected.getAttribute("data-kind");
-            if ((isEbook && kind !== "ebook") || (!isEbook && kind === "ebook")) {
-              source.value = "";
-            }
-          }
-        }
-        if (collection) {
-          collection.addEventListener("change", syncCollection);
-          syncCollection();
-        }
         if (!searchForm || !saveForm) return;
         saveForm.addEventListener("submit", function () {
           saveForm.innerHTML = "";
@@ -246,7 +243,7 @@
             <input type="hidden" name="latest" value="1">
             <button class="btn btn-outline-primary w-100" type="submit">Download open-access PDFs and import e-books</button>
           </form>
-          <a class="btn btn-primary w-100 mt-2" href="/library?latest=1">View results in library</a>
+          <a class="btn btn-primary w-100 mt-2" href="/library?latest=1{% if collection == 'ebooks' %}&kind=ebooks{% endif %}">View results in library</a>
         </div>
       </div>
     </div>

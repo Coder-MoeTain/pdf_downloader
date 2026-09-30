@@ -63,7 +63,9 @@ from app.web.ui import (
     paper_primary_category,
     paper_record_date,
     reports_href,
+    settings_sources_href,
     source_homepage,
+    source_is_ebook,
     source_label,
     source_logo_url,
     sources_href,
@@ -80,6 +82,8 @@ templates.env.globals["library_href"] = library_href
 templates.env.globals["downloads_href"] = downloads_href
 templates.env.globals["reports_href"] = reports_href
 templates.env.globals["sources_href"] = sources_href
+templates.env.globals["settings_sources_href"] = settings_sources_href
+templates.env.globals["source_is_ebook"] = source_is_ebook
 templates.env.globals["source_label"] = source_label
 templates.env.globals["source_logo_url"] = source_logo_url
 templates.env.globals["source_homepage"] = source_homepage
@@ -232,12 +236,19 @@ def _crawl_source_lookup() -> dict[str, dict]:
     return {row["slug"]: row for row in _crawl_source_rows()}
 
 
-def _settings_ctx(request: Request, section: str = "workspace"):
+def _settings_ctx(request: Request, section: str = "workspace", source_catalog: str = "papers"):
     cfg = get_runtime_config()
-    sources = _source_rows()
+    all_sources = _source_rows()
+    catalog = "ebooks" if source_catalog == "ebooks" else "papers"
+    sources = all_sources
+    if section == "sources":
+        if catalog == "ebooks":
+            sources = [item for item in all_sources if source_is_ebook(item)]
+        else:
+            sources = [item for item in all_sources if not source_is_ebook(item)]
     credentials = []
     for slug, field in SOURCE_KEY_FIELDS.items():
-        match = next((s for s in sources if s["slug"] == slug), None)
+        match = next((s for s in all_sources if s["slug"] == slug), None)
         credentials.append(
             {
                 "slug": slug,
@@ -272,6 +283,8 @@ def _settings_ctx(request: Request, section: str = "workspace"):
         sources=sources,
         credentials=credentials,
         section=section,
+        source_catalog=catalog,
+        source_next=settings_sources_href(ebooks=catalog == "ebooks"),
         source_stats={
             "total": len(sources),
             "available": available,

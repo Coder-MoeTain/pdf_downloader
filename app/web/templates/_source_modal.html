@@ -2,10 +2,10 @@
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <form id="sourceForm" method="post" action="/settings/sources" data-busy="Saving…">
-        <input type="hidden" name="next" id="sourceNext" value="{{ source_next or '/settings?section=sources' }}">
+        <input type="hidden" name="next" id="sourceNext" value="{{ source_next or settings_sources_href() }}">
         <div class="modal-header">
           <div>
-            <div class="page-kicker mb-0">Academic source</div>
+            <div class="page-kicker mb-0">{% if source_catalog == 'ebooks' %}Ebook source{% else %}Academic source{% endif %}</div>
             <h2 class="modal-title h5" id="sourceModalTitle">Add source</h2>
           </div>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>

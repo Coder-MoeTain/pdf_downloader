@@ -433,6 +433,20 @@ def job_actor_name(job) -> str:
     return label or "—"
 
 
+def source_is_ebook(item: dict | None) -> bool:
+    if not item:
+        return False
+    return str(item.get("content_kind") or "article").strip().lower() == "ebook"
+
+
+def parse_search_collection(value: str | None) -> str:
+    return "ebooks" if str(value or "").strip().lower() == "ebooks" else "papers"
+
+
+def settings_sources_href(*, ebooks: bool = False) -> str:
+    return "/settings?section=sources&kind=ebooks" if ebooks else "/settings?section=sources"
+
+
 def sources_href(current: dict | None = None, **overrides) -> str:
     """Build a /sources URL, omitting default filter values."""
     merged = {**(current or {}), **overrides}
