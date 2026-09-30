@@ -238,6 +238,22 @@ def mysql_url(*, host: str, port: int, user: str, password: str, database: str |
     return f"mysql+pymysql://{auth}@{connect_host}:{int(port)}{db}?charset=utf8mb4"
 
 
+def mysql_access_denied_error(user: str, host: str, database: str) -> RuntimeError:
+    account = (host or "localhost").strip() or "localhost"
+    if account in {"127.0.0.1", "::1"}:
+        account = "localhost"
+    db = (database or "research_collector").strip()
+    name = (user or "cyber_admin").strip()
+    return RuntimeError(
+        f"MySQL user '{name}'@'{account}' cannot use database `{db}` (error 1044). "
+        "As root, run:\n"
+        f"  CREATE DATABASE IF NOT EXISTS `{db}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n"
+        f"  GRANT ALL PRIVILEGES ON `{db}`.* TO '{name}'@'localhost';\n"
+        f"  GRANT ALL PRIVILEGES ON `{db}`.* TO '{name}'@'127.0.0.1';\n"
+        "  FLUSH PRIVILEGES;"
+    )
+
+
 def parse_size(value: str | int | None, default: int = 150 * 1024 * 1024) -> int:
     if value is None:
         return default

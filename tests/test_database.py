@@ -90,3 +90,15 @@ def test_resolve_mysql_socket_prefers_explicit_and_local_file(tmp_path, monkeypa
     args = mysql_connect_args("127.0.0.1")
     assert args["unix_socket"] == str(sock)
     assert int(args["connect_timeout"]) == 2
+
+
+def test_mysql_access_denied_error_includes_grant_sql():
+    from app.config import mysql_access_denied_error
+
+    err = mysql_access_denied_error("cyber_admin", "localhost", "research_collector")
+    text = str(err)
+    assert "1044" in text
+    assert "cyber_admin" in text
+    assert "research_collector" in text
+    assert "GRANT ALL PRIVILEGES" in text
+    assert "FLUSH PRIVILEGES" in text

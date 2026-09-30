@@ -13,7 +13,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import load_config, mysql_connect_args
+from app.config import load_config, mysql_access_denied_error, mysql_connect_args
 from app.database.models import Base
 from app.utils.logger import get_logger
 
@@ -128,27 +128,53 @@ def _is_mysql_unreachable(exc: BaseException) -> bool:
     return any(token in text for token in ("2003", "timed out", "can't connect", "connection refused"))
 
 
+def _is_mysql_denied(exc: BaseException) -> bool:
+    text = str(exc)
+    return "1044" in text or "1045" in text or "Access denied" in text
+
+
 def init_db(url: str | None = None) -> None:
     cfg = load_config()
     engine_url = url or cfg.database_url
-    engine = get_engine(engine_url)
-    try:
-        Base.metadata.create_all(engine)
-    except OperationalError as exc:
-        if engine_url.startswith("mysql") and "1049" in str(exc):
+    if engine_url.startswith("mysql"):
+        env = cfg.env
+        database = (env.mysql_database or "research_collector").strip()
+        try:
             from app.database.settings_store import _ensure_mysql_database
 
-            env = cfg.env
             _ensure_mysql_database(
                 env.mysql_host.strip(),
                 env.mysql_port,
                 env.mysql_user,
                 env.mysql_password,
-                (env.mysql_database or "research_collector").strip(),
+                database,
             )
-            reset_engine()
-            engine = get_engine(engine_url)
-            Base.metadata.create_all(engine)
+        except Exception as exc:
+            logger.warning("Could not CREATE DATABASE `%s` as %s: %s", database, env.mysql_user, exc)
+    engine = get_engine(engine_url)
+    try:
+        Base.metadata.create_all(engine)
+    except OperationalError as exc:
+        if engine_url.startswith("mysql") and ("1049" in str(exc) or _is_mysql_denied(exc)):
+            from app.database.settings_store import _ensure_mysql_database
+
+            env = cfg.env
+            database = (env.mysql_database or "research_collector").strip()
+            try:
+                _ensure_mysql_database(
+                    env.mysql_host.strip(),
+                    env.mysql_port,
+                    env.mysql_user,
+                    env.mysql_password,
+                    database,
+                )
+                reset_engine()
+                engine = get_engine(engine_url)
+                Base.metadata.create_all(engine)
+            except Exception as retry_exc:
+                if _is_mysql_denied(retry_exc) or _is_mysql_denied(exc):
+                    raise mysql_access_denied_error(env.mysql_user, env.mysql_host, database) from retry_exc
+                raise
         elif engine_url.startswith("mysql") and _is_mysql_unreachable(exc):
             env = cfg.env
             sock = env.mysql_socket or "auto"

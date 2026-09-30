@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import ROOT_DIR, load_config, mysql_connect_args, mysql_url
+from app.config import ROOT_DIR, load_config, mysql_access_denied_error, mysql_connect_args, mysql_url
 from app.database.settings_models import SettingsBase
 from app.utils.logger import get_logger
 
@@ -157,9 +157,16 @@ def get_settings_engine() -> Engine:
             if engine is None:
                 env = load_config().env
                 if (env.mysql_host or "").strip():
+                    err = str(_status.get("error") or "")
+                    if "1044" in err or "1045" in err or "Access denied" in err:
+                        raise mysql_access_denied_error(
+                            env.mysql_user,
+                            env.mysql_host,
+                            env.mysql_database or "research_collector",
+                        )
                     raise RuntimeError(
                         "MySQL is configured but unreachable. "
-                        f"{_status.get('error') or 'Check MYSQL_HOST / MYSQL_USER / MYSQL_PASSWORD / MYSQL_DATABASE.'}"
+                        f"{err or 'Check MYSQL_HOST / MYSQL_USER / MYSQL_PASSWORD / MYSQL_DATABASE.'}"
                     )
                 engine = create_engine(
                     _sqlite_url(),
