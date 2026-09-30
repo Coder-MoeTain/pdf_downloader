@@ -139,10 +139,10 @@ async def _startup() -> None:
     await start_daily_refresh_worker()
 
     try:
-        from app.services.lms_watch import schedule_lms_sync, start_lms_watch
+        from app.services.lms_watch import start_lms_watch
 
+        # Watcher only — do not full-sweep tens of thousands of papers on every boot.
         start_lms_watch()
-        schedule_lms_sync()
     except Exception:
         pass
 

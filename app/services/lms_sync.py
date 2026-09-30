@@ -477,6 +477,10 @@ def _load_papers(paper_ids: list[int] | None) -> list[Paper]:
         )
         if paper_ids:
             stmt = stmt.where(Paper.id.in_(paper_ids))
+        else:
+            stmt = stmt.outerjoin(LmsExport, LmsExport.paper_id == Paper.id).where(
+                (LmsExport.id.is_(None)) | (LmsExport.status != "imported")
+            )
         return list(session.scalars(stmt).unique().all())
 
 

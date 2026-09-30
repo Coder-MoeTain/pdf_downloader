@@ -373,9 +373,24 @@ def test_retries_false_imported_export(tmp_db, tmp_path):
     with session_scope() as session:
         session.add(LmsExport(paper_id=paper_id, ebook_id=12, status="imported"))
     catalog = FakeCatalog()
-    result = sync_downloaded_papers_to_lms(catalog=catalog, config=_cfg(lms_root))
+    result = sync_downloaded_papers_to_lms(
+        paper_ids=[paper_id],
+        catalog=catalog,
+        config=_cfg(lms_root),
+    )
     assert result.imported == 1
     assert len(catalog.ebooks) == 1
+
+
+def test_full_sweep_skips_already_imported(tmp_db, tmp_path):
+    lms_root = _lms_layout(tmp_path)
+    paper_id, _ = _downloaded_paper(tmp_path, "Already synced", doi="10.1000/synced")
+    with session_scope() as session:
+        session.add(LmsExport(paper_id=paper_id, ebook_id=99, status="imported"))
+    catalog = FakeCatalog()
+    result = sync_downloaded_papers_to_lms(catalog=catalog, config=_cfg(lms_root))
+    assert result.imported == 0
+    assert catalog.ebooks == []
 
 
 def test_unreachable_lms_skips_without_loading_papers(tmp_path, monkeypatch):

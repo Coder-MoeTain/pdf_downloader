@@ -38,7 +38,7 @@ module.exports = {
       // Do not set max_memory_restart: PM2 checks every ~30s and was killing this
       // Python app in a loop (RSS often exceeds 1G with downloads / libraries).
       kill_timeout: 12000,
-      listen_timeout: 8000,
+      listen_timeout: 30000,
       shutdown_with_message: true,
       env: {
         PYTHONUNBUFFERED: "1",
