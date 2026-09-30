@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Copy SQLite research.db + settings.db into MySQL.
 
-Stop PM2 first so SQLite is not mid-write:
+Debian/Ubuntu has python3, not python. Prefer the project venv.
+PM2 process name is researchpaper (see ecosystem.config.cjs).
 
-    pm2 stop research
-    python scripts/migrate_sqlite_to_mysql.py --replace --yes
-    pm2 start research
+    pm2 list
+    pm2 stop researchpaper
+    ./venv/bin/python scripts/migrate_sqlite_to_mysql.py --replace --yes
+    pm2 restart researchpaper
 """
 
 from __future__ import annotations
