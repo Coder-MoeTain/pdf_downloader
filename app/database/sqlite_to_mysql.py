@@ -17,6 +17,36 @@ from app.database.settings_models import SettingsBase
 from app.utils.logger import get_logger
 
 logger = get_logger("app.migrate")
+MIGRATE_VERSION = "4-info-schema-longtext"
+
+_FORCE_LONGTEXT = {
+    "authors": ("name", "normalized_name", "affiliations"),
+    "papers": (
+        "title",
+        "normalized_title",
+        "abstract",
+        "keywords",
+        "research_fields",
+        "url",
+        "pdf_url",
+        "metadata_sources",
+        "cover_url",
+        "cover_path",
+    ),
+    "paper_fulltext": ("content",),
+    "downloads": ("pdf_url", "local_path", "error_message"),
+    "search_queries": ("original_query", "expanded_queries", "filters_json"),
+    "search_jobs": ("query", "filters_json", "error_message"),
+    "crawl_jobs": ("filters_json", "error_message"),
+    "usage_events": ("detail",),
+    "audit_logs": ("metadata_json",),
+    "cfp_calls": ("summary", "url", "website_url", "image_url", "categories", "official_website", "source_url"),
+    "github_repos": ("description", "html_url", "homepage", "topics", "owner_avatar_url"),
+    "user_papers": ("notes", "tags"),
+    "saved_searches": ("query", "filters_json"),
+    "app_settings": ("value",),
+    "academic_sources": ("description", "notes", "api_key"),
+}
 
 LIBRARY_TABLES = (
     "providers",
@@ -135,61 +165,60 @@ def _sqlite_max_chars(conn: Connection, table: str, column: str, dialect: str) -
     return int(value or 0)
 
 
+def _mysql_live_columns(conn: Connection, table: str) -> list:
+    return list(
+        conn.execute(
+            text(
+                """
+                SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE, COLUMN_KEY, COLUMN_TYPE
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :tbl
+                """
+            ),
+            {"tbl": table},
+        ).mappings()
+    )
+
+
 def _widen_dest_string_columns(source: Engine, dest: Engine, table: str) -> None:
-    """Grow MySQL VARCHAR/TEXT columns. MySQL TEXT is 64KB; SQLite TEXT is unbounded."""
+    """Widen live MySQL columns using INFORMATION_SCHEMA (not SQLAlchemy's cached types)."""
     if dest.dialect.name != "mysql":
         return
-    insp = inspect(dest)
-    try:
-        insp.clear_cache()
-    except Exception:
-        pass
-    dest_cols = {col["name"]: col for col in insp.get_columns(table)}
-    indexes = list(insp.get_indexes(table))
     src_cols = set(_columns(source, table))
     src_dialect = source.dialect.name
+    forced = set(_FORCE_LONGTEXT.get(table, ()))
     with source.connect() as src_conn:
-        needed: list[tuple[str, int, object, list, str]] = []
-        for name, col in dest_cols.items():
+        sqlite_lens = {name: _sqlite_max_chars(src_conn, table, name, src_dialect) for name in src_cols}
+    indexes = inspect(dest).get_indexes(table)
+    with dest.connect() as dest_conn:
+        dest_conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
+        live = _mysql_live_columns(dest_conn, table)
+        table_sql = _quote(table, "mysql")
+        for row in live:
+            name = str(row["COLUMN_NAME"])
             if name not in src_cols:
                 continue
-            kind = _mysql_string_kind(str(col["type"]))
-            if kind is None or kind == "longtext":
-                continue
-            max_len = _sqlite_max_chars(src_conn, table, name, src_dialect)
-            varchar_limit = _declared_length(str(col["type"]))
-            overflow = False
-            if kind in {"tinytext", "text", "mediumtext"}:
-                overflow = True
-            elif kind == "varchar" and varchar_limit is not None and max_len > varchar_limit:
-                overflow = True
-            if not overflow:
+            data_type = str(row["DATA_TYPE"] or "").lower()
+            col_type = str(row["COLUMN_TYPE"] or "")
+            max_allowed = row["CHARACTER_MAXIMUM_LENGTH"]
+            sqlite_len = sqlite_lens.get(name, 0)
+            unique = str(row["COLUMN_KEY"] or "").upper() in {"UNI", "PRI"}
+            needs_longtext = name in forced or data_type in {"tinytext", "text", "mediumtext"}
+            if data_type in {"varchar", "char"} and max_allowed is not None and sqlite_len > int(max_allowed):
+                needs_longtext = True
+            if data_type == "longtext" or not needs_longtext:
                 continue
             covering = [idx for idx in indexes if (idx.get("column_names") or []) == [name]]
-            needed.append((name, max_len, col, covering, kind))
-    if not needed:
-        return
-    with dest.begin() as dest_conn:
-        _disable_fks(dest_conn, "mysql")
-        table_sql = _quote(table, "mysql")
-        for name, max_len, col, covering, kind in needed:
-            col_sql = _quote(name, "mysql")
-            unique = any(bool(idx.get("unique")) for idx in covering)
-            logger.warning(
-                "Widening %s.%s from %s (SQLite max length %s)",
-                table,
-                name,
-                col["type"],
-                max_len,
-            )
+            logger.warning("Widening %s.%s from %s (SQLite max %s chars)", table, name, col_type, sqlite_len)
             for idx in covering:
                 idx_name = idx.get("name")
-                if not idx_name:
-                    continue
-                dest_conn.execute(text(f"ALTER TABLE {table_sql} DROP INDEX {_quote(idx_name, 'mysql')}"))
-            null_sql = "" if col.get("nullable", True) else " NOT NULL"
-            if unique and kind == "varchar":
-                new_len = min(max(max_len, 1), _MYSQL_INDEXED_VARCHAR_MAX)
+                if idx_name:
+                    dest_conn.execute(text(f"ALTER TABLE {table_sql} DROP INDEX {_quote(idx_name, 'mysql')}"))
+            nullable = str(row["IS_NULLABLE"] or "YES").upper() == "YES"
+            null_sql = " NULL" if nullable else " NOT NULL"
+            col_sql = _quote(name, "mysql")
+            if unique and data_type in {"varchar", "char"}:
+                new_len = min(max(int(max_allowed or 1), sqlite_len, 1), _MYSQL_INDEXED_VARCHAR_MAX)
                 dest_conn.execute(text(f"ALTER TABLE {table_sql} MODIFY {col_sql} VARCHAR({new_len}){null_sql}"))
                 for idx in covering:
                     idx_name = idx.get("name")
@@ -201,13 +230,11 @@ def _widen_dest_string_columns(source: Engine, dest: Engine, table: str) -> None
                 dest_conn.execute(text(f"ALTER TABLE {table_sql} MODIFY {col_sql} LONGTEXT{null_sql}"))
                 for idx in covering:
                     idx_name = idx.get("name")
-                    if not idx_name:
-                        continue
-                    dest_conn.execute(
-                        text(
-                            f"CREATE INDEX {_quote(idx_name, 'mysql')} ON {table_sql} ({col_sql}(255))"
+                    if idx_name and not unique:
+                        dest_conn.execute(
+                            text(f"CREATE INDEX {_quote(idx_name, 'mysql')} ON {table_sql} ({col_sql}(255))")
                         )
-                    )
+        dest_conn.commit()
     try:
         inspect(dest).clear_cache()
     except Exception:
@@ -363,6 +390,7 @@ def run_migration(
     source: Engine | None = None
     report = MigrateReport(dry_run=dry_run)
     say = progress or (lambda message: logger.info(message))
+    say(f"Migrator {MIGRATE_VERSION}")
 
     try:
         if library:

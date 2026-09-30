@@ -127,7 +127,11 @@ def test_migrate_dry_run_does_not_write(tmp_path):
     dest_engine.dispose()
 
 
-def test_declared_length_and_varchar_truncate():
+def test_force_longtext_includes_abstract():
+    from app.database.sqlite_to_mysql import MIGRATE_VERSION, _FORCE_LONGTEXT
+
+    assert MIGRATE_VERSION.startswith("4")
+    assert "abstract" in _FORCE_LONGTEXT["papers"]
     assert _declared_length("VARCHAR(512)") == 512
     assert _declared_length("TEXT") is None
     assert _mysql_string_kind("VARCHAR(512)") == "varchar"
