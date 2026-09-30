@@ -83,12 +83,42 @@
           </div>
         </div>
         <div class="mb-3">
+          <label class="form-label" for="collection">Collection</label>
+          <select class="form-select" id="collection" name="collection">
+            <option value="papers" selected>Research papers</option>
+            <option value="ebooks">Science &amp; technology ebooks</option>
+          </select>
+        </div>
+        <div class="mb-3" id="ebookCategoryWrap" hidden>
+          <label class="form-label" for="ebook_category">Ebook subject</label>
+          <select class="form-select" id="ebook_category" name="ebook_category">
+            <option value="">All ebook subjects</option>
+            <option value="Data Science">Data Science</option>
+            <option value="Satellite Technology">Satellite Technology</option>
+            <option value="Electronics">Electronics</option>
+            <option value="Science">Science</option>
+            <option value="Technology">Technology</option>
+          </select>
+        </div>
+        <div class="mb-3">
           <label class="form-label" for="source">Academic source</label>
           <select class="form-select" id="source" name="source">
-            <option value="">All available sources ({{ available_sources|length }})</option>
-            {% for src in available_sources %}
-            <option value="{{ src.name }}">{{ src.display_name }}</option>
+            <option value="" data-kind="any">All available sources</option>
+            <optgroup label="Research papers" data-kind="article">
+            {% for src in available_sources if src.content_kind != 'ebook' %}
+            <option value="{{ src.name }}" data-kind="article">{{ src.display_name }}</option>
             {% endfor %}
+            </optgroup>
+            <optgroup label="Science ebooks" data-kind="ebook">
+            {% for src in available_sources if src.content_kind == 'ebook' and src.family == 'science' %}
+            <option value="{{ src.name }}" data-kind="ebook" data-category="{{ src.ebook_category }}">{{ src.display_name }}</option>
+            {% endfor %}
+            </optgroup>
+            <optgroup label="Technology ebooks" data-kind="ebook">
+            {% for src in available_sources if src.content_kind == 'ebook' and src.family == 'technology' %}
+            <option value="{{ src.name }}" data-kind="ebook" data-category="{{ src.ebook_category }}">{{ src.display_name }}</option>
+            {% endfor %}
+            </optgroup>
           </select>
         </div>
         <div class="search-options">
@@ -113,6 +143,30 @@
       (function () {
         var searchForm = document.querySelector("form.search-form");
         var saveForm = document.getElementById("saveSearchForm");
+        var collection = document.getElementById("collection");
+        var ebookWrap = document.getElementById("ebookCategoryWrap");
+        var source = document.getElementById("source");
+        function syncCollection() {
+          var isEbook = collection && collection.value === "ebooks";
+          if (ebookWrap) ebookWrap.hidden = !isEbook;
+          if (!source) return;
+          var groups = source.querySelectorAll("optgroup");
+          groups.forEach(function (group) {
+            var kind = group.getAttribute("data-kind");
+            group.hidden = isEbook ? kind === "article" : kind === "ebook";
+          });
+          var selected = source.options[source.selectedIndex];
+          if (selected && selected.value) {
+            var kind = selected.getAttribute("data-kind");
+            if ((isEbook && kind !== "ebook") || (!isEbook && kind === "ebook")) {
+              source.value = "";
+            }
+          }
+        }
+        if (collection) {
+          collection.addEventListener("change", syncCollection);
+          syncCollection();
+        }
         if (!searchForm || !saveForm) return;
         saveForm.addEventListener("submit", function () {
           saveForm.innerHTML = "";

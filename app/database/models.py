@@ -58,6 +58,8 @@ class Paper(Base):
         Index("ix_papers_year", "publication_year"),
         Index("ix_papers_source", "source"),
         Index("ix_papers_relevance_id", "relevance_score", "id"),
+        Index("ix_papers_work_type", "work_type"),
+        Index("ix_papers_category", "category"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -91,6 +93,10 @@ class Paper(Base):
     relevance_score: Mapped[float] = mapped_column(Float, default=0.0)
     user_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="FOUND")
+    work_type: Mapped[str] = mapped_column(String(16), default="article")
+    cover_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 

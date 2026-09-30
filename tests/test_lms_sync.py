@@ -178,6 +178,22 @@ def test_metadata_helpers(tmp_db):
         assert "A survey." in description
 
 
+def test_infer_category_prefers_ebook_field(tmp_db):
+    record = PaperRecord(
+        title="Anything",
+        category="Electronics",
+        work_type="ebook",
+        authors=[AuthorRecord(name="Ada Lovelace")],
+        status=PaperStatus.FOUND,
+    )
+    with session_scope() as session:
+        paper = save_paper(session, record)
+        session.flush()
+        paper = session.scalar(select(Paper).where(Paper.id == paper.id))
+        assert paper is not None
+        assert infer_category(paper, "Research Papers") == "Electronics"
+
+
 def test_sync_copies_pdf_and_creates_ebook(tmp_db, tmp_path, monkeypatch):
     monkeypatch.setenv("LMS_ROOT", "")
     load_config.cache_clear()

@@ -220,4 +220,8 @@ def merge_papers(records: Iterable[PaperRecord]) -> PaperRecord:
         source_provider="+".join(providers),
         metadata_sources=sources,
         extra=extra,
+        work_type="ebook" if any((rec.work_type or "") == "ebook" for rec in items) else "article",
+        cover_url=next((rec.cover_url for rec in items if rec.cover_url), None),
+        cover_path=next((rec.cover_path for rec in items if rec.cover_path), None),
+        category=next((rec.category for rec in items if rec.category), None),
     )

@@ -160,6 +160,32 @@ def preview_paper_pdf(paper_id: int):
     )
 
 
+@router.get("/papers/{paper_id}/cover")
+def paper_cover_image(paper_id: int):
+    with session_scope() as session:
+        paper = session.get(Paper, paper_id)
+        if paper is None:
+            return HTMLResponse("Not found", status_code=404)
+        cover = (paper.cover_path or "").strip()
+        if cover:
+            from pathlib import Path
+
+            dest = Path(cover)
+            if dest.is_file():
+                suffix = dest.suffix.lower()
+                media = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}.get(
+                    suffix, "image/png"
+                )
+                return FileResponse(
+                    path=str(dest),
+                    media_type=media,
+                    headers={"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"},
+                )
+        if paper.cover_url:
+            return RedirectResponse(paper.cover_url, status_code=302)
+    return RedirectResponse("/static/ebook-cover.svg", status_code=302)
+
+
 @router.get("/api/download-progress")
 def download_progress():
     return JSONResponse(download_tracker.snapshot(), headers={"Cache-Control": "no-store"})

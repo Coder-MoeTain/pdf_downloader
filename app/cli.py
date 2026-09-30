@@ -323,6 +323,7 @@ def update_library() -> None:
 
 
 @app.command("sync-lms")
+@app.command("sync-to-library")
 def sync_lms(
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be imported without writing"),
 ) -> None:

@@ -18,6 +18,7 @@ class ResearchProvider(ABC):
     name: str = "base"
     display_name: str = "Base"
     supports_browse: bool = False
+    content_kind: str = "article"
 
     def __init__(
         self,

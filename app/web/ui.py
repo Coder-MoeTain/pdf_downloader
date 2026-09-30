@@ -45,6 +45,23 @@ def paper_authors_line(paper, limit: int | None = 6) -> str:
     return ", ".join(names)
 
 
+def paper_cover_src(paper) -> str:
+    if getattr(paper, "cover_path", None):
+        return f"/papers/{paper.id}/cover"
+    url = (getattr(paper, "cover_url", None) or "").strip()
+    if url.startswith("https://") or url.startswith("http://"):
+        return url
+    return "/static/ebook-cover.svg"
+
+
+def paper_primary_category(paper) -> str:
+    explicit = (getattr(paper, "category", None) or "").strip()
+    if explicit:
+        return explicit
+    tags = paper_categories(paper)
+    return tags[0] if tags else "Ebook"
+
+
 def paper_categories(paper) -> list[str]:
     """Distinct research-field and keyword tags for a paper."""
     from app.database.repository import split_tags
@@ -121,7 +138,9 @@ def share(count: int, total: int) -> float:
     return round((count / total) * 100, 1)
 
 
-def active_page(path: str) -> str:
+def active_page(path: str, query: str = "") -> str:
+    if path.startswith("/library") and "kind=ebooks" in (query or ""):
+        return "ebooks"
     mapping = (
         ("/search", "search"),
         ("/library", "library"),
@@ -291,6 +310,9 @@ def library_href(current: dict | None = None, **overrides) -> str:
     category = str(merged.get("category") or "").strip()
     if category:
         pairs.append(("category", category))
+    kind = str(merged.get("kind") or merged.get("work_type") or "").strip().lower()
+    if kind == "ebooks":
+        pairs.append(("kind", "ebooks"))
     try:
         year = int(merged.get("year") or 0)
     except (TypeError, ValueError):

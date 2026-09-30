@@ -94,6 +94,17 @@ class SearchService:
             providers = build_providers(client, self.config)
             if filters.source:
                 providers = [p for p in providers if p.name == filters.source]
+            else:
+                collection = (filters.collection or "papers").strip().lower()
+                if collection == "ebooks":
+                    providers = [p for p in providers if getattr(p, "content_kind", "article") == "ebook"]
+                    category = (filters.ebook_category or "").strip()
+                    if category:
+                        providers = [
+                            p for p in providers if str(getattr(p, "category", "") or "") == category
+                        ]
+                else:
+                    providers = [p for p in providers if getattr(p, "content_kind", "article") != "ebook"]
             stats.sources_searched = len(providers)
             if not providers:
                 console.print("[yellow]No providers available. Check config.yaml and API keys.[/]")
@@ -495,6 +506,8 @@ def filters_from_cli(
     download_limit: int | None = None,
     max_file_size: str | None = None,
     topic_name: str | None = None,
+    collection: str = "papers",
+    ebook_category: str | None = None,
 ) -> SearchFilters:
     from app.models.search import SortMode
 
@@ -520,4 +533,6 @@ def filters_from_cli(
         download_limit=cfg.download_limit if download_limit is None else download_limit,
         max_file_size=size,
         topic_name=topic_name,
+        collection=(collection or "papers").strip().lower() or "papers",
+        ebook_category=(ebook_category or "").strip() or None,
     )

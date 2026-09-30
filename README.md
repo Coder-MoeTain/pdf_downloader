@@ -272,11 +272,12 @@ python main.py index-pdfs
 python main.py fulltext-search "reinforcement learning reward function"
 python main.py update-library
 python main.py sync-lms
+python main.py sync-to-library
 ```
 
 `update-library` reads saved topics from `config.yaml` and can be scheduled with cron, Windows Task Scheduler, or a systemd timer.
 
-`sync-lms` copies downloaded open-access PDFs into the sibling **e-library** app as e-books (title, authors, abstract, DOI, first-page cover). It matches existing rows only by exact `Collector-Paper-ID` or exact `DOI:` line, so a second run imports anything still missing. Search and download already run this automatically when `LMS_SYNC_ENABLED=true`.
+`sync-lms` (alias `sync-to-library`) copies downloaded open-access PDFs into the sibling **e-library** app as e-books (title, authors, year, category, cover). It matches existing rows only by exact `Collector-Paper-ID` or exact `DOI:` line, so a second run imports anything still missing. Search and download already run this automatically when `LMS_SYNC_ENABLED=true`. Use `scripts/sync-to-library.sh` on the server.
 
 ### e-library on the same Linux server
 

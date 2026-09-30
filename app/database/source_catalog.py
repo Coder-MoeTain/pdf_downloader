@@ -615,8 +615,10 @@ BUILTIN_SOURCES: list[dict[str, object]] = [
 ]
 
 from app.database.batch_sources import catalog_rows_from_batch  # noqa: E402
+from app.database.ebook_sources import catalog_rows_from_ebooks  # noqa: E402
 
 BUILTIN_SOURCES.extend(catalog_rows_from_batch())
+BUILTIN_SOURCES.extend(catalog_rows_from_ebooks())
 
 SOURCE_KEY_FIELDS: dict[str, str] = {
     "semantic_scholar": "semantic_scholar_api_key",
@@ -685,6 +687,25 @@ def source_profile(slug: str, *, api_base_url: str = "") -> dict[str, object]:
     key = (slug or "").strip().lower()
     api = (api_base_url or "").lower()
     from app.database.batch_sources import BATCH_CROSSREF_SOURCES
+    from app.database.ebook_sources import EBOOK_SOURCE_BY_SLUG
+
+    ebook = EBOOK_SOURCE_BY_SLUG.get(key)
+    if ebook:
+        backend = str(ebook.get("backend") or key)
+        family = str(ebook.get("family") or "")
+        return {
+            "provider_type": "ebook_source",
+            "upstream": backend,
+            "metadata_only": False,
+            "supports_pdf": True,
+            "supports_browse": False,
+            "requires_key": False,
+            "open_access_source": True,
+            "content_kind": "ebook",
+            "family": family,
+            "ebook_category": str(ebook.get("category") or ""),
+            "provider_type_label": f"OA ebook · {family.title()}" if family else "OA ebook source",
+        }
 
     batch_slugs = {str(item["slug"]) for item in BATCH_CROSSREF_SOURCES}
     if key == "crossref":
@@ -717,10 +738,14 @@ def source_profile(slug: str, *, api_base_url: str = "") -> dict[str, object]:
         "supports_browse": key in {"openalex", "crossref", "arxiv", "pubmed", "europe_pmc", "semantic_scholar"},
         "requires_key": key in {"ieee", "springer", "elsevier", "core", "nasa_ads", "semantic_scholar"},
         "open_access_source": key in _OA_REPOS or kind == "oa_repository",
+        "content_kind": "article",
+        "family": "",
+        "ebook_category": "",
         "provider_type_label": {
             "independent_api": "Independent API",
             "crossref_profile": "Crossref-backed profile",
             "oa_repository": "Open-access repository",
             "publisher_profile": "Publisher metadata profile",
+            "ebook_source": "Open-access ebook source",
         }.get(kind, kind),
     }

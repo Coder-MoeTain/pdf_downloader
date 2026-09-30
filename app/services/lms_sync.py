@@ -56,14 +56,26 @@ CATEGORY_RULES: list[tuple[str, re.Pattern[str]]] = [
         re.compile(r"\b(security|cyber|intrusion|malware|vulnerability|cryptograph|penetration|ids|ips)\b", re.I),
     ),
     (
+        "Data Science",
+        re.compile(r"\b(data science|machine learning|deep learning|neural|llm|statistics|data mining)\b", re.I),
+    ),
+    (
+        "Satellite Technology",
+        re.compile(r"\b(satellite|remote sensing|earth observation|spacecraft|aerospace|orbit)\b", re.I),
+    ),
+    (
+        "Electronics",
+        re.compile(r"\b(electronics|electrical|circuit|embedded|vlsi|semiconductor|rf)\b", re.I),
+    ),
+    (
         "Artificial Intelligence",
-        re.compile(r"\b(artificial intelligence|machine learning|deep learning|neural|llm|reinforcement)\b", re.I),
+        re.compile(r"\b(artificial intelligence|reinforcement)\b", re.I),
     ),
     (
         "Computer Science",
         re.compile(r"\b(computer science|algorithm|software|programming|distributed|database)\b", re.I),
     ),
-    ("Engineering", re.compile(r"\b(engineering|satellite|aerospace|network)\b", re.I)),
+    ("Engineering", re.compile(r"\b(engineering|network)\b", re.I)),
     ("Mathematics", re.compile(r"\b(mathematics|statistical|optimization)\b", re.I)),
 ]
 
@@ -241,6 +253,9 @@ def first_author_name(paper: Paper) -> str:
 
 
 def infer_category(paper: Paper, default_category: str) -> str:
+    explicit = (getattr(paper, "category", None) or "").strip()
+    if explicit:
+        return explicit[:MAX_CATEGORY_LEN]
     fields = [part.strip() for part in (paper.research_fields or "").split(";") if part.strip()]
     if fields:
         return fields[0][:MAX_CATEGORY_LEN]
@@ -248,6 +263,8 @@ def infer_category(paper: Paper, default_category: str) -> str:
     for name, pattern in CATEGORY_RULES:
         if pattern.search(haystack):
             return name
+    if (getattr(paper, "work_type", None) or "") == "ebook":
+        return "Ebooks"[:MAX_CATEGORY_LEN]
     return default_category[:MAX_CATEGORY_LEN]
 
 
@@ -293,25 +310,9 @@ def existing_pdf_for_paper(paper: Paper) -> Path | None:
 
 
 def render_cover(pdf_path: Path, dest: Path) -> bool:
-    try:
-        import fitz
-    except ImportError:
-        return False
-    try:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        doc = fitz.open(pdf_path)
-        try:
-            if doc.page_count < 1:
-                return False
-            page = doc[0]
-            pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), alpha=False)
-            dest.write_bytes(pix.tobytes("png"))
-        finally:
-            doc.close()
-        return dest.is_file() and dest.stat().st_size > 0
-    except Exception as exc:
-        logger.warning("Cover render failed for %s: %s", pdf_path.name, exc)
-        return False
+    from app.services.cover_service import render_pdf_cover
+
+    return render_pdf_cover(pdf_path, dest)
 
 
 class MysqlLmsCatalog:
@@ -478,7 +479,14 @@ def import_paper(paper: Paper, cfg: LmsSyncConfig, catalog: LmsCatalog | None, *
     shutil.copy2(pdf_src, pdf_dest)
 
     cover_url = None
-    if render_cover(pdf_src, cover_dest):
+    local_cover = getattr(paper, "cover_path", None)
+    if local_cover and Path(local_cover).is_file():
+        suffix = Path(local_cover).suffix.lower() or ".png"
+        cover_name = f"{stem}-cover{suffix}"
+        cover_dest = cfg.cover_dir / cover_name
+        shutil.copy2(local_cover, cover_dest)
+        cover_url = f"/uploads/covers/{cover_name}"
+    elif render_cover(pdf_src, cover_dest):
         cover_url = f"/uploads/covers/{cover_name}"
 
     author_id = catalog.find_or_create_author(author)

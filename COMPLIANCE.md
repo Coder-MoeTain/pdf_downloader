@@ -9,7 +9,10 @@ bypass.
 1. Query official APIs (Crossref, OpenAlex, Semantic Scholar, arXiv, PubMed,
    PubMed Central, Europe PMC, CORE, DOAJ, NASA NTRS, OpenAIRE, HAL, Zenodo,
    PLOS, ERIC, OSTI, eLife, OpenReview, USGS, FAO, WHO, CERN CDS, NDL Search,
-   and publisher APIs when you supply credentials).
+   DOAB, OAPEN, OpenStax, Internet Archive texts, and publisher APIs when you
+   supply credentials). Open-access **ebooks** are discovered through those
+   book APIs only (science/technology catalogs, especially data science,
+   satellite technology, and electronics).
 2. Detect open-access copies using provider metadata and Unpaywall.
 3. Download PDFs that publishers, repositories, or authors have made public
    (gold/hybrid OA publisher PDFs, arXiv, PubMed Central, Europe PMC, CORE,

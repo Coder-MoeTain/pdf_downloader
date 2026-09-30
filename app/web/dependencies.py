@@ -58,7 +58,9 @@ from app.web.ui import (
     paper_authors_line,
     paper_categories,
     paper_citations,
+    paper_cover_src,
     paper_downloader_name,
+    paper_primary_category,
     paper_record_date,
     reports_href,
     source_homepage,
@@ -85,6 +87,8 @@ templates.env.globals["paper_abstract_meta"] = paper_abstract_meta
 templates.env.globals["paper_authors_line"] = paper_authors_line
 templates.env.globals["paper_citations"] = paper_citations
 templates.env.globals["paper_categories"] = paper_categories
+templates.env.globals["paper_cover_src"] = paper_cover_src
+templates.env.globals["paper_primary_category"] = paper_primary_category
 templates.env.globals["paper_downloader_name"] = paper_downloader_name
 templates.env.globals["paper_record_date"] = paper_record_date
 templates.env.globals["download_actor_name"] = download_actor_name
@@ -190,7 +194,7 @@ def _ctx(request: Request, **extra):
     payload["user"] = session_user
     payload["is_admin"] = user_is_admin(request)
     payload["role"] = user_role(session_user) if session_user else "user"
-    payload["page"] = active_page(request.url.path)
+    payload["page"] = active_page(request.url.path, str(request.url.query))
     payload["csrf_token"] = _csrf_token_global(request)
     return payload
 

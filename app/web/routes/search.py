@@ -228,6 +228,8 @@ async def search_submit(
     download: str | None = Form(None),
     sort: str = Form("relevance"),
     source: str = Form(""),
+    collection: str = Form("papers"),
+    ebook_category: str = Form(""),
 ):
     filters = filters_from_cli(
         query,
@@ -238,6 +240,8 @@ async def search_submit(
         no_download=not bool(download),
         sort=sort,
         source=source.strip() or None,
+        collection=collection,
+        ebook_category=ebook_category or None,
     )
     user_id = _request_user_id(request)
     job_id = enqueue_search(user_id=user_id, query=query.strip(), filters=filters)
@@ -261,6 +265,8 @@ def search_save(
     open_access_only: str | None = Form(None),
     sort: str = Form("relevance"),
     source: str = Form(""),
+    collection: str = Form("papers"),
+    ebook_category: str = Form(""),
 ):
     user_id = _request_user_id(request)
     if user_id is None:
@@ -274,6 +280,8 @@ def search_save(
         "open_access_only": bool(open_access_only),
         "sort": sort,
         "source": source.strip() or None,
+        "collection": collection,
+        "ebook_category": ebook_category.strip() or None,
     }
     with session_scope() as session:
         saved = save_search_config(session, user_id, name, query, filters)

@@ -2570,6 +2570,61 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
   .page-library .lib-toolbar { justify-content: flex-start; }
   .page-library .lib-page-size { margin-left: 0; }
 }
+.page-library .ebook-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+.page-library .ebook-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  min-height: 100%;
+}
+.page-library .ebook-cover {
+  display: block;
+  background: rgba(16, 36, 61, 0.08);
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+}
+.page-library .ebook-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.page-library .ebook-body {
+  padding: 0.85rem 0.95rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+}
+.page-library .ebook-title {
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.3;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.page-library .ebook-meta {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+.page-library .ebook-actions {
+  margin-top: auto;
+  padding-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
 .page-library .chip:hover:not(.active) {
   background: rgba(255, 255, 255, 0.4);
   color: var(--ink);

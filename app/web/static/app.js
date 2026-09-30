@@ -656,15 +656,29 @@
   });
 
   var sourceFilter = document.getElementById("sourceFilter");
-  if (sourceFilter) {
-    sourceFilter.addEventListener("input", function () {
-      var query = sourceFilter.value.toLowerCase();
-      document.querySelectorAll(".source-row").forEach(function (row) {
-        var hay = (row.getAttribute("data-filter") || row.textContent || "").toLowerCase();
-        row.hidden = query !== "" && hay.indexOf(query) === -1;
-      });
+  var sourceKind = "all";
+  function filterSourceRows() {
+    var query = sourceFilter ? sourceFilter.value.toLowerCase() : "";
+    document.querySelectorAll(".source-row").forEach(function (row) {
+      var hay = (row.getAttribute("data-filter") || row.textContent || "").toLowerCase();
+      var kind = row.getAttribute("data-kind") || "article";
+      var kindOk = sourceKind === "all" || kind === sourceKind;
+      var textOk = query === "" || hay.indexOf(query) !== -1;
+      row.hidden = !(kindOk && textOk);
     });
   }
+  if (sourceFilter) {
+    sourceFilter.addEventListener("input", filterSourceRows);
+  }
+  document.querySelectorAll("[data-source-kind]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      sourceKind = btn.getAttribute("data-source-kind") || "all";
+      document.querySelectorAll("[data-source-kind]").forEach(function (other) {
+        other.classList.toggle("active", other === btn);
+      });
+      filterSourceRows();
+    });
+  });
 
   var sourceModalEl = document.getElementById("sourceModal");
   var sourceForm = document.getElementById("sourceForm");

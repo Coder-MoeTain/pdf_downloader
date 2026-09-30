@@ -351,7 +351,7 @@ def test_free_sources_are_registered():
     assert batch <= catalog
     assert batch <= names
     assert len(batch) == 47
-    assert len(catalog) == 100
+    assert len(catalog) == 150
     assert catalog == names
 
 

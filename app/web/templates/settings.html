@@ -318,6 +318,9 @@
           <span class="chip">{{ source_stats.total }} total</span>
           <span class="chip">{{ source_stats.available }} available</span>
           <span class="chip">{{ source_stats.disabled }} disabled</span>
+          <button class="chip" type="button" data-source-kind="all">All kinds</button>
+          <button class="chip" type="button" data-source-kind="article">Papers</button>
+          <button class="chip" type="button" data-source-kind="ebook">Ebooks</button>
         </div>
       </div>
       <div class="table-responsive">
@@ -333,7 +336,7 @@
           </thead>
           <tbody>
           {% for s in sources %}
-            <tr class="source-row {% if not s.enabled %}is-disabled{% endif %}" data-filter="{{ s.display_name }} {{ s.slug }}">
+            <tr class="source-row {% if not s.enabled %}is-disabled{% endif %}" data-filter="{{ s.display_name }} {{ s.slug }}" data-kind="{{ s.content_kind or 'article' }}">
               <td>
                 <div class="source-name">
                   {{ source_mark(s.slug, s.homepage_url, s.display_name, false, 24) }}

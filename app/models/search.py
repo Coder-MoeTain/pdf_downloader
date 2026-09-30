@@ -29,6 +29,8 @@ class SearchFilters:
     download_limit: int | None = None
     max_file_size: int | None = None
     topic_name: str | None = None
+    collection: str = "papers"
+    ebook_category: str | None = None
 
     @property
     def topic_slug(self) -> str:

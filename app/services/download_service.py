@@ -80,6 +80,32 @@ class DownloadService:
     def library_root(self) -> Path:
         return self.config.resolve_path(self.config.library_dir)
 
+    async def _store_cover(self, paper_id: int, paper: PaperRecord, pdf_path: Path) -> None:
+        if (paper.work_type or "article") != "ebook" and not paper.cover_url:
+            return
+        try:
+            from app.database.connection import session_scope
+            from app.services.cover_service import store_cover_for_paper
+
+            saved = await store_cover_for_paper(
+                self.client,
+                paper,
+                pdf_path if pdf_path.is_file() else None,
+                self.library_root(),
+                paper_id=paper_id,
+            )
+            if saved is None:
+                return
+            paper.cover_path = str(saved)
+            with session_scope() as session:
+                row = session.get(Paper, paper_id)
+                if row is not None:
+                    row.cover_path = str(saved)
+                    if paper.cover_url and not row.cover_url:
+                        row.cover_url = paper.cover_url
+        except Exception as exc:
+            logger.info("Cover not saved for paper %s: %s", paper_id, exc)
+
     def topic_dir(self, topic_slug: str, year: int | None) -> Path:
         year_part = str(year) if year else "unknown"
         path = safe_join(self.library_root(), topic_slug, year_part)
@@ -279,6 +305,7 @@ class DownloadService:
             on_progress=on_progress,
         )
         if not should_download:
+            await self._store_cover(paper_id, paper, dest)
             return paper
 
         _progress_log(f"GET {_clip_url(paper.pdf_url)}")
@@ -305,7 +332,7 @@ class DownloadService:
                             user_id=user_id,
                             error=retry_exc,
                         )
-                    return await asyncio.to_thread(
+                    paper = await asyncio.to_thread(
                         self._finalize_download,
                         paper_id,
                         paper,
@@ -314,6 +341,9 @@ class DownloadService:
                         digest,
                         user_id=user_id,
                     )
+                    if paper.status == PaperStatus.DOWNLOADED:
+                        await self._store_cover(paper_id, paper, dest)
+                    return paper
             return await asyncio.to_thread(
                 self._finalize_download,
                 paper_id,
@@ -325,7 +355,7 @@ class DownloadService:
                 error=exc,
             )
 
-        return await asyncio.to_thread(
+        paper = await asyncio.to_thread(
             self._finalize_download,
             paper_id,
             paper,
@@ -334,6 +364,9 @@ class DownloadService:
             digest,
             user_id=user_id,
         )
+        if paper.status == PaperStatus.DOWNLOADED:
+            await self._store_cover(paper_id, paper, dest)
+        return paper
 
     async def _stream_pdf(
         self,

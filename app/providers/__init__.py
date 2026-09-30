@@ -9,6 +9,7 @@ from app.providers.base import ResearchProvider
 from app.providers.batch_providers import BATCH_PROVIDER_CLASSES
 from app.providers.core import CoreProvider
 from app.providers.crossref import CrossrefProvider
+from app.providers.ebook_providers import EBOOK_PROVIDER_CLASSES
 from app.providers.europe_pmc import EuropePMCProvider
 from app.providers.extra import (
     DoajProvider,
@@ -124,6 +125,7 @@ PROVIDER_CLASSES: list[type[ResearchProvider]] = [
     CernProvider,
     NdlProvider,
     *BATCH_PROVIDER_CLASSES,
+    *EBOOK_PROVIDER_CLASSES,
 ]
 
 
@@ -159,6 +161,9 @@ def provider_status(config: AppConfig | None = None) -> list[dict[str, object]]:
                 "requests_per_second": provider.requests_per_second,
                 "upstream": getattr(provider, "upstream_name", provider.name),
                 "rate_limit_group": getattr(provider, "rate_limit_group", provider.name),
+                "content_kind": getattr(provider, "content_kind", "article"),
+                "family": getattr(provider, "family", ""),
+                "ebook_category": getattr(provider, "category", "") if getattr(provider, "content_kind", "") == "ebook" else "",
             }
         )
     return rows

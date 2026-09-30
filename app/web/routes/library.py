@@ -18,6 +18,7 @@ from app.database.repository import (
     library_facets,
     query_library,
     set_paper_rating,
+    work_type_clause,
 )
 from app.models.paper import PaperStatus
 from app.services.download_queue import enqueue_oa_recheck, oa_download_active
@@ -66,6 +67,7 @@ def library_page(
     user: QueryInt = 0,
     sort: str = DEFAULT_SORT,
     per_page: QueryInt = DEFAULT_PAGE_SIZE,
+    kind: str = "",
 ):
     status = status.strip().upper()
     access = access.strip().lower()
@@ -100,6 +102,9 @@ def library_page(
     per_page = clamp_page_size(per_page)
     year = year if year and year > 0 else 0
     user_id = user if user and user > 0 else 0
+    requested_kind = "ebooks" if kind.strip().lower() == "ebooks" else "papers"
+    work_type = "" if bool(latest) else ("ebook" if requested_kind == "ebooks" else "article")
+    library_kind = requested_kind
     latest_search = None
     papers = []
     total = 0
@@ -128,6 +133,7 @@ def library_page(
                 sort=sort,
                 latest_search_id=latest_search.id if use_latest else None,
                 limit=per_page,
+                work_type=work_type,
             )
             papers, total = query_library(
                 session,
@@ -146,6 +152,9 @@ def library_page(
                 Paper.pdf_url.is_not(None),
                 Paper.status.in_(["OA_AVAILABLE", "FOUND", "FAILED"]),
             ]
+            type_clause = work_type_clause(work_type)
+            if type_clause is not None:
+                oa_where.append(type_clause)
             oa_stmt = select(func.count(Paper.id)).where(*oa_where)
             if use_latest:
                 oa_stmt = (
@@ -176,7 +185,7 @@ def library_page(
 
     def _load_facets() -> dict:
         with session_scope() as session:
-            return library_facets(session, light=True)
+            return library_facets(session, light=True, work_type=work_type)
 
     try:
         facets = retry_on_sqlite_lock(_load_facets)
@@ -217,20 +226,21 @@ def library_page(
         "user": user_id,
         "sort": sort,
         "per_page": per_page,
+        "kind": library_kind if library_kind == "ebooks" else "",
     }
     user_label = next((item["name"] for item in user_options if item["id"] == user_id), "")
     has_filters = bool(
         q or status or downloadable or open_access or min_rating or category or year or source or journal or user_id
     )
     stats = library_status_panel(facets)
-    base_filters = {"latest": use_latest, "sort": sort, "per_page": per_page}
+    base_filters = {"latest": use_latest, "sort": sort, "per_page": per_page, "kind": filters["kind"]}
     kpis = [
         {
             "href": library_href(base_filters),
-            "label": "Papers",
+            "label": "Ebooks" if library_kind == "ebooks" else "Papers",
             "value": stats["visible_total"],
             "tone": "primary",
-            "hint": "Visible in library",
+            "hint": "Visible in this collection",
             "active": not has_filters,
         },
         {
@@ -295,6 +305,7 @@ def library_page(
             has_library_stats=stats["has_stats"],
             source_catalog={row["slug"]: row for row in _source_rows()},
             remarks=remarks,
+            library_kind=library_kind,
         ),
     )
 

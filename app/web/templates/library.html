@@ -11,9 +11,11 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1 class="h2 mb-0">{% if latest %}Search results{% else %}Library{% endif %}</h1>
+    <h1 class="h2 mb-0">{% if latest %}Search results{% elif library_kind == 'ebooks' %}Ebooks{% else %}Research papers{% endif %}</h1>
     {% if latest and latest_search %}
-    <p class="lede mb-0 mt-1">{{ latest_search.original_query }} · {{ status_meta(latest_search.status).label }}{% if search_running %} · updates every 12s while this search runs{% endif %}{% if total %} · {{ total }} paper{{ "s" if total != 1 else "" }}{% endif %}</p>
+    <p class="lede mb-0 mt-1">{{ latest_search.original_query }} · {{ status_meta(latest_search.status).label }}{% if search_running %} · updates every 12s while this search runs{% endif %}{% if total %} · {{ total }} item{{ "s" if total != 1 else "" }}{% endif %}</p>
+    {% elif not latest %}
+    <p class="lede mb-0 mt-1">{% if library_kind == 'ebooks' %}Open-access science and technology books with cover, title, author, year, and category.{% else %}Journal articles and preprints in your local library.{% endif %}</p>
     {% endif %}
   </div>
   <div class="d-flex flex-wrap gap-2">
@@ -31,6 +33,13 @@
     </form>
   </div>
 </div>
+
+{% if not latest %}
+<div class="chip-row mb-3" role="tablist" aria-label="Library collection">
+  <a class="chip {% if library_kind != 'ebooks' %}active{% endif %}" href="/library" role="tab" aria-selected="{{ 'true' if library_kind != 'ebooks' else 'false' }}">Research papers</a>
+  <a class="chip {% if library_kind == 'ebooks' %}active{% endif %}" href="/library?kind=ebooks" role="tab" aria-selected="{{ 'true' if library_kind == 'ebooks' else 'false' }}">Ebooks</a>
+</div>
+{% endif %}
 
 {% if has_library_stats %}
 <section class="lib-status-panel" aria-label="Library overview">
@@ -52,14 +61,24 @@
 
 <section class="lib-filters" aria-label="Library filters">
   <div class="chip-row lib-quick-chips" role="list">
-    <a class="chip {% if not status and not pdf and not oa %}active{% endif %}" href="{{ library_href({'latest': latest, 'sort': sort, 'per_page': per_page, 'q': q, 'category': category, 'year': year}) }}">All</a>
+    <a class="chip {% if not status and not pdf and not oa %}active{% endif %}" href="{{ library_href({'latest': latest, 'sort': sort, 'per_page': per_page, 'q': q, 'category': category, 'year': year, 'kind': filters.kind}) }}">All</a>
     <a class="chip {% if pdf and not oa and status != 'PAYWALLED' %}active{% endif %}" href="{{ library_href(filters, pdf=true, oa=false, status='', page=1) }}">On server{% if facets.downloadable is defined %} · {{ facets.downloadable }}{% endif %}</a>
     <a class="chip {% if oa %}active{% endif %}" href="{{ library_href(filters, oa=true, pdf=false, status='', page=1) }}">Open access{% if facets.open_access is defined %} · {{ facets.open_access }}{% endif %}</a>
     <a class="chip {% if status == 'PAYWALLED' %}active{% endif %}" href="{{ library_href(filters, status='PAYWALLED', pdf=false, oa=false, page=1) }}">Paywalled{% if facets.paywalled is defined %} · {{ facets.paywalled }}{% endif %}</a>
   </div>
 
+  {% if library_kind == 'ebooks' %}
+  <div class="chip-row mb-3" aria-label="Ebook categories">
+    <a class="chip {% if not category %}active{% endif %}" href="{{ library_href(filters, category='', page=1) }}">All categories</a>
+    {% for name in ["Data Science", "Satellite Technology", "Electronics", "Science", "Technology"] %}
+    <a class="chip {% if category == name %}active{% endif %}" href="{{ library_href(filters, category=name, page=1) }}">{{ name }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <form class="lib-filter-form" method="get" action="/library">
     {% if latest %}<input type="hidden" name="latest" value="1">{% endif %}
+    {% if library_kind == 'ebooks' %}<input type="hidden" name="kind" value="ebooks">{% endif %}
     {% if category %}<input type="hidden" name="category" value="{{ category }}">{% endif %}
     <div class="lib-filter-grid">
       <div class="lib-field lib-field-search">
@@ -125,6 +144,7 @@
   </div>
   <form class="lib-page-size" method="get" action="/library">
     {% if latest %}<input type="hidden" name="latest" value="1">{% endif %}
+    {% if library_kind == 'ebooks' %}<input type="hidden" name="kind" value="ebooks">{% endif %}
     {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
     {% if pdf %}<input type="hidden" name="pdf" value="1">{% endif %}
     {% if category %}<input type="hidden" name="category" value="{{ category }}">{% endif %}
@@ -143,6 +163,34 @@
 </div>
 {% endif %}
 
+{% if library_kind == 'ebooks' %}
+{% if papers %}
+<div class="ebook-grid">
+  {% for p in papers %}
+  <article class="ebook-card">
+    <a class="ebook-cover" href="{% if can_preview(p) %}/papers/{{ p.id }}/preview{% else %}{{ p.url or '#' }}{% endif %}" {% if can_preview(p) %}target="_blank" rel="noopener"{% endif %}>
+      <img src="{{ paper_cover_src(p) }}" alt="" width="160" height="220">
+    </a>
+    <div class="ebook-body">
+      <h2 class="ebook-title" title="{{ p.title }}">{{ p.title }}</h2>
+      <p class="ebook-meta">{{ paper_authors_line(p, 3) or "Unknown author" }}</p>
+      <p class="ebook-meta">{{ p.publication_year or "—" }} · {{ paper_primary_category(p) }}</p>
+      <div class="ebook-actions">
+        {% if can_preview(p) %}
+        <a class="btn btn-sm btn-primary" href="/papers/{{ p.id }}/pdf">Download</a>
+        <button class="btn btn-sm btn-outline-primary preview-btn" type="button" data-preview-url="/papers/{{ p.id }}/preview" data-preview-title="{{ p.title|e }}">Preview</button>
+        {% elif p.url %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ p.url }}" target="_blank" rel="noopener">Open source</a>
+        {% endif %}
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+{{ empty_state("No ebooks yet", "Search science and technology ebooks (data science, satellite technology, electronics) to download legal OA PDFs.", "/search", "Search ebooks") }}
+{% endif %}
+{% else %}
 <div class="table-responsive card lib-table-card">
   <table class="table align-middle mb-0 lib-table">
     <thead>
@@ -252,13 +300,14 @@
         {% elif not show_paywalled %}
           {{ empty_state("Paywalled papers are hidden", "Turn them back on in Settings, or filter the library by Paywalled.", "/settings?section=workspace" if is_admin else "/library?status=PAYWALLED", "Open settings" if is_admin else "View paywalled") }}
         {% else %}
-          {{ empty_state("Library is empty", "Run a topic search to collect metadata and open-access PDFs.", "/search", "Start a search") }}
+          {{ empty_state("No ebooks in this collection", "Search science and technology ebooks, then download legal OA PDFs.", "/search", "Search ebooks") if library_kind == 'ebooks' else empty_state("Library is empty", "Run a topic search to collect metadata and open-access PDFs.", "/search", "Start a search") }}
         {% endif %}
       </td></tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
+{% endif %}
 
 {% if papers and pager.total_pages > 1 %}
 <div class="lib-toolbar lib-toolbar-bottom">

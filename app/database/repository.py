@@ -156,6 +156,10 @@ def paper_to_record(paper: Paper) -> PaperRecord:
         metadata_sources=json.loads(paper.metadata_sources) if paper.metadata_sources else {},
         relevance_score=paper.relevance_score or 0.0,
         status=status,
+        work_type=paper.work_type or "article",
+        cover_url=paper.cover_url,
+        cover_path=paper.cover_path,
+        category=paper.category,
     )
 
 
@@ -201,6 +205,17 @@ def save_paper(session: Session, record: PaperRecord) -> Paper:
     paper.metadata_sources = json.dumps(record.metadata_sources or {})
     paper.relevance_score = record.relevance_score
     paper.status = record.status.value
+    incoming_type = (record.work_type or "").strip().lower()
+    if incoming_type == "ebook" or not (paper.work_type or "").strip():
+        paper.work_type = incoming_type or "article"
+    elif incoming_type and paper.work_type != "ebook":
+        paper.work_type = incoming_type
+    if record.cover_url:
+        paper.cover_url = record.cover_url
+    if record.cover_path:
+        paper.cover_path = record.cover_path
+    if record.category:
+        paper.category = record.category
     paper.updated_at = utc_now()
     session.flush()
 
@@ -567,6 +582,15 @@ def _tag_column_matches(column, tag: str):
     )
 
 
+def work_type_clause(work_type: str = ""):
+    kind = (work_type or "").strip().lower()
+    if kind == "ebook":
+        return Paper.work_type == "ebook"
+    if kind == "article":
+        return or_(Paper.work_type == "article", Paper.work_type.is_(None), Paper.work_type == "")
+    return None
+
+
 def apply_paper_filters(
     stmt,
     *,
@@ -579,6 +603,7 @@ def apply_paper_filters(
     source: str = "",
     journal: str = "",
     user_id: int | None = None,
+    work_type: str = "",
 ):
     if status:
         stmt = stmt.where(Paper.status == status)
@@ -593,13 +618,18 @@ def apply_paper_filters(
     if category.strip():
         field_match = _tag_column_matches(Paper.research_fields, category)
         keyword_match = _tag_column_matches(Paper.keywords, category)
-        stmt = stmt.where(or_(field_match, keyword_match))
+        category_match = Paper.category == category.strip()
+        stmt = stmt.where(or_(field_match, keyword_match, category_match))
     if year:
         stmt = stmt.where(Paper.publication_year == int(year))
     if source.strip():
         stmt = stmt.where(Paper.source == source.strip())
     if journal.strip():
         stmt = stmt.where(Paper.journal == journal.strip())
+    kind = (work_type or "").strip().lower()
+    clause = work_type_clause(kind)
+    if clause is not None:
+        stmt = stmt.where(clause)
     if user_id:
         stmt = stmt.where(
             exists().where(
@@ -674,6 +704,7 @@ def library_filter_kwargs(
     source: str = "",
     journal: str = "",
     user_id: int | None = None,
+    work_type: str = "",
 ) -> dict:
     return {
         "status": status,
@@ -685,6 +716,7 @@ def library_filter_kwargs(
         "source": source,
         "journal": journal,
         "user_id": user_id,
+        "work_type": work_type,
     }
 
 
@@ -705,6 +737,7 @@ def query_library(
     latest_search_id: int | None = None,
     offset: int = 0,
     limit: int = 25,
+    work_type: str = "",
 ) -> tuple[list[Paper], int]:
     """Return one page of library papers plus the matching total."""
     filters = library_filter_kwargs(
@@ -717,6 +750,7 @@ def query_library(
         source=source,
         journal=journal,
         user_id=user_id,
+        work_type=work_type,
     )
     count_stmt = select(func.count(func.distinct(Paper.id)))
     stmt = select(Paper).options(
@@ -743,21 +777,25 @@ def query_library(
     return papers, total
 
 
-def library_facets(session: Session, *, force: bool = False, light: bool = False) -> dict:
+def library_facets(session: Session, *, force: bool = False, light: bool = False, work_type: str = "") -> dict:
     """Distinct category / year / source / journal values for library filters.
 
     light=True skips expensive browse facets (categories/sources/journals) used only
     by unused UI controls — enough for Library KPIs + year filter.
     """
     now = time.monotonic()
-    cache_key = "light" if light else "full"
+    kind = (work_type or "").strip().lower()
+    cache_key = f"{'light' if light else 'full'}:{kind or 'all'}"
     with _facets_lock:
         cached = _facets_cache.get(cache_key)
         cached_at = _facets_cache_at.get(cache_key, 0.0)
         if not force and cached is not None and (now - cached_at) < _FACETS_TTL_SECONDS:
             return deepcopy(cached)
 
-    visible = visible_paper_clauses()
+    visible = list(visible_paper_clauses())
+    type_clause = work_type_clause(kind)
+    if type_clause is not None:
+        visible.append(type_clause)
     years = [
         year
         for (year,) in session.execute(

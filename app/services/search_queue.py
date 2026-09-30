@@ -53,6 +53,8 @@ def filters_from_dict(data: dict[str, Any]) -> SearchFilters:
         download_limit=data.get("download_limit"),
         max_file_size=data.get("max_file_size"),
         topic_name=data.get("topic_name"),
+        collection=str(data.get("collection") or "papers").strip().lower() or "papers",
+        ebook_category=(str(data.get("ebook_category") or "").strip() or None),
     )
 
 

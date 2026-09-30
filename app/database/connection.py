@@ -119,6 +119,17 @@ def _ensure_columns(engine: Engine) -> None:
         names = {row[1] for row in rows}
         if "user_rating" not in names:
             conn.execute(text("ALTER TABLE papers ADD COLUMN user_rating INTEGER"))
+        if names and "work_type" not in names:
+            conn.execute(text("ALTER TABLE papers ADD COLUMN work_type VARCHAR(16) DEFAULT 'article'"))
+            conn.execute(text("UPDATE papers SET work_type = 'article' WHERE work_type IS NULL OR work_type = ''"))
+        if names and "cover_url" not in names:
+            conn.execute(text("ALTER TABLE papers ADD COLUMN cover_url TEXT"))
+        if names and "cover_path" not in names:
+            conn.execute(text("ALTER TABLE papers ADD COLUMN cover_path TEXT"))
+        if names and "category" not in names:
+            conn.execute(text("ALTER TABLE papers ADD COLUMN category VARCHAR(128)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_papers_work_type ON papers (work_type)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_papers_category ON papers (category)"))
         user_rows = conn.execute(text("PRAGMA table_info(users)")).all()
         user_names = {row[1] for row in user_rows}
         if user_names:

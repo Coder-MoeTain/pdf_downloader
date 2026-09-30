@@ -64,6 +64,10 @@ class PaperRecord:
     status: PaperStatus = PaperStatus.FOUND
     retrieved_at: datetime = field(default_factory=utc_now)
     extra: dict[str, Any] = field(default_factory=dict)
+    work_type: str = "article"
+    cover_url: str | None = None
+    cover_path: str | None = None
+    category: str | None = None
 
     @property
     def first_author(self) -> str:
