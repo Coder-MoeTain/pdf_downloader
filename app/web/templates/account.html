@@ -110,11 +110,13 @@
               <td>{{ member.email }}</td>
               <td>
                 <form method="post" action="/account/users/{{ member.id }}/role" class="role-form">
-                  <select class="form-select form-select-sm" name="role" onchange="this.form.submit()">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <select class="form-select form-select-sm" name="role" data-autosubmit aria-label="Role for {{ member.email }}">
                     {% for option in roles %}
                     <option value="{{ option }}" {% if member.role == option %}selected{% endif %}>{{ option }}</option>
                     {% endfor %}
                   </select>
+                  <button class="btn btn-sm btn-outline-secondary" type="submit">Save</button>
                 </form>
               </td>
               <td class="paper-meta">{% if member.last_login_at %}{{ member.last_login_at|localdt }}{% else %}—{% endif %}</td>

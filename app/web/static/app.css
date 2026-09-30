@@ -300,7 +300,14 @@ h1, h2, .brand-text, .display-6, .empty-title {
   height: 0.9rem;
   flex: 0 0 0.9rem;
 }
-.role-form { margin: 0; min-width: 7.5rem; }
+.role-form {
+  margin: 0;
+  min-width: 7.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.role-form .form-select { min-width: 6.5rem; }
 .nav-version {
   display: inline-flex;
   align-items: center;

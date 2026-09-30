@@ -49,7 +49,7 @@
     {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
     {% if per_page != 25 %}<input type="hidden" name="per_page" value="{{ per_page }}">{% endif %}
     <label class="lib-filter-label" for="report-user">User</label>
-    <select class="form-select form-select-sm" id="report-user" name="user" onchange="this.form.submit()" style="max-width: 16rem">
+    <select class="form-select form-select-sm" id="report-user" name="user" data-autosubmit style="max-width: 16rem">
       <option value="0">All users</option>
       {% for item in user_options %}
       <option value="{{ item.id }}" {% if filter_user == item.id %}selected{% endif %}>{{ item.name }}</option>
@@ -70,7 +70,7 @@
     {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
     {% if filter_user %}<input type="hidden" name="user" value="{{ filter_user }}">{% endif %}
     <label class="lib-filter-label mb-0" for="per_page">Per page</label>
-    <select class="form-select form-select-sm" id="per_page" name="per_page" onchange="this.form.submit()" aria-label="Results per page">
+    <select class="form-select form-select-sm" id="per_page" name="per_page" data-autosubmit aria-label="Results per page">
       {% for size in page_sizes %}
       <option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size }}</option>
       {% endfor %}

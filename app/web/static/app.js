@@ -19,6 +19,12 @@
     form.appendChild(input);
   });
 
+  document.querySelectorAll("select[data-autosubmit]").forEach(function (select) {
+    select.addEventListener("change", function () {
+      if (select.form) select.form.submit();
+    });
+  });
+
   var originalFetch = window.fetch;
   window.fetch = function (input, init) {
     init = init || {};

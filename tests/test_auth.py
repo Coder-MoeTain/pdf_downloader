@@ -187,6 +187,45 @@ def test_local_admin_login_logout_and_user_settings(auth_client):
     assert client.get("/account").status_code == 200
 
 
+def test_admin_can_promote_user_to_admin(auth_client):
+    from sqlalchemy import select
+
+    from app.database.models import User
+
+    client = auth_client
+    account = client.get("/account")
+    assert account.status_code == 200
+    assert "onchange=" not in account.text
+    assert "data-autosubmit" in account.text
+    assert "/account/users/" in account.text
+    added = client.post(
+        "/account/users",
+        data={"email": "promo@lab.test", "name": "Promo", "password": "secret123", "role": "user"},
+        follow_redirects=True,
+    )
+    assert added.status_code == 200
+    assert "promo@lab.test" in added.text
+    with session_scope() as session:
+        row = session.scalar(select(User).where(User.email == "promo@lab.test"))
+        assert row is not None
+        assert row.role == "user"
+        assert row.is_admin is False
+        user_id = row.id
+    promoted = client.post(
+        f"/account/users/{user_id}/role",
+        data={"role": "admin"},
+        follow_redirects=True,
+    )
+    assert promoted.status_code == 200
+    assert "Role updated." in promoted.text
+    assert "promo@lab.test" in promoted.text
+    with session_scope() as session:
+        row = session.scalar(select(User).where(User.email == "promo@lab.test"))
+        assert row is not None
+        assert row.role == "admin"
+        assert row.is_admin is True
+
+
 def test_library_and_downloads_keep_login_session(auth_client):
     client = auth_client
     for path in ("/library", "/downloads", "/projects"):

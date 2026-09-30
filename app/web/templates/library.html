@@ -87,7 +87,7 @@
       </div>
       <div class="lib-field">
         <label class="lib-filter-label" for="year">Year</label>
-        <select class="form-select" id="year" name="year" onchange="this.form.submit()">
+        <select class="form-select" id="year" name="year" data-autosubmit>
           <option value="">All years</option>
           {% for y in facets.years %}
           <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
@@ -96,7 +96,7 @@
       </div>
       <div class="lib-field">
         <label class="lib-filter-label" for="sort">Sort</label>
-        <select class="form-select" id="sort" name="sort" onchange="this.form.submit()">
+        <select class="form-select" id="sort" name="sort" data-autosubmit>
           {% for key, label in sort_options %}
           <option value="{{ key }}" {% if sort == key %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
@@ -104,7 +104,7 @@
       </div>
       <div class="lib-field">
         <label class="lib-filter-label" for="access">Access</label>
-        <select class="form-select" id="access" name="access" onchange="this.form.submit()">
+        <select class="form-select" id="access" name="access" data-autosubmit>
           <option value="" {% if not oa and not pdf and status != 'PAYWALLED' %}selected{% endif %}>Any access</option>
           <option value="downloadable" {% if pdf and not oa and status != 'PAYWALLED' %}selected{% endif %}>On server (PDF saved)</option>
           <option value="open" {% if oa %}selected{% endif %}>Open access</option>
@@ -151,7 +151,7 @@
     {% if year %}<input type="hidden" name="year" value="{{ year }}">{% endif %}
     {% if sort and sort != 'relevance' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
     <label class="lib-filter-label mb-0" for="per_page">Per page</label>
-    <select class="form-select form-select-sm" id="per_page" name="per_page" onchange="this.form.submit()" aria-label="Results per page">
+    <select class="form-select form-select-sm" id="per_page" name="per_page" data-autosubmit aria-label="Results per page">
       {% for size in page_sizes %}
       <option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size }}</option>
       {% endfor %}

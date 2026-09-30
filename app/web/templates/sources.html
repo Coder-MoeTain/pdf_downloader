@@ -71,7 +71,7 @@
     {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
     {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
     <label class="lib-filter-label mb-0" for="per_page">Per page</label>
-    <select class="form-select form-select-sm" id="per_page" name="per_page" onchange="this.form.submit()" aria-label="Results per page">
+    <select class="form-select form-select-sm" id="per_page" name="per_page" data-autosubmit aria-label="Results per page">
       {% for size in page_sizes %}
       <option value="{{ size }}" {% if per_page == size %}selected{% endif %}>{{ size }}</option>
       {% endfor %}
