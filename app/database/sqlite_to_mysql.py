@@ -47,7 +47,7 @@ SETTINGS_TABLES = ("app_settings", "academic_sources")
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _VARCHAR_RE = re.compile(r"(?:var)?char\s*\(\s*(\d+)\s*\)", re.I)
 _CHUNK = 400
-_FULLTEXT_CHUNK = 25
+_CHUNK_BY_TABLE = {"papers": 50, "paper_fulltext": 5, "search_results": 200}
 _MYSQL_INDEXED_VARCHAR_MAX = 768
 
 
@@ -109,10 +109,23 @@ def _common_columns(source: Engine, dest: Engine, table: str) -> list[str]:
 
 
 def _declared_length(type_name: str) -> int | None:
-    if re.search(r"\b(text|blob|json)\b", type_name or "", re.I):
-        return None
     match = _VARCHAR_RE.search(type_name or "")
     return int(match.group(1)) if match else None
+
+
+def _mysql_string_kind(type_name: str) -> str | None:
+    compact = re.sub(r"\s+", "", (type_name or "").lower())
+    if "longtext" in compact or "longblob" in compact:
+        return "longtext"
+    if "mediumtext" in compact or "mediumblob" in compact:
+        return "mediumtext"
+    if "tinytext" in compact or "tinyblob" in compact:
+        return "tinytext"
+    if compact.startswith("text") or compact.startswith("clob"):
+        return "text"
+    if _VARCHAR_RE.search(type_name or ""):
+        return "varchar"
+    return None
 
 
 def _sqlite_max_chars(conn: Connection, table: str, column: str, dialect: str) -> int:
@@ -123,7 +136,7 @@ def _sqlite_max_chars(conn: Connection, table: str, column: str, dialect: str) -
 
 
 def _widen_dest_string_columns(source: Engine, dest: Engine, table: str) -> None:
-    """Grow MySQL VARCHAR columns when SQLite stored longer strings."""
+    """Grow MySQL VARCHAR/TEXT columns. MySQL TEXT is 64KB; SQLite TEXT is unbounded."""
     if dest.dialect.name != "mysql":
         return
     insp = inspect(dest)
@@ -136,30 +149,37 @@ def _widen_dest_string_columns(source: Engine, dest: Engine, table: str) -> None
     src_cols = set(_columns(source, table))
     src_dialect = source.dialect.name
     with source.connect() as src_conn:
-        needed: list[tuple[str, int, object, list]] = []
+        needed: list[tuple[str, int, object, list, str]] = []
         for name, col in dest_cols.items():
             if name not in src_cols:
                 continue
-            limit = _declared_length(str(col["type"]))
-            if not limit:
+            kind = _mysql_string_kind(str(col["type"]))
+            if kind is None or kind == "longtext":
                 continue
             max_len = _sqlite_max_chars(src_conn, table, name, src_dialect)
-            if max_len <= limit:
+            varchar_limit = _declared_length(str(col["type"]))
+            overflow = False
+            if kind in {"tinytext", "text", "mediumtext"}:
+                overflow = True
+            elif kind == "varchar" and varchar_limit is not None and max_len > varchar_limit:
+                overflow = True
+            if not overflow:
                 continue
             covering = [idx for idx in indexes if (idx.get("column_names") or []) == [name]]
-            needed.append((name, max_len, col, covering))
+            needed.append((name, max_len, col, covering, kind))
     if not needed:
         return
     with dest.begin() as dest_conn:
         _disable_fks(dest_conn, "mysql")
         table_sql = _quote(table, "mysql")
-        for name, max_len, col, covering in needed:
+        for name, max_len, col, covering, kind in needed:
             col_sql = _quote(name, "mysql")
             unique = any(bool(idx.get("unique")) for idx in covering)
             logger.warning(
-                "Widening %s.%s (VARCHAR limit too small for SQLite value of %s chars)",
+                "Widening %s.%s from %s (SQLite max length %s)",
                 table,
                 name,
+                col["type"],
                 max_len,
             )
             for idx in covering:
@@ -168,7 +188,7 @@ def _widen_dest_string_columns(source: Engine, dest: Engine, table: str) -> None
                     continue
                 dest_conn.execute(text(f"ALTER TABLE {table_sql} DROP INDEX {_quote(idx_name, 'mysql')}"))
             null_sql = "" if col.get("nullable", True) else " NOT NULL"
-            if unique:
+            if unique and kind == "varchar":
                 new_len = min(max(max_len, 1), _MYSQL_INDEXED_VARCHAR_MAX)
                 dest_conn.execute(text(f"ALTER TABLE {table_sql} MODIFY {col_sql} VARCHAR({new_len}){null_sql}"))
                 for idx in covering:
@@ -178,7 +198,7 @@ def _widen_dest_string_columns(source: Engine, dest: Engine, table: str) -> None
                             text(f"CREATE UNIQUE INDEX {_quote(idx_name, 'mysql')} ON {table_sql} ({col_sql})")
                         )
             else:
-                dest_conn.execute(text(f"ALTER TABLE {table_sql} MODIFY {col_sql} TEXT{null_sql}"))
+                dest_conn.execute(text(f"ALTER TABLE {table_sql} MODIFY {col_sql} LONGTEXT{null_sql}"))
                 for idx in covering:
                     idx_name = idx.get("name")
                     if not idx_name:
@@ -284,7 +304,7 @@ def _copy_table(source: Engine, dest: Engine, table: str, *, dry_run: bool, repo
         col_sql = ", ".join(_quote(name, dest_dialect) for name in columns)
         placeholders = ", ".join(f":{name}" for name in columns)
         insert_sql = text(f"INSERT INTO {_quote(table, dest_dialect)} ({col_sql}) VALUES ({placeholders})")
-        chunk_size = _FULLTEXT_CHUNK if table == "paper_fulltext" else _CHUNK
+        chunk_size = _CHUNK_BY_TABLE.get(table, _CHUNK)
         result = src_conn.execution_options(stream_results=True).execute(
             text(f"SELECT * FROM {_quote(table, src_dialect)}")
         )

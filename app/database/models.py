@@ -15,9 +15,13 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.mysql import LONGTEXT as MYSQL_LONGTEXT
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.utils.time import utc_now
+
+# SQLite TEXT is unbounded. MySQL TEXT is 64KB — too small for abstracts / extracted PDFs.
+LongText = Text().with_variant(MYSQL_LONGTEXT(), "mysql")
 
 
 class Base(DeclarativeBase):
@@ -40,9 +44,9 @@ class Author(Base):
     __table_args__ = (Index("ix_authors_normalized_name", "normalized_name", mysql_length=255),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
-    normalized_name: Mapped[str] = mapped_column(Text, default="")
-    affiliations: Mapped[str | None] = mapped_column(Text, nullable=True)
+    name: Mapped[str] = mapped_column(LongText, nullable=False)
+    normalized_name: Mapped[str] = mapped_column(LongText, default="")
+    affiliations: Mapped[str | None] = mapped_column(LongText, nullable=True)
     orcid: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
     papers: Mapped[list[PaperAuthor]] = relationship(back_populates="author")
@@ -54,7 +58,7 @@ class Paper(Base):
         Index("ix_papers_doi", "doi"),
         Index("ix_papers_pmid", "pmid"),
         Index("ix_papers_arxiv", "arxiv_id"),
-        Index("ix_papers_norm_title", "normalized_title"),
+        Index("ix_papers_norm_title", "normalized_title", mysql_length=255),
         Index("ix_papers_status", "status"),
         Index("ix_papers_year", "publication_year"),
         Index("ix_papers_source", "source"),
@@ -64,9 +68,9 @@ class Paper(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    title: Mapped[str] = mapped_column(Text, nullable=False)
-    normalized_title: Mapped[str] = mapped_column(Text, default="")
-    abstract: Mapped[str | None] = mapped_column(Text, nullable=True)
+    title: Mapped[str] = mapped_column(LongText, nullable=False)
+    normalized_title: Mapped[str] = mapped_column(LongText, default="")
+    abstract: Mapped[str | None] = mapped_column(LongText, nullable=True)
     doi: Mapped[str | None] = mapped_column(String(255), nullable=True)
     pmid: Mapped[str | None] = mapped_column(String(32), nullable=True)
     pmcid: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -83,20 +87,20 @@ class Paper(Base):
     publisher: Mapped[str | None] = mapped_column(String(255), nullable=True)
     citation_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reference_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    keywords: Mapped[str | None] = mapped_column(Text, nullable=True)
-    research_fields: Mapped[str | None] = mapped_column(Text, nullable=True)
-    url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    pdf_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    keywords: Mapped[str | None] = mapped_column(LongText, nullable=True)
+    research_fields: Mapped[str | None] = mapped_column(LongText, nullable=True)
+    url: Mapped[str | None] = mapped_column(LongText, nullable=True)
+    pdf_url: Mapped[str | None] = mapped_column(LongText, nullable=True)
     open_access: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     license: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    metadata_sources: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_sources: Mapped[str | None] = mapped_column(LongText, nullable=True)
     relevance_score: Mapped[float] = mapped_column(Float, default=0.0)
     user_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="FOUND")
     work_type: Mapped[str] = mapped_column(String(16), default="article")
-    cover_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    cover_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cover_url: Mapped[str | None] = mapped_column(LongText, nullable=True)
+    cover_path: Mapped[str | None] = mapped_column(LongText, nullable=True)
     category: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
@@ -297,7 +301,7 @@ class PaperFulltext(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     paper_id: Mapped[int] = mapped_column(ForeignKey("papers.id"), unique=True, nullable=False)
-    content: Mapped[str] = mapped_column(Text, default="")
+    content: Mapped[str] = mapped_column(LongText, default="")
     indexed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 

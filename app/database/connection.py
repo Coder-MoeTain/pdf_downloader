@@ -304,29 +304,61 @@ def _mysql_type_length(type_name: str) -> int | None:
 
 
 def _ensure_mysql_columns(engine: Engine) -> None:
-    """SQLite never enforced VARCHAR lengths; widen authors so long names import."""
+    """Widen MySQL string columns. SQLite TEXT is unbounded; MySQL TEXT is 64KB."""
     from sqlalchemy import inspect as sa_inspect
 
     insp = sa_inspect(engine)
-    if "authors" not in insp.get_table_names():
-        return
-    cols = {col["name"]: col for col in insp.get_columns("authors")}
-    indexes = list(insp.get_indexes("authors"))
+    tables = set(insp.get_table_names())
     with engine.begin() as conn:
-        name_col = cols.get("name")
-        if name_col is not None and _mysql_type_length(str(name_col["type"])):
-            conn.execute(text("ALTER TABLE authors MODIFY name TEXT NOT NULL"))
-        norm = cols.get("normalized_name")
-        if norm is not None and _mysql_type_length(str(norm["type"])):
-            for idx in indexes:
-                if (idx.get("column_names") or []) == ["normalized_name"] and idx.get("name"):
-                    conn.execute(text(f"ALTER TABLE authors DROP INDEX `{idx['name']}`"))
-            conn.execute(text("ALTER TABLE authors MODIFY normalized_name TEXT"))
-            conn.execute(text("CREATE INDEX ix_authors_normalized_name ON authors (normalized_name(255))"))
-        orcid = cols.get("orcid")
-        orcid_len = _mysql_type_length(str(orcid["type"])) if orcid is not None else None
-        if orcid_len is not None and orcid_len < 255:
-            conn.execute(text("ALTER TABLE authors MODIFY orcid VARCHAR(255) NULL"))
+        if "authors" in tables:
+            cols = {col["name"]: col for col in insp.get_columns("authors")}
+            indexes = list(insp.get_indexes("authors"))
+            name_col = cols.get("name")
+            if name_col is not None and "longtext" not in str(name_col["type"]).lower():
+                conn.execute(text("ALTER TABLE authors MODIFY name LONGTEXT NOT NULL"))
+            norm = cols.get("normalized_name")
+            if norm is not None and "longtext" not in str(norm["type"]).lower():
+                for idx in indexes:
+                    if (idx.get("column_names") or []) == ["normalized_name"] and idx.get("name"):
+                        conn.execute(text(f"ALTER TABLE authors DROP INDEX `{idx['name']}`"))
+                conn.execute(text("ALTER TABLE authors MODIFY normalized_name LONGTEXT"))
+                conn.execute(text("CREATE INDEX ix_authors_normalized_name ON authors (normalized_name(255))"))
+            orcid = cols.get("orcid")
+            orcid_len = _mysql_type_length(str(orcid["type"])) if orcid is not None else None
+            if orcid_len is not None and orcid_len < 255:
+                conn.execute(text("ALTER TABLE authors MODIFY orcid VARCHAR(255) NULL"))
+        if "papers" in tables:
+            paper_cols = {col["name"]: col for col in insp.get_columns("papers")}
+            paper_indexes = list(insp.get_indexes("papers"))
+            title_type = str(paper_cols["normalized_title"]["type"]).lower() if "normalized_title" in paper_cols else ""
+            if "longtext" not in title_type:
+                for idx in paper_indexes:
+                    if (idx.get("column_names") or []) == ["normalized_title"] and idx.get("name"):
+                        conn.execute(text(f"ALTER TABLE papers DROP INDEX `{idx['name']}`"))
+            for column, nullable in (
+                ("title", False),
+                ("normalized_title", True),
+                ("abstract", True),
+                ("keywords", True),
+                ("research_fields", True),
+                ("url", True),
+                ("pdf_url", True),
+                ("metadata_sources", True),
+                ("cover_url", True),
+                ("cover_path", True),
+            ):
+                col = paper_cols.get(column)
+                if col is None or "longtext" in str(col["type"]).lower():
+                    continue
+                null_sql = " NULL" if nullable else " NOT NULL"
+                conn.execute(text(f"ALTER TABLE papers MODIFY `{column}` LONGTEXT{null_sql}"))
+            if "longtext" not in title_type:
+                conn.execute(text("CREATE INDEX ix_papers_norm_title ON papers (normalized_title(255))"))
+        if "paper_fulltext" in tables:
+            ft_cols = {col["name"]: col for col in insp.get_columns("paper_fulltext")}
+            content = ft_cols.get("content")
+            if content is not None and "longtext" not in str(content["type"]).lower():
+                conn.execute(text("ALTER TABLE paper_fulltext MODIFY content LONGTEXT"))
 
 
 def _run_alembic(engine: Engine) -> None:

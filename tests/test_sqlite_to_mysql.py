@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database.models import Author, Base, Paper, PaperAuthor, User
 from app.database.settings_models import AcademicSource, AppSetting, SettingsBase
-from app.database.sqlite_to_mysql import _coerce, _declared_length, run_migration
+from app.database.sqlite_to_mysql import _coerce, _declared_length, _mysql_string_kind, run_migration
 from app.utils.time import utc_now
 
 
@@ -130,9 +130,13 @@ def test_migrate_dry_run_does_not_write(tmp_path):
 def test_declared_length_and_varchar_truncate():
     assert _declared_length("VARCHAR(512)") == 512
     assert _declared_length("TEXT") is None
+    assert _mysql_string_kind("VARCHAR(512)") == "varchar"
+    assert _mysql_string_kind("TEXT") == "text"
+    assert _mysql_string_kind("LONGTEXT") == "longtext"
     long_name = "x" * 600
     assert _coerce(long_name, "VARCHAR(512)") == "x" * 512
     assert _coerce(long_name, "TEXT") == long_name
+    assert _coerce("y" * 70_000, "LONGTEXT") == "y" * 70_000
 
 
 def test_migrate_copies_long_author_name(tmp_path):
