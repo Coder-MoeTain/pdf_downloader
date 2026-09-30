@@ -413,3 +413,51 @@ def test_watch_idle_does_not_queue_full_sweep():
         watch._pending_ids.clear()
     work = watch._take_work()
     assert work == []
+
+
+def test_pymysql_connect_uses_unix_socket_for_local_host(tmp_path, monkeypatch):
+    import pymysql
+
+    from app.services.lms_sync import _pymysql_connect
+
+    sock = tmp_path / "mysqld.sock"
+    sock.write_bytes(b"")
+    monkeypatch.setenv("MYSQL_SOCKET", str(sock))
+    load_config.cache_clear()
+    captured: dict = {}
+
+    def fake_connect(**kwargs):
+        captured.update(kwargs)
+
+        class _Conn:
+            pass
+
+        return _Conn()
+
+    monkeypatch.setattr(pymysql, "connect", fake_connect)
+    _pymysql_connect(_cfg(tmp_path))
+    assert captured["unix_socket"] == str(sock)
+    assert captured["host"] == "localhost"
+    assert captured["connect_timeout"] == 2
+    load_config.cache_clear()
+
+
+def test_lms_config_falls_back_to_mysql_credentials(tmp_path, monkeypatch):
+    from app.services.lms_sync import load_lms_sync_config
+
+    monkeypatch.setenv("LMS_SYNC_ENABLED", "true")
+    monkeypatch.setenv("LMS_ROOT", str(_lms_layout(tmp_path)))
+    monkeypatch.setenv("LMS_DB_HOST", "")
+    monkeypatch.setenv("LMS_DB_USER", "")
+    monkeypatch.setenv("LMS_DB_PASSWORD", "")
+    monkeypatch.setenv("LMS_DB_NAME", "")
+    monkeypatch.setenv("MYSQL_HOST", "127.0.0.1")
+    monkeypatch.setenv("MYSQL_USER", "root")
+    monkeypatch.setenv("MYSQL_PASSWORD", "from-app-mysql")
+    load_config.cache_clear()
+    cfg = load_lms_sync_config(tmp_path)
+    assert cfg.db_host == "127.0.0.1"
+    assert cfg.db_user == "root"
+    assert cfg.db_password == "from-app-mysql"
+    assert cfg.db_name == "library"
+    load_config.cache_clear()

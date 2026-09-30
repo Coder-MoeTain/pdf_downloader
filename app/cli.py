@@ -305,6 +305,41 @@ def restore_cmd(archive: str = typer.Argument(..., help="Path to a Cyber Scholar
     console.print(f"[green]Restored into[/] {root}")
 
 
+@app.command("migrate-sqlite-to-mysql")
+def migrate_sqlite_to_mysql_cmd(
+    sqlite: str | None = typer.Option(None, "--sqlite", help="Path to research.db"),
+    settings_sqlite: str | None = typer.Option(None, "--settings-sqlite", help="Path to settings.db"),
+    replace: bool = typer.Option(False, "--replace", help="Wipe existing MySQL users/papers before copy"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Count SQLite rows without writing"),
+    library_only: bool = typer.Option(False, "--library-only"),
+    settings_only: bool = typer.Option(False, "--settings-only"),
+    yes: bool = typer.Option(False, "--yes", help="Do not prompt for --replace"),
+) -> None:
+    """Copy SQLite research.db and settings.db into the configured MySQL database."""
+    from app.database.sqlite_to_mysql import default_sqlite_paths, format_report, run_migration
+
+    library_default, settings_default = default_sqlite_paths()
+    sqlite_path = Path(sqlite).expanduser() if sqlite else library_default
+    settings_path = Path(settings_sqlite).expanduser() if settings_sqlite else settings_default
+    if replace and not yes and not dry_run:
+        if not Confirm.ask("Delete existing MySQL library rows and copy from SQLite?", default=False):
+            raise typer.Exit(1)
+    try:
+        report = run_migration(
+            sqlite_path,
+            None if library_only else settings_path,
+            replace=replace,
+            dry_run=dry_run,
+            library=not settings_only,
+            settings=not library_only,
+            progress=lambda message: console.print(message),
+        )
+    except (FileNotFoundError, RuntimeError) as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(1) from exc
+    console.print(format_report(report))
+
+
 @app.command("seed-admin")
 def seed_admin(
     email: str | None = typer.Option(None, "--email", help="Admin email"),

@@ -13,7 +13,7 @@ from dotenv import dotenv_values
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.config import ROOT_DIR, get_runtime_config
+from app.config import ROOT_DIR, get_runtime_config, mysql_connect_args
 from app.database.connection import session_scope
 from app.database.models import Download, LmsExport, Paper, PaperAuthor
 from app.models.paper import PaperStatus
@@ -72,18 +72,21 @@ def _remember_local_lms_failure(exc: BaseException, host: str) -> bool:
 def _pymysql_connect(cfg: LmsSyncConfig, *, autocommit: bool = False):
     import pymysql
 
-    return pymysql.connect(
-        host=cfg.db_host,
-        port=cfg.db_port,
-        user=cfg.db_user,
-        password=cfg.db_password,
-        database=cfg.db_name,
-        charset="utf8mb4",
-        autocommit=autocommit,
-        connect_timeout=LMS_CONNECT_TIMEOUT_SECONDS,
-        read_timeout=30,
-        write_timeout=30,
-    )
+    extra = mysql_connect_args(cfg.db_host, get_runtime_config().env.mysql_socket)
+    extra["connect_timeout"] = LMS_CONNECT_TIMEOUT_SECONDS
+    kwargs: dict[str, object] = {
+        "host": "localhost" if extra.get("unix_socket") else cfg.db_host,
+        "port": cfg.db_port,
+        "user": cfg.db_user,
+        "password": cfg.db_password,
+        "database": cfg.db_name,
+        "charset": "utf8mb4",
+        "autocommit": autocommit,
+        "read_timeout": 30,
+        "write_timeout": 30,
+        **extra,
+    }
+    return pymysql.connect(**kwargs)
 
 
 def probe_lms_database(cfg: LmsSyncConfig) -> None:
@@ -264,11 +267,11 @@ def load_lms_sync_config(start: Path | None = None) -> LmsSyncConfig:
         root=root,
         default_category=(env.lms_category or lms_env.get("LMS_CATEGORY") or DEFAULT_CATEGORY).strip()
         or DEFAULT_CATEGORY,
-        db_host=(env.lms_db_host or lms_env.get("DB_HOST") or "127.0.0.1").strip(),
+        db_host=(env.lms_db_host or lms_env.get("DB_HOST") or env.mysql_host or "127.0.0.1").strip(),
         db_port=int(port_raw),
         db_name=(env.lms_db_name or lms_env.get("DB_NAME") or "library").strip(),
-        db_user=(env.lms_db_user or lms_env.get("DB_USER") or "root").strip(),
-        db_password=env.lms_db_password or lms_env.get("DB_PASSWORD") or "",
+        db_user=(env.lms_db_user or lms_env.get("DB_USER") or env.mysql_user or "root").strip(),
+        db_password=env.lms_db_password or lms_env.get("DB_PASSWORD") or env.mysql_password or "",
     )
 
 
