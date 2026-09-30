@@ -205,10 +205,10 @@ def save_paper(session: Session, record: PaperRecord) -> Paper:
     paper.metadata_sources = json.dumps(record.metadata_sources or {})
     paper.relevance_score = record.relevance_score
     paper.status = record.status.value
-    incoming_type = (record.work_type or "").strip().lower()
-    if incoming_type == "ebook" or not (paper.work_type or "").strip():
-        paper.work_type = incoming_type or "article"
-    elif incoming_type and paper.work_type != "ebook":
+    incoming_type = _work_kind(record.work_type)
+    if existing is None or not (paper.work_type or "").strip():
+        paper.work_type = incoming_type
+    elif _work_kind(paper.work_type) == incoming_type:
         paper.work_type = incoming_type
     if record.cover_url:
         paper.cover_url = record.cover_url
@@ -258,6 +258,14 @@ def _sync_paper_identifiers(session: Session, paper: Paper, record: PaperRecord)
             continue
 
 
+def _work_kind(value: str | None) -> str:
+    return "ebook" if (value or "").strip().lower() == "ebook" else "article"
+
+
+def _same_work_kind(paper: Paper | None, record: PaperRecord) -> bool:
+    return paper is not None and _work_kind(paper.work_type) == _work_kind(record.work_type)
+
+
 def find_existing_paper(session: Session, record: PaperRecord) -> Paper | None:
     for scheme, _raw, normalized in record_identifiers(record):
         ident = session.scalar(
@@ -268,28 +276,28 @@ def find_existing_paper(session: Session, record: PaperRecord) -> Paper | None:
         )
         if ident is not None:
             found = session.get(Paper, ident.paper_id)
-            if found is not None:
+            if _same_work_kind(found, record):
                 return found
     if record.doi:
         found = session.scalar(select(Paper).where(Paper.doi == record.doi))
-        if found:
+        if _same_work_kind(found, record):
             return found
     if record.pmid:
         found = session.scalar(select(Paper).where(Paper.pmid == record.pmid))
-        if found:
+        if _same_work_kind(found, record):
             return found
     if record.arxiv_id:
         found = session.scalar(select(Paper).where(Paper.arxiv_id == record.arxiv_id))
-        if found:
+        if _same_work_kind(found, record):
             return found
     if record.openalex_id:
         found = session.scalar(select(Paper).where(Paper.openalex_id == record.openalex_id))
-        if found:
+        if _same_work_kind(found, record):
             return found
     norm = normalize_title(record.title)
     if norm:
         found = session.scalar(select(Paper).where(Paper.normalized_title == norm))
-        if found:
+        if _same_work_kind(found, record):
             return found
     return None
 
@@ -591,6 +599,14 @@ def work_type_clause(work_type: str = ""):
     return None
 
 
+def ebook_has_pdf_clause():
+    """Ebooks are listed only when a PDF URL or a saved PDF file is present."""
+    return or_(
+        and_(Paper.pdf_url.is_not(None), Paper.pdf_url != ""),
+        downloadable_clause(),
+    )
+
+
 def apply_paper_filters(
     stmt,
     *,
@@ -630,6 +646,8 @@ def apply_paper_filters(
     clause = work_type_clause(kind)
     if clause is not None:
         stmt = stmt.where(clause)
+    if kind == "ebook":
+        stmt = stmt.where(ebook_has_pdf_clause())
     if user_id:
         stmt = stmt.where(
             exists().where(
@@ -796,6 +814,8 @@ def library_facets(session: Session, *, force: bool = False, light: bool = False
     type_clause = work_type_clause(kind)
     if type_clause is not None:
         visible.append(type_clause)
+    if kind == "ebook":
+        visible.append(ebook_has_pdf_clause())
     years = [
         year
         for (year,) in session.execute(

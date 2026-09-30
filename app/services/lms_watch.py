@@ -21,18 +21,26 @@ _interval = 20.0
 _started = False
 
 
-def schedule_lms_sync(*, paper_ids: Iterable[int] | None = None) -> None:
-    """Queue an e-library import and return immediately."""
+def schedule_lms_sync(*, paper_ids: Iterable[int] | None = None, sweep_all: bool = False) -> None:
+    """Queue an e-library import and return immediately.
+
+    A call with no paper_ids does nothing unless sweep_all=True. An empty
+    schedule used to mean 'import every downloaded PDF', which loaded 40k+
+    papers on every web boot and crashed the process.
+    """
     cfg = load_lms_sync_config()
     if not cfg.enabled or cfg.root is None or lms_sync_skip_reason():
         return
     ids = [int(x) for x in (paper_ids or []) if x]
+    if not ids and not sweep_all:
+        start_lms_watch()
+        return
     start_lms_watch()
     with _lock:
         global _sweep_all
         if ids:
             _pending_ids.update(ids)
-        else:
+        if sweep_all:
             _sweep_all = True
     _wake.set()
 
@@ -69,7 +77,7 @@ def run_lms_watch_forever(*, interval: float = 15.0) -> None:
     else:
         logger.info("Importing into %s", cfg.root)
     start_lms_watch(interval=interval)
-    schedule_lms_sync()
+    schedule_lms_sync(sweep_all=True)
     try:
         while not _stop.is_set():
             time.sleep(1)
@@ -105,4 +113,7 @@ def _run_loop() -> None:
         work = _take_work()
         if work == []:
             continue
-        maybe_sync_to_lms(paper_ids=work)
+        try:
+            maybe_sync_to_lms(paper_ids=work)
+        except Exception:
+            logger.exception("LMS sync tick failed")

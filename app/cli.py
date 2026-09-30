@@ -514,7 +514,7 @@ async def _download_pending(download_limit: int | None, max_file_size: str | Non
             console.print(f"Processed {count} pending downloads.")
     from app.services.lms_watch import schedule_lms_sync
 
-    schedule_lms_sync()
+    schedule_lms_sync(sweep_all=True)
 
 
 async def _retry_failed() -> None:

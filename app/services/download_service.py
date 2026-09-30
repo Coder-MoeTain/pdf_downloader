@@ -890,7 +890,9 @@ async def download_open_access_papers(
     if stats["downloaded"] > 0:
         from app.services.lms_watch import schedule_lms_sync
 
-        schedule_lms_sync()
+        schedule_lms_sync(
+            paper_ids=[pid for pid, updated in results if updated.status == PaperStatus.DOWNLOADED]
+        )
     return stats
 
 
@@ -951,7 +953,9 @@ async def resume_downloading_papers(
     if stats["downloaded"] > 0:
         from app.services.lms_watch import schedule_lms_sync
 
-        schedule_lms_sync()
+        schedule_lms_sync(
+            paper_ids=[pid for pid, updated in results if updated.status == PaperStatus.DOWNLOADED]
+        )
     return stats
 
 
@@ -1067,7 +1071,9 @@ async def recheck_paywalled_open_access(
         if stats["downloaded"] > 0:
             from app.services.lms_watch import schedule_lms_sync
 
-            schedule_lms_sync()
+            schedule_lms_sync(
+                paper_ids=[pid for pid, updated in results if updated.status == PaperStatus.DOWNLOADED]
+            )
         return stats
     finally:
         release_download_batch(token)

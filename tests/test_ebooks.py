@@ -76,10 +76,21 @@ def test_library_splits_papers_and_ebooks(tmp_db):
             PaperRecord(
                 title="A data science ebook",
                 doi="10.1000/ebook-split",
-                status=PaperStatus.FOUND,
+                status=PaperStatus.OA_AVAILABLE,
                 work_type="ebook",
                 category="Data Science",
+                pdf_url="https://example.org/ebook-split.pdf",
                 authors=[],
+            ),
+        )
+        save_paper(
+            session,
+            PaperRecord(
+                title="Ebook without a PDF",
+                doi="10.1000/ebook-nopdf-split",
+                status=PaperStatus.OA_AVAILABLE,
+                work_type="ebook",
+                category="Data Science",
             ),
         )
         papers, paper_total = query_library(session, work_type="article")
@@ -108,11 +119,22 @@ def test_library_ebooks_page(tmp_db):
             PaperRecord(
                 title="Satellite Systems Handbook",
                 doi="10.1000/ebook-ui",
-                status=PaperStatus.FOUND,
+                status=PaperStatus.OA_AVAILABLE,
                 work_type="ebook",
                 category="Satellite Technology",
                 publication_year=2024,
                 cover_url="https://example.org/cover.png",
+                pdf_url="https://example.org/satellite-handbook.pdf",
+            ),
+        )
+        save_paper(
+            session,
+            PaperRecord(
+                title="Metadata only textbook",
+                doi="10.1000/ebook-nopdf",
+                status=PaperStatus.OA_AVAILABLE,
+                work_type="ebook",
+                category="Data Science",
             ),
         )
     client = login_admin(TestClient(app))
@@ -123,13 +145,17 @@ def test_library_ebooks_page(tmp_db):
     assert "Satellite Systems Handbook" not in papers_page.text
     assert ebooks_page.status_code == 200
     assert "Satellite Systems Handbook" in ebooks_page.text
+    assert "Metadata only textbook" not in ebooks_page.text
     assert "Satellite Technology" in ebooks_page.text
     assert 'href="/library?kind=ebooks"' in papers_page.text
 
 
 def test_search_filters_ebook_providers():
+    from types import SimpleNamespace
+
     from app.providers.base import ResearchProvider
-    from app.services.search_service import filters_from_cli
+    from app.providers.ebook_providers import _OpenAlexBookProvider
+    from app.services.search_service import filters_from_cli, select_search_providers
 
     filters = filters_from_cli("machine learning", collection="ebooks", ebook_category="Data Science", no_download=True)
     assert filters.collection == "ebooks"
@@ -139,6 +165,24 @@ def test_search_filters_ebook_providers():
     assert all(issubclass(cls, ResearchProvider) for cls in classes)
     matching = [cls for cls in classes if getattr(cls, "category", "") == "Data Science"]
     assert matching
+
+    providers = [
+        SimpleNamespace(name="openalex", content_kind="article", category=""),
+        SimpleNamespace(name="doab_ds", content_kind="ebook", category="Data Science"),
+        SimpleNamespace(name="ia_electronics", content_kind="ebook", category="Electronics"),
+    ]
+    ebook_filters = filters_from_cli("radar", collection="ebooks", source="openalex", no_download=True)
+    assert select_search_providers(providers, ebook_filters) == []
+    paper_filters = filters_from_cli("radar", collection="papers", source="doab_ds", no_download=True)
+    assert select_search_providers(providers, paper_filters) == []
+    ds_filters = filters_from_cli("radar", collection="ebooks", source="doab_ds", no_download=True)
+    assert [p.name for p in select_search_providers(providers, ds_filters)] == ["doab_ds"]
+
+    oa_filters = filters_from_cli("radar", collection="ebooks", no_download=True)
+    book_provider = _OpenAlexBookProvider()
+    params = book_provider._search_params(oa_filters.query, oa_filters)
+    assert "type:book" in str(params.get("filter") or "")
+    assert "type:article" not in str(params.get("filter") or "")
 
 
 def test_settings_splits_academic_and_ebook_source_pages(tmp_db):
@@ -188,3 +232,57 @@ def test_search_pages_split_papers_and_ebooks(tmp_db):
     assert "DOAB · Data Science" in ebooks.text
     assert "<strong>OpenAlex</strong>" not in ebooks.text
     assert "OpenAlex Books" in ebooks.text
+
+
+def test_ebooks_latest_results_exclude_research_papers(tmp_db):
+    from fastapi.testclient import TestClient
+
+    from app.database.connection import session_scope
+    from app.database.repository import attach_search_result, create_search_query, save_paper
+    from app.web import app
+    from tests.conftest import login_admin
+
+    with session_scope() as session:
+        article = save_paper(
+            session,
+            PaperRecord(
+                title="A journal article in latest search",
+                doi="10.1000/latest-article",
+                status=PaperStatus.OA_AVAILABLE,
+                work_type="article",
+                pdf_url="https://example.org/article.pdf",
+            ),
+        )
+        ebook = save_paper(
+            session,
+            PaperRecord(
+                title="An ebook in latest search",
+                doi="10.1000/latest-ebook",
+                status=PaperStatus.OA_AVAILABLE,
+                work_type="ebook",
+                category="Electronics",
+                pdf_url="https://example.org/ebook.pdf",
+            ),
+        )
+        search = create_search_query(session, "radar", ["radar"], {"collection": "ebooks"})
+        attach_search_result(session, search.id, article.id, 1, 1.0)
+        attach_search_result(session, search.id, ebook.id, 2, 0.9)
+
+    client = login_admin(TestClient(app))
+    ebooks_latest = client.get("/library?latest=1&kind=ebooks")
+    papers_latest = client.get("/library?latest=1")
+    assert ebooks_latest.status_code == 200
+    assert "An ebook in latest search" in ebooks_latest.text
+    assert "A journal article in latest search" not in ebooks_latest.text
+    assert papers_latest.status_code == 200
+    assert "A journal article in latest search" in papers_latest.text
+    assert "An ebook in latest search" not in papers_latest.text
+
+
+def test_openalex_book_provider_skips_articles():
+    from app.providers.ebook_providers import _openalex_is_book
+
+    assert _openalex_is_book({"type": "book", "display_name": "A textbook"})
+    assert _openalex_is_book({"type": "book-chapter", "display_name": "A chapter"})
+    assert not _openalex_is_book({"type": "article", "display_name": "A journal paper"})
+    assert not _openalex_is_book({"type": "journal-article", "display_name": "A journal paper"})

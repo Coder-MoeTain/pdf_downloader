@@ -37,6 +37,7 @@ from app.services.query_expansion import expand_query
 from app.services.ranking_service import rank_papers
 from app.utils.http import AsyncHttpClient
 from app.utils.logger import get_logger
+from app.utils.pdf_url import is_direct_pdf_url
 
 logger = get_logger("app.search")
 console = Console()
@@ -91,20 +92,8 @@ class SearchService:
         # Search APIs with the original query only; expansions improve ranking, not request volume.
 
         async with AsyncHttpClient(self.config) as client:
-            providers = build_providers(client, self.config)
-            if filters.source:
-                providers = [p for p in providers if p.name == filters.source]
-            else:
-                collection = (filters.collection or "papers").strip().lower()
-                if collection == "ebooks":
-                    providers = [p for p in providers if getattr(p, "content_kind", "article") == "ebook"]
-                    category = (filters.ebook_category or "").strip()
-                    if category:
-                        providers = [
-                            p for p in providers if str(getattr(p, "category", "") or "") == category
-                        ]
-                else:
-                    providers = [p for p in providers if getattr(p, "content_kind", "article") != "ebook"]
+            providers = select_search_providers(build_providers(client, self.config), filters)
+            ebook_search = (filters.collection or "papers").strip().lower() == "ebooks"
             stats.sources_searched = len(providers)
             if not providers:
                 console.print("[yellow]No providers available. Check config.yaml and API keys.[/]")
@@ -125,6 +114,8 @@ class SearchService:
             raw: list[PaperRecord] = []
             console.print()
             raw.extend(await self._search_providers(providers, filters.query, filters, stats))
+            if ebook_search:
+                raw = [paper for paper in raw if (paper.work_type or "").strip().lower() == "ebook"]
             await self._checkpoint()
 
             stats.raw_records = len(raw)
@@ -135,6 +126,8 @@ class SearchService:
             unique, removed = deduplicate(raw, self.config.dedup)
             stats.duplicates_removed = removed
             unique = self._apply_filters(unique, filters)
+            if ebook_search:
+                unique = [paper for paper in unique if (paper.work_type or "").strip().lower() == "ebook"]
             unique = rank_papers(unique, filters, expanded, self.config.ranking)
             unique = unique[: filters.max_results]
             stats.unique_papers = len(unique)
@@ -152,6 +145,11 @@ class SearchService:
                 percent=52,
             )
             await self._resolve_open_access(oa, unique)
+            if ebook_search:
+                await self._fill_ebook_pdfs(providers, unique)
+                unique = [paper for paper in unique if _ebook_has_pdf(paper)]
+                stats.unique_papers = len(unique)
+                stats.relevant_papers = len(unique)
             if filters.open_access_only:
                 unique = [paper for paper in unique if is_confirmed_oa(paper)]
                 stats.unique_papers = len(unique)
@@ -200,6 +198,8 @@ class SearchService:
                 search_id = search_row.id
                 stats.search_query_id = search_id
                 for rank, paper in enumerate(unique, start=1):
+                    if ebook_search and not _ebook_has_pdf(paper):
+                        continue
                     db_paper = save_paper(session, paper)
                     attach_search_result(session, search_row.id, db_paper.id, rank, paper.relevance_score)
                     upsert_download(session, db_paper.id, pdf_url=paper.pdf_url, status=paper.status.value)
@@ -340,6 +340,28 @@ class SearchService:
                     task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             raise
+
+    async def _fill_ebook_pdfs(self, providers, papers: list[PaperRecord]) -> None:
+        by_name = {provider.name: provider for provider in providers}
+        for paper in papers:
+            if _ebook_has_pdf(paper):
+                continue
+            names = [part.strip() for part in (paper.source_provider or "").split("+") if part.strip()]
+            for name in names:
+                provider = by_name.get(name)
+                finder = getattr(provider, "find_pdf", None) if provider is not None else None
+                if finder is None:
+                    continue
+                try:
+                    url = await finder(paper)
+                except Exception as exc:
+                    logger.warning("Ebook PDF lookup failed for %s: %s", paper.title[:60], exc)
+                    continue
+                if is_direct_pdf_url(url, prefer_https=False):
+                    paper.pdf_url = url
+                    paper.open_access = True
+                    paper.status = PaperStatus.OA_AVAILABLE
+                    break
 
     async def _search_providers(
         self,
@@ -487,6 +509,29 @@ class SearchService:
             console.print("[dim]Expanded queries:[/]")
             for q in stats.expanded_queries[1:]:
                 console.print(f"  - {q}")
+
+
+def _ebook_has_pdf(paper: PaperRecord) -> bool:
+    return is_direct_pdf_url(paper.pdf_url, prefer_https=False)
+
+
+def select_search_providers(providers, filters: SearchFilters):
+    """Keep ebook searches on ebook catalogs, and paper searches on article APIs."""
+    collection = (filters.collection or "papers").strip().lower()
+    if collection == "ebooks":
+        selected = [provider for provider in providers if getattr(provider, "content_kind", "article") == "ebook"]
+        category = (filters.ebook_category or "").strip()
+        if category:
+            selected = [
+                provider
+                for provider in selected
+                if str(getattr(provider, "category", "") or "") == category
+            ]
+    else:
+        selected = [provider for provider in providers if getattr(provider, "content_kind", "article") != "ebook"]
+    if filters.source:
+        selected = [provider for provider in selected if provider.name == filters.source]
+    return selected
 
 
 def filters_from_cli(

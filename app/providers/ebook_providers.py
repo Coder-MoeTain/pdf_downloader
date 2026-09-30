@@ -93,6 +93,20 @@ class _OapenSubjectProvider(_DoabSubjectProvider):
     rate_group = "oapen"
 
 
+_OPENALEX_BOOK_TYPES = frozenset(
+    {"book", "book-chapter", "edited-book", "monograph", "reference-book"}
+)
+
+
+def _openalex_is_book(item: dict[str, Any] | None) -> bool:
+    if not isinstance(item, dict):
+        return False
+    work_type = str(item.get("type") or item.get("type_crossref") or "").strip().lower()
+    if work_type in _OPENALEX_BOOK_TYPES:
+        return True
+    return "book" in work_type and "article" not in work_type
+
+
 class _OpenAlexBookProvider(OpenAlexProvider):
     content_kind = "ebook"
     upstream = "openalex"
@@ -107,19 +121,30 @@ class _OpenAlexBookProvider(OpenAlexProvider):
         extra = self.query_extra.strip()
         if extra and extra.lower() not in query.lower():
             params["search"] = f"{query} {extra}"
-        filt = [part for part in str(params.get("filter") or "").split(",") if part]
+        filt = [
+            part
+            for part in str(params.get("filter") or "").split(",")
+            if part and not part.startswith("type:")
+        ]
         filt.append("type:book")
-        filt.append("is_oa:true")
+        if "is_oa:true" not in filt:
+            filt.append("is_oa:true")
         if self.concept_id:
             filt.append(f"concepts.id:{self.concept_id}")
         params["filter"] = ",".join(filt)
         return params
 
     async def search(self, query: str, filters: SearchFilters) -> list[PaperRecord]:
-        papers = await super().search(query, filters)
+        params = self._search_params(query, filters)
+        data = await self.request_json(self.BASE, params=params)
+        results = (data or {}).get("results") or []
         spec = {"category": self.category, "family": self.family}
-        stamped = [_stamp_ebook(paper, spec) for paper in papers]
-        return [p for p in stamped if p]
+        papers = []
+        for item in results:
+            if not _openalex_is_book(item):
+                continue
+            papers.append(_stamp_ebook(self._parse(item), spec))
+        return [paper for paper in papers if paper]
 
 
 class _InternetArchiveBooksProvider(ResearchProvider):

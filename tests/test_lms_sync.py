@@ -428,6 +428,11 @@ def test_watch_idle_does_not_queue_full_sweep():
         watch._pending_ids.clear()
     work = watch._take_work()
     assert work == []
+    watch.schedule_lms_sync()
+    with watch._lock:
+        assert watch._sweep_all is False
+        watch._pending_ids.clear()
+        watch._sweep_all = False
 
 
 def test_pymysql_connect_uses_unix_socket_for_local_host(tmp_path, monkeypatch):

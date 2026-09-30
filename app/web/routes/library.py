@@ -103,7 +103,7 @@ def library_page(
     year = year if year and year > 0 else 0
     user_id = user if user and user > 0 else 0
     requested_kind = "ebooks" if kind.strip().lower() == "ebooks" else "papers"
-    work_type = "" if bool(latest) else ("ebook" if requested_kind == "ebooks" else "article")
+    work_type = "ebook" if requested_kind == "ebooks" else "article"
     library_kind = requested_kind
     latest_search = None
     papers = []

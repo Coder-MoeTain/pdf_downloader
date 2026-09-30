@@ -65,7 +65,12 @@ def deduplicate(papers: list[PaperRecord], config: DedupConfig | None = None) ->
             i = parent[i]
         return i
 
+    def work_kind(index: int) -> str:
+        return "ebook" if (papers[index].work_type or "") == "ebook" else "article"
+
     def union(i: int, j: int) -> None:
+        if work_kind(i) != work_kind(j):
+            return
         ri, rj = find(i), find(j)
         if ri != rj:
             parent[rj] = ri
