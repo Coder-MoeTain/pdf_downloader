@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database.models import Author, Base, Paper, PaperAuthor, User
 from app.database.settings_models import AcademicSource, AppSetting, SettingsBase
-from app.database.sqlite_to_mysql import run_migration
+from app.database.sqlite_to_mysql import _coerce, _declared_length, run_migration
 from app.utils.time import utc_now
 
 
@@ -124,4 +124,30 @@ def test_migrate_dry_run_does_not_write(tmp_path):
     assert report.tables["papers"] == 1
     with Session(dest_engine) as session:
         assert session.scalar(select(Paper)) is None
+    dest_engine.dispose()
+
+
+def test_declared_length_and_varchar_truncate():
+    assert _declared_length("VARCHAR(512)") == 512
+    assert _declared_length("TEXT") is None
+    long_name = "x" * 600
+    assert _coerce(long_name, "VARCHAR(512)") == "x" * 512
+    assert _coerce(long_name, "TEXT") == long_name
+
+
+def test_migrate_copies_long_author_name(tmp_path):
+    src = tmp_path / "research.db"
+    dest = tmp_path / "dest.db"
+    src_engine = _engine(src)
+    dest_engine = _engine(dest)
+    long_name = "Consortium " + ("Member, " * 80) + "Last"
+    with Session(src_engine) as session:
+        session.add(Author(id=1, name=long_name, normalized_name=long_name.lower()))
+        session.commit()
+    src_engine.dispose()
+    run_migration(src, None, dest_engine=dest_engine, replace=True, settings=False)
+    with Session(dest_engine) as session:
+        author = session.get(Author, 1)
+        assert author is not None
+        assert author.name == long_name
     dest_engine.dispose()

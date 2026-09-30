@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -204,7 +205,10 @@ def init_db(url: str | None = None) -> None:
 
 
 def _ensure_columns(engine: Engine) -> None:
-    """Add columns introduced after the first create_all, for existing SQLite files."""
+    """Add columns / widen types introduced after the first create_all."""
+    if engine.dialect.name == "mysql":
+        _ensure_mysql_columns(engine)
+        return
     if engine.dialect.name != "sqlite":
         return
     with engine.connect() as conn:
@@ -292,6 +296,37 @@ def _ensure_columns(engine: Engine) -> None:
         except Exception:
             pass
         conn.commit()
+
+
+def _mysql_type_length(type_name: str) -> int | None:
+    match = re.search(r"(?:var)?char\s*\(\s*(\d+)\s*\)", type_name or "", re.I)
+    return int(match.group(1)) if match else None
+
+
+def _ensure_mysql_columns(engine: Engine) -> None:
+    """SQLite never enforced VARCHAR lengths; widen authors so long names import."""
+    from sqlalchemy import inspect as sa_inspect
+
+    insp = sa_inspect(engine)
+    if "authors" not in insp.get_table_names():
+        return
+    cols = {col["name"]: col for col in insp.get_columns("authors")}
+    indexes = list(insp.get_indexes("authors"))
+    with engine.begin() as conn:
+        name_col = cols.get("name")
+        if name_col is not None and _mysql_type_length(str(name_col["type"])):
+            conn.execute(text("ALTER TABLE authors MODIFY name TEXT NOT NULL"))
+        norm = cols.get("normalized_name")
+        if norm is not None and _mysql_type_length(str(norm["type"])):
+            for idx in indexes:
+                if (idx.get("column_names") or []) == ["normalized_name"] and idx.get("name"):
+                    conn.execute(text(f"ALTER TABLE authors DROP INDEX `{idx['name']}`"))
+            conn.execute(text("ALTER TABLE authors MODIFY normalized_name TEXT"))
+            conn.execute(text("CREATE INDEX ix_authors_normalized_name ON authors (normalized_name(255))"))
+        orcid = cols.get("orcid")
+        orcid_len = _mysql_type_length(str(orcid["type"])) if orcid is not None else None
+        if orcid_len is not None and orcid_len < 255:
+            conn.execute(text("ALTER TABLE authors MODIFY orcid VARCHAR(255) NULL"))
 
 
 def _run_alembic(engine: Engine) -> None:

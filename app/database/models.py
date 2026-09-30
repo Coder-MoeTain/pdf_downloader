@@ -37,12 +37,13 @@ class Provider(Base):
 
 class Author(Base):
     __tablename__ = "authors"
+    __table_args__ = (Index("ix_authors_normalized_name", "normalized_name", mysql_length=255),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String(512), nullable=False)
-    normalized_name: Mapped[str] = mapped_column(String(512), index=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_name: Mapped[str] = mapped_column(Text, default="")
     affiliations: Mapped[str | None] = mapped_column(Text, nullable=True)
-    orcid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    orcid: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
     papers: Mapped[list[PaperAuthor]] = relationship(back_populates="author")
 

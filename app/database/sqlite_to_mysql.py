@@ -45,8 +45,10 @@ LIBRARY_TABLES = (
 SETTINGS_TABLES = ("app_settings", "academic_sources")
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_VARCHAR_RE = re.compile(r"(?:var)?char\s*\(\s*(\d+)\s*\)", re.I)
 _CHUNK = 400
 _FULLTEXT_CHUNK = 25
+_MYSQL_INDEXED_VARCHAR_MAX = 768
 
 
 @dataclass
@@ -106,9 +108,90 @@ def _common_columns(source: Engine, dest: Engine, table: str) -> list[str]:
     return [name for name in src if name in dest_names]
 
 
-def _count(conn: Connection, table: str, dialect: str) -> int:
-    value = conn.execute(text(f"SELECT COUNT(*) FROM {_quote(table, dialect)}")).scalar()
+def _declared_length(type_name: str) -> int | None:
+    if re.search(r"\b(text|blob|json)\b", type_name or "", re.I):
+        return None
+    match = _VARCHAR_RE.search(type_name or "")
+    return int(match.group(1)) if match else None
+
+
+def _sqlite_max_chars(conn: Connection, table: str, column: str, dialect: str) -> int:
+    value = conn.execute(
+        text(f"SELECT MAX(LENGTH({_quote(column, dialect)})) FROM {_quote(table, dialect)}")
+    ).scalar()
     return int(value or 0)
+
+
+def _widen_dest_string_columns(source: Engine, dest: Engine, table: str) -> None:
+    """Grow MySQL VARCHAR columns when SQLite stored longer strings."""
+    if dest.dialect.name != "mysql":
+        return
+    insp = inspect(dest)
+    try:
+        insp.clear_cache()
+    except Exception:
+        pass
+    dest_cols = {col["name"]: col for col in insp.get_columns(table)}
+    indexes = list(insp.get_indexes(table))
+    src_cols = set(_columns(source, table))
+    src_dialect = source.dialect.name
+    with source.connect() as src_conn:
+        needed: list[tuple[str, int, object, list]] = []
+        for name, col in dest_cols.items():
+            if name not in src_cols:
+                continue
+            limit = _declared_length(str(col["type"]))
+            if not limit:
+                continue
+            max_len = _sqlite_max_chars(src_conn, table, name, src_dialect)
+            if max_len <= limit:
+                continue
+            covering = [idx for idx in indexes if (idx.get("column_names") or []) == [name]]
+            needed.append((name, max_len, col, covering))
+    if not needed:
+        return
+    with dest.begin() as dest_conn:
+        _disable_fks(dest_conn, "mysql")
+        table_sql = _quote(table, "mysql")
+        for name, max_len, col, covering in needed:
+            col_sql = _quote(name, "mysql")
+            unique = any(bool(idx.get("unique")) for idx in covering)
+            logger.warning(
+                "Widening %s.%s (VARCHAR limit too small for SQLite value of %s chars)",
+                table,
+                name,
+                max_len,
+            )
+            for idx in covering:
+                idx_name = idx.get("name")
+                if not idx_name:
+                    continue
+                dest_conn.execute(text(f"ALTER TABLE {table_sql} DROP INDEX {_quote(idx_name, 'mysql')}"))
+            null_sql = "" if col.get("nullable", True) else " NOT NULL"
+            if unique:
+                new_len = min(max(max_len, 1), _MYSQL_INDEXED_VARCHAR_MAX)
+                dest_conn.execute(text(f"ALTER TABLE {table_sql} MODIFY {col_sql} VARCHAR({new_len}){null_sql}"))
+                for idx in covering:
+                    idx_name = idx.get("name")
+                    if idx_name:
+                        dest_conn.execute(
+                            text(f"CREATE UNIQUE INDEX {_quote(idx_name, 'mysql')} ON {table_sql} ({col_sql})")
+                        )
+            else:
+                dest_conn.execute(text(f"ALTER TABLE {table_sql} MODIFY {col_sql} TEXT{null_sql}"))
+                for idx in covering:
+                    idx_name = idx.get("name")
+                    if not idx_name:
+                        continue
+                    dest_conn.execute(
+                        text(
+                            f"CREATE INDEX {_quote(idx_name, 'mysql')} ON {table_sql} ({col_sql}(255))"
+                        )
+                    )
+    try:
+        inspect(dest).clear_cache()
+    except Exception:
+        pass
 
 
 def _coerce(value: object, dest_type: str) -> object:
@@ -129,6 +212,9 @@ def _coerce(value: object, dest_type: str) -> object:
             return 1
         if text_value in {"0", "false", "no"}:
             return 0
+    limit = _declared_length(dest_type)
+    if limit is not None and isinstance(value, str) and len(value) > limit:
+        return value[:limit]
     return value
 
 
@@ -167,6 +253,11 @@ def _truncate_tables(dest: Engine, tables: tuple[str, ...]) -> None:
                 _truncate(conn, table, dialect)
 
 
+def _count(conn: Connection, table: str, dialect: str) -> int:
+    value = conn.execute(text(f"SELECT COUNT(*) FROM {_quote(table, dialect)}")).scalar()
+    return int(value or 0)
+
+
 def _copy_table(source: Engine, dest: Engine, table: str, *, dry_run: bool, report: MigrateReport) -> None:
     dest_tables = _table_names(dest)
     src_tables = _table_names(source)
@@ -182,6 +273,8 @@ def _copy_table(source: Engine, dest: Engine, table: str, *, dry_run: bool, repo
         return
     dest_dialect = dest.dialect.name
     src_dialect = source.dialect.name
+    if not dry_run:
+        _widen_dest_string_columns(source, dest, table)
     types = _column_types(dest, table)
     with source.connect() as src_conn:
         count = _count(src_conn, table, src_dialect)
