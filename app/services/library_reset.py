@@ -76,6 +76,9 @@ def reset_library_repository(config: AppConfig | None = None) -> LibraryResetSta
     job_registry.clear_all()
     crawl_job_registry.clear_all()
     download_tracker.reset()
+    from app.services.progress import clear_download_halt
+
+    clear_download_halt()
     tracker.reset()
 
     logger.info(

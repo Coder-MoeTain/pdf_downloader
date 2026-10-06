@@ -51,16 +51,19 @@
 </div>
 
 {% set downloading_count = counts.get('DOWNLOADING', 0) %}
-{% if downloading_count or download_progress.active %}
+{% set resume_count = resumable_count|default(downloading_count) %}
+{% if downloading_count or download_progress.active or downloads_halted or resume_count %}
 <div class="dl-batch-actions mb-3 d-flex flex-wrap gap-2 align-items-center">
   <form method="post" action="/downloads/stop" class="d-inline" id="downloadStopAllForm">
     <button class="btn btn-sm btn-outline-danger" type="submit">Stop downloads</button>
   </form>
-  {% if downloading_count %}
+  {% if resume_count or downloads_halted %}
   <form method="post" action="/downloads/resume" class="d-inline" id="downloadResumeForm">
-    <button class="btn btn-sm btn-primary" type="submit">Resume downloading ({{ downloading_count }})</button>
+    <button class="btn btn-sm btn-primary" type="submit">
+      {% if resume_count %}Resume downloading ({{ resume_count }}){% else %}Allow downloads again{% endif %}
+    </button>
   </form>
-  <span class="paper-meta mb-0">Stuck or in-progress PDFs can be stopped or resumed here.</span>
+  <span class="paper-meta mb-0">{% if downloads_halted %}Downloads are stopped until you resume.{% else %}Stuck or stopped PDFs can be resumed here.{% endif %}</span>
   {% endif %}
 </div>
 {% endif %}

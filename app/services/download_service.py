@@ -584,6 +584,10 @@ async def ensure_local_pdf(paper_id: int, topic_slug: str = "library", user_id: 
 
     cfg = get_runtime_config()
     library_root = cfg.resolve_path(cfg.library_dir)
+    from app.services.progress import clear_download_halt
+
+    # Single-paper download is an intentional user action — lift a prior Stop.
+    clear_download_halt()
     batch_token = try_claim_download_batch(1, "Preparing PDF")
     own_batch = batch_token is not None
     try:
@@ -705,12 +709,18 @@ async def download_papers_parallel(
     elif use_download_tracker:
         # Wait for any other Downloads-page batch so we never finish_batch mid-flight.
         while True:
+            if download_stop_requested():
+                raise ParallelDownloadAborted("Stopped by user")
             if job_progress is not None and job_progress.is_cancelled():
                 raise ParallelDownloadAborted("Stopped by user")
             if checkpoint is not None:
                 await checkpoint()
             batch_token = try_claim_download_batch(total, "Downloading open-access PDFs")
             if batch_token is not None:
+                # Halt may have been set while we waited for the claim.
+                if download_stop_requested():
+                    release_download_batch(batch_token)
+                    raise ParallelDownloadAborted("Stopped by user")
                 track_downloads = True
                 break
             await asyncio.sleep(0.2)
@@ -901,10 +911,10 @@ async def resume_downloading_papers(
     limit: int | None = None,
     topic_slug: str = "library",
     user_id: int | None = None,
-    statuses: tuple[str, ...] = (PaperStatus.DOWNLOADING.value,),
+    statuses: tuple[str, ...] | None = None,
 ) -> dict[str, int]:
-    """Retry papers whose download row is stuck in DOWNLOADING (still has a PDF URL)."""
-    from sqlalchemy import select
+    """Retry stuck DOWNLOADING rows and papers stopped by the user (still have a PDF URL)."""
+    from sqlalchemy import or_, select
     from sqlalchemy.orm import selectinload
 
     from app.database.connection import session_scope
@@ -914,6 +924,7 @@ async def resume_downloading_papers(
     cfg = get_runtime_config()
     cap = resolve_download_limit(limit, fallback=cfg.download_limit)
     stats = {"attempted": 0, "downloaded": 0, "failed": 0, "skipped": 0}
+    results: list[tuple[int, PaperRecord]] = []
     async with AsyncHttpClient(cfg) as client:
         downloader = DownloadService(client, cfg)
         with session_scope() as session:
@@ -924,9 +935,17 @@ async def resume_downloading_papers(
                     selectinload(Paper.authors).selectinload(PaperAuthor.author),
                     selectinload(Paper.downloads),
                 )
-                .where(Download.status.in_(list(statuses)))
                 .order_by(Download.id.desc())
             )
+            if statuses:
+                stmt = stmt.where(Download.status.in_(list(statuses)))
+            else:
+                stmt = stmt.where(
+                    or_(
+                        Download.status == PaperStatus.DOWNLOADING.value,
+                        Download.error_message == "Stopped by user",
+                    )
+                )
             if cap is not None:
                 stmt = stmt.limit(cap)
             papers = session.scalars(stmt).unique().all()
@@ -1080,17 +1099,19 @@ async def recheck_paywalled_open_access(
 
 
 def stop_downloads(*, clear_stuck: bool = True) -> dict[str, int | bool]:
-    """Cancel an active batch and optionally clear orphaned DOWNLOADING rows."""
+    """Cancel an active batch and mark DOWNLOADING rows as stopped."""
     from app.database.connection import session_scope
     from app.database.repository import mark_downloading_stopped
+    from app.services.download_queue import drain_pending_download_jobs
     from app.services.progress import request_download_stop
 
     was_active = request_download_stop()
+    drained = drain_pending_download_jobs()
     cleared = 0
-    if clear_stuck and not was_active:
+    if clear_stuck:
         with session_scope() as session:
             cleared = mark_downloading_stopped(session, error="Stopped by user")
-    return {"ok": True, "was_active": was_active, "cleared": cleared}
+    return {"ok": True, "was_active": was_active, "cleared": cleared, "drained": drained}
 
 
 def write_topic_metadata_csv(papers: list[PaperRecord], topic_slug: str, config: AppConfig | None = None) -> Path:

@@ -11,10 +11,19 @@ from app.models.paper import PaperStatus
 from app.services.download_service import stop_downloads
 from app.services.progress import (
     clear_download_batch_owner,
+    clear_download_halt,
+    download_stop_requested,
     download_tracker,
+    downloads_are_halted,
     release_download_batch,
     try_claim_download_batch,
 )
+
+
+def _reset_download_state():
+    clear_download_halt()
+    clear_download_batch_owner()
+    download_tracker.reset()
 
 
 def test_mark_downloading_stopped(tmp_db):
@@ -38,8 +47,7 @@ def test_mark_downloading_stopped(tmp_db):
 
 
 def test_stop_downloads_clears_orphans_when_idle(tmp_db):
-    clear_download_batch_owner()
-    download_tracker.reset()
+    _reset_download_state()
     with session_scope() as session:
         paper = Paper(
             title="Orphan",
@@ -52,16 +60,42 @@ def test_stop_downloads_clears_orphans_when_idle(tmp_db):
     result = stop_downloads(clear_stuck=True)
     assert result["was_active"] is False
     assert result["cleared"] == 1
+    assert downloads_are_halted() is True
+    clear_download_halt()
 
 
-def test_stop_downloads_cancels_active_batch(tmp_db):
-    clear_download_batch_owner()
-    download_tracker.reset()
+def test_stop_downloads_cancels_active_batch_and_clears_rows(tmp_db):
+    _reset_download_state()
+    with session_scope() as session:
+        paper = Paper(
+            title="Active PDF",
+            status=PaperStatus.OA_AVAILABLE.value,
+            pdf_url="https://example.com/c.pdf",
+        )
+        session.add(paper)
+        session.flush()
+        upsert_download(session, paper.id, pdf_url=paper.pdf_url, status=PaperStatus.DOWNLOADING.value)
     token = try_claim_download_batch(2, "Active")
     assert token is not None
     result = stop_downloads(clear_stuck=True)
     assert result["was_active"] is True
+    assert result["cleared"] == 1
     assert download_tracker.is_cancelled() is True
+    assert download_stop_requested() is True
+    # Next claim must still see the halt (do not auto-resume).
     release_download_batch(token)
     clear_download_batch_owner()
-    download_tracker.reset()
+    next_token = try_claim_download_batch(1, "Should stay halted")
+    assert next_token is not None
+    assert download_stop_requested() is True
+    release_download_batch(next_token)
+    _reset_download_state()
+
+
+def test_clear_download_halt_allows_downloads_again(tmp_db):
+    _reset_download_state()
+    stop_downloads(clear_stuck=False)
+    assert downloads_are_halted() is True
+    clear_download_halt()
+    assert downloads_are_halted() is False
+    assert download_stop_requested() is False

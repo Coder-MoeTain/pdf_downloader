@@ -20,7 +20,7 @@ from app.services.download_service import (
     existing_pdf_path,
     stop_downloads,
 )
-from app.services.progress import download_tracker
+from app.services.progress import download_tracker, downloads_are_halted
 from app.services.usage import record_usage
 from app.web.dependencies import (
     _ctx,
@@ -102,7 +102,11 @@ async def downloads_stop(request: Request, paper_id: int | None = Form(None)):
     else:
         result = stop_downloads(clear_stuck=True)
         if result.get("was_active"):
-            message = "Stopping downloads…"
+            cleared = int(result.get("cleared") or 0)
+            message = (
+                f"Downloads stopped{f' · {cleared} marked stopped' if cleared else ''}. "
+                "Use Resume when you want to continue."
+            )
             level = "info"
         elif result.get("cleared"):
             message = f"Stopped {result['cleared']} stuck download(s). Use Resume to try again."
@@ -247,6 +251,14 @@ def downloads_page(
             chip_stmt = chip_stmt.where(Download.downloaded_by_user_id == user_id)
         counts = dict(session.execute(chip_stmt).all())
         user_options = download_user_options(session, include_id=user_id or None)
+        resumable = session.scalar(
+            select(func.count(Download.id)).where(
+                or_(
+                    Download.status == "DOWNLOADING",
+                    Download.error_message == "Stopped by user",
+                )
+            )
+        ) or 0
     filters_state = {"status": status, "q": q, "user": user_id, "per_page": per_page}
     user_label = next((item["name"] for item in user_options if item["id"] == user_id), "")
     has_filters = bool(status or q or user_id)
@@ -268,5 +280,7 @@ def downloads_page(
             filters=filters_state,
             page_sizes=PAGE_SIZES,
             has_filters=has_filters,
+            resumable_count=int(resumable),
+            downloads_halted=downloads_are_halted(),
         ),
     )

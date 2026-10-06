@@ -68,28 +68,52 @@
         {% endif %}
         {% endif %}
         {{ theme_toggle() }}
-        {% if is_admin and page != 'login' %}
-        <a class="nav-link nav-settings {% if page == 'settings' %}active{% endif %}" href="/settings" title="Settings" {% if page == 'settings' %}aria-current="page"{% endif %}>
-          {{ nav_icon("settings") }}
-          <span class="nav-link-label">Settings</span>
-        </a>
-        {% endif %}
         {% if user %}
-        <div class="nav-user">
-          {% if user.picture %}<img class="nav-user-pic" src="{{ user.picture }}" alt="" width="28" height="28">{% endif %}
-          <a class="nav-user-link {% if page == 'account' %}is-active{% endif %}" href="/account" title="User settings">
+        <div class="dropdown nav-account">
+          <button
+            class="nav-account-toggle dropdown-toggle {% if page in ['account', 'settings'] %}is-active{% endif %}"
+            type="button"
+            id="navAccountMenu"
+            data-bs-toggle="dropdown"
+            data-bs-auto-close="true"
+            aria-expanded="false"
+            aria-haspopup="true"
+            title="{{ user.name }}"
+          >
+            {% if user.picture %}
+            <img class="nav-user-pic" src="{{ user.picture }}" alt="" width="28" height="28">
+            {% else %}
+            <span class="nav-account-avatar" aria-hidden="true">{{ (user.name or "U")[0]|upper }}</span>
+            {% endif %}
             <span class="nav-user-name">{{ user.name }}</span>
-            <span class="role-badge role-{{ user.role }}">{{ user.role }}</span>
-          </a>
-          <form method="post" action="/logout" class="nav-logout-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="nav-link nav-signout" type="submit">Log out</button>
-          </form>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end nav-account-menu" aria-labelledby="navAccountMenu">
+            <li class="nav-account-meta px-3 py-2">
+              <div class="nav-account-meta-name">{{ user.name }}</div>
+              {% if user.email %}<div class="nav-account-meta-email">{{ user.email }}</div>{% endif %}
+              <span class="role-badge role-{{ user.role }}">{{ user.role }}</span>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <a class="dropdown-item {% if page == 'account' %}active{% endif %}" href="/account">Account</a>
+            </li>
+            {% if is_admin %}
+            <li>
+              <a class="dropdown-item {% if page == 'settings' %}active{% endif %}" href="/settings">Settings</a>
+            </li>
+            {% endif %}
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <form method="post" action="/logout" class="nav-logout-form m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="dropdown-item nav-account-logout" type="submit">Log out</button>
+              </form>
+            </li>
+          </ul>
         </div>
         {% else %}
         <a class="nav-link nav-login {% if page == 'login' %}active{% endif %}" href="/login">Log in</a>
         {% endif %}
-        <span class="nav-version">v{{ version }}</span>
       </div>
     </div>
   </div>

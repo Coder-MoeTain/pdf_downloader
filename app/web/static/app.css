@@ -204,25 +204,98 @@ h1, h2, .brand-text, .display-6, .empty-title {
   gap: 0.55rem;
   margin-left: 0.75rem;
 }
-.app-nav.navbar-dark .nav-settings {
-  background: transparent;
-  border: 1px solid rgba(255,255,255,0.12);
+.nav-account {
+  position: relative;
 }
-.app-nav.navbar-dark .nav-settings:hover {
-  border-color: rgba(255,255,255,0.22);
-}
-.app-nav.navbar-dark .nav-settings.active {
-  border-color: transparent;
-}
-.nav-user {
+.nav-account-toggle {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.15rem 0.15rem 0.15rem 0.45rem;
+  max-width: 12.5rem;
+  padding: 0.2rem 0.55rem 0.2rem 0.25rem;
   border-radius: 999px;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.1);
-  max-width: 22rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.nav-account-toggle::after {
+  margin-left: 0.15rem;
+  opacity: 0.75;
+}
+.nav-account-toggle:hover,
+.nav-account-toggle:focus-visible,
+.nav-account-toggle.is-active,
+.nav-account-toggle[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #fff;
+  outline: none;
+}
+.nav-account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 50%;
+  background: #7eb89a;
+  color: #10243d;
+  font-size: 0.78rem;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+.nav-account .nav-user-pic {
+  flex: 0 0 auto;
+}
+.nav-account .nav-user-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-account-menu {
+  min-width: 14rem;
+  margin-top: 0.45rem;
+  padding: 0.35rem;
+  border-radius: 0.9rem;
+  border: 1px solid var(--glass-border, rgba(16, 36, 61, 0.12));
+  box-shadow: 0 16px 40px rgba(16, 36, 61, 0.16);
+}
+.nav-account-meta {
+  display: grid;
+  gap: 0.2rem;
+}
+.nav-account-meta-name {
+  font-weight: 700;
+  color: var(--ink);
+}
+.nav-account-meta-email {
+  font-size: 0.82rem;
+  color: var(--muted, #5b6573);
+  word-break: break-word;
+}
+.nav-account-menu .dropdown-item {
+  border-radius: 0.55rem;
+  font-weight: 600;
+}
+.nav-account-menu .dropdown-item.active,
+.nav-account-menu .dropdown-item:active {
+  background: rgba(31, 111, 139, 0.12);
+  color: var(--ink);
+}
+.nav-account-logout {
+  width: 100%;
+  text-align: left;
+  color: #b42318;
+}
+.nav-account-logout:hover,
+.nav-account-logout:focus-visible {
+  background: rgba(180, 35, 24, 0.08);
+  color: #b42318;
 }
 .nav-user-pic {
   width: 1.55rem;
@@ -231,48 +304,29 @@ h1, h2, .brand-text, .display-6, .empty-title {
   object-fit: cover;
   background: #e8f0e9;
 }
-.nav-user-link {
+.nav-user-name {
+  font-weight: 650;
+}
+.nav-account .role-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  min-width: 0;
-  color: inherit;
-  text-decoration: none;
-  padding: 0.15rem 0.2rem;
+  width: fit-content;
+  margin-top: 0.15rem;
+  padding: 0.12rem 0.45rem;
   border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
-.nav-user-link:hover,
-.nav-user-link.is-active {
-  color: #fff;
-  background: rgba(255,255,255,0.08);
-}
-.nav-user-name {
-  color: rgba(255,255,255,0.88);
-  font-size: 0.8rem;
-  font-weight: 600;
-  max-width: 7.5rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.nav-account .role-badge.role-admin { background: #7eb89a; color: #10243d; }
+.nav-account .role-badge.role-user { background: rgba(16, 36, 61, 0.08); color: var(--ink); }
 .nav-logout-form { margin: 0; }
-.app-nav.navbar-dark .nav-signout,
 .app-nav.navbar-dark .nav-login {
   padding: calc(0.28rem + 2.5pt) 0.7rem;
   font-size: 0.78rem;
   border: 0;
   line-height: 1.2;
-}
-.app-nav.navbar-dark button.nav-signout {
-  background: rgba(255,255,255,0.12);
-  color: #fff;
-  border-radius: 999px;
-  cursor: pointer;
-}
-.app-nav.navbar-dark button.nav-signout:hover,
-.app-nav.navbar-dark button.nav-signout:focus-visible {
-  background: #b42318;
-  color: #fff;
 }
 .role-badge {
   display: inline-flex;
@@ -284,8 +338,6 @@ h1, h2, .brand-text, .display-6, .empty-title {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-.nav-user .role-badge.role-admin { background: #7eb89a; color: #10243d; }
-.nav-user .role-badge.role-user { background: rgba(255,255,255,0.16); color: #fff; }
 .page-account .role-badge.role-admin { background: #dcefe4; color: #1d5c38; }
 .page-account .role-badge.role-user { background: #ece6da; color: #3a4d63; }
 .settings-main .role-badge.role-admin { background: #dcefe4; color: #1d5c38; }
@@ -308,20 +360,6 @@ h1, h2, .brand-text, .display-6, .empty-title {
   gap: 0.4rem;
 }
 .role-form .form-select { min-width: 6.5rem; }
-.nav-version {
-  display: inline-flex;
-  align-items: center;
-  min-height: 1.7rem;
-  padding: 0 0.55rem;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.1);
-  color: rgba(255,255,255,0.58);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  font-variant-numeric: tabular-nums;
-}
 .navbar-text { color: rgba(255,255,255,0.55); font-size: 0.85rem; }
 .nav-live {
   display: inline-flex;
@@ -928,13 +966,20 @@ a.paper-meta:hover { color: var(--accent); }
     border-radius: 1.1rem;
   }
   .app-nav.navbar-dark .navbar-nav .nav-link,
-  .app-nav.navbar-dark .nav-settings,
-  .nav-live {
+  .nav-live,
+  .nav-account {
     width: 100%;
     margin: 0.08rem 0;
     border-radius: 0.85rem;
-    padding: calc(0.72rem + 2.5pt) 0.9rem;
+    padding: 0;
     min-height: 0;
+  }
+  .nav-account-toggle {
+    width: 100%;
+    max-width: none;
+    justify-content: flex-start;
+    border-radius: 0.85rem;
+    padding: calc(0.72rem + 2.5pt) 0.9rem;
   }
   .nav-aside {
     width: 100%;
@@ -944,7 +989,6 @@ a.paper-meta:hover { color: var(--accent); }
     margin-top: 0.15rem;
     border-top: 1px solid rgba(255,255,255,0.1);
   }
-  .nav-version { margin-left: auto; }
 }
 .settings-shell {
   display: grid;
@@ -2307,14 +2351,9 @@ a.store-pill:hover { border-color: var(--accent); color: inherit; }
   .login-panel { padding: 1.5rem 1.15rem 2.5rem; align-items: flex-start; }
 }
 @media (max-width: 1199.98px) {
-  .nav-user {
+  .nav-account-menu {
     width: 100%;
-    max-width: none;
-    justify-content: space-between;
-    border-radius: 0.85rem;
-    padding: 0.45rem 0.55rem;
   }
-  .nav-user-name { max-width: none; }
 }
 
 /* Library */

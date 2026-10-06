@@ -10,6 +10,7 @@ from app.models.paper import PaperRecord, PaperStatus
 from app.services.download_service import DownloadService, download_papers_parallel
 from app.services.progress import (
     clear_download_batch_owner,
+    clear_download_halt,
     download_tracker,
     release_download_batch,
     try_claim_download_batch,
@@ -18,9 +19,11 @@ from app.services.progress import (
 
 @pytest.fixture(autouse=True)
 def _reset_download_tracker():
+    clear_download_halt()
     clear_download_batch_owner()
     download_tracker.reset()
     yield
+    clear_download_halt()
     clear_download_batch_owner()
     download_tracker.reset()
 

@@ -207,6 +207,10 @@ class ProgressTracker:
             self._state["message"] = message
             self._append_log(message, "warning")
 
+    def clear_cancel(self) -> None:
+        with self._lock:
+            self._state["cancelled"] = False
+
     def is_cancelled(self) -> bool:
         with self._lock:
             return bool(self._state.get("cancelled"))
@@ -333,6 +337,9 @@ download_tracker = ProgressTracker()
 # OA queue, and ensure_local_pdf can otherwise call finish_batch mid-flight).
 _download_batch_lock = threading.Lock()
 _download_batch_token: object | None = None
+# Sticky halt survives start_batch/finish_batch so Stop does not get wiped by the
+# next search/crawl PDF chunk. Cleared only by Resume / new OA / single PDF fetch.
+_download_halted = False
 
 
 def try_claim_download_batch(total: int, message: str = "") -> object | None:
@@ -346,6 +353,9 @@ def try_claim_download_batch(total: int, message: str = "") -> object | None:
         token = object()
         _download_batch_token = token
         download_tracker.start_batch(total, message)
+        # Preserve an explicit user Stop across start_batch (which resets cancelled).
+        if _download_halted:
+            download_tracker.request_cancel("Downloads stopped")
         return token
 
 
@@ -374,16 +384,35 @@ def download_batch_is_owned() -> bool:
 
 
 def request_download_stop(message: str = "Stopping downloads…") -> bool:
-    """Ask the active Downloads batch to stop. Returns True if a batch looked active."""
+    """Halt PDF downloads until clear_download_halt(). Returns whether a batch looked active."""
+    global _download_halted
+    with _download_batch_lock:
+        _download_halted = True
     snap = download_tracker.snapshot()
     active = bool(snap.get("active")) or download_batch_is_owned()
-    if active:
-        download_tracker.request_cancel(message)
+    download_tracker.request_cancel(message)
+    if not active:
+        download_tracker.log(message, "warning")
     return active
 
 
 def download_stop_requested() -> bool:
-    return download_tracker.is_cancelled()
+    with _download_batch_lock:
+        halted = _download_halted
+    return halted or download_tracker.is_cancelled()
+
+
+def clear_download_halt() -> None:
+    """Allow downloads again after an explicit Resume / new OA batch / single PDF."""
+    global _download_halted
+    with _download_batch_lock:
+        _download_halted = False
+    download_tracker.clear_cancel()
+
+
+def downloads_are_halted() -> bool:
+    with _download_batch_lock:
+        return _download_halted
 
 
 class JobProgressRegistry:
