@@ -11,7 +11,7 @@ from app.services.download_service import (
     recheck_paywalled_open_access,
     resume_downloading_papers,
 )
-from app.services.progress import clear_download_halt, download_stop_requested, download_tracker
+from app.services.progress import clear_download_halt, download_tracker
 from app.utils.logger import get_logger
 
 logger = get_logger("app.download_queue")
@@ -28,6 +28,7 @@ class DownloadJob:
     paper_id: int | None = None
     user_id: int | None = None
     limit: int = 0
+    work_type: str = ""
 
 
 def oa_download_active() -> bool:
@@ -52,13 +53,22 @@ def drain_pending_download_jobs() -> int:
     return removed
 
 
-def enqueue_oa_download(*, search_id: int | None, user_id: int | None) -> bool:
+def force_reset_download_queue() -> None:
+    """Allow a new batch after a stuck Stop (abandons the in-flight worker flag)."""
+    global _running
+    _running = False
+    drain_pending_download_jobs()
+
+
+def enqueue_oa_download(*, search_id: int | None, user_id: int | None, work_type: str = "") -> bool:
     """Queue an OA batch download. Returns False when one is already running."""
     global _running
     if _running or oa_download_active():
         return False
     clear_download_halt()
-    _queue.put_nowait(DownloadJob(kind="oa", search_id=search_id, user_id=user_id, limit=0))
+    _queue.put_nowait(
+        DownloadJob(kind="oa", search_id=search_id, user_id=user_id, limit=0, work_type=work_type or "")
+    )
     return True
 
 
@@ -81,16 +91,20 @@ def enqueue_oa_recheck(*, user_id: int | None, paper_id: int | None = None, limi
 
 
 def _run_batch_sync(job: DownloadJob) -> dict[str, int]:
-    if download_stop_requested() and job.kind != "resume":
-        # Resume clears halt before enqueue; other jobs should not start mid-halt.
-        return {"attempted": 0, "downloaded": 0, "failed": 0, "skipped": 0}
     if job.kind == "resume":
         return asyncio.run(resume_downloading_papers(user_id=job.user_id, limit=job.limit))
     if job.kind == "recheck":
         return asyncio.run(
             recheck_paywalled_open_access(paper_id=job.paper_id, user_id=job.user_id, limit=job.limit)
         )
-    return asyncio.run(download_open_access_papers(search_id=job.search_id, user_id=job.user_id, limit=job.limit))
+    return asyncio.run(
+        download_open_access_papers(
+            search_id=job.search_id,
+            user_id=job.user_id,
+            limit=job.limit,
+            work_type=job.work_type,
+        )
+    )
 
 
 async def _worker_loop() -> None:
@@ -100,9 +114,6 @@ async def _worker_loop() -> None:
         if job is None:
             _queue.task_done()
             break
-        if download_stop_requested() and job.kind != "resume":
-            _queue.task_done()
-            continue
         _running = True
         try:
             stats = await asyncio.to_thread(_run_batch_sync, job)

@@ -234,7 +234,8 @@ class SearchService:
                         max_file_size=max_size,
                         user_id=user_id,
                         job_progress=self._progress,
-                        # Dual-write to Downloads-page tracker (serialized via claim/release).
+                        # Prefer Downloads-page dual-write; if that batch is busy, continue
+                        # after a short wait using search progress only (no 82% deadlock).
                         use_download_tracker=True,
                         checkpoint=self._checkpoint,
                     )

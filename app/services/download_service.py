@@ -704,26 +704,31 @@ async def download_papers_parallel(
 
     batch_token: object | None = None
     track_downloads = False
+    # Search/crawl own a ProgressTracker — never stall at 82% waiting on Downloads-page lock.
+    # Library OA queue (no job_progress) still serializes via claim so finish_batch stays safe.
+    _claim_wait_s = 2.0 if job_progress is not None else None
     if use_download_tracker and not claim_download_batch:
         track_downloads = True
     elif use_download_tracker:
-        # Wait for any other Downloads-page batch so we never finish_batch mid-flight.
+        waited = 0.0
         while True:
-            if download_stop_requested():
-                raise ParallelDownloadAborted("Stopped by user")
             if job_progress is not None and job_progress.is_cancelled():
                 raise ParallelDownloadAborted("Stopped by user")
             if checkpoint is not None:
                 await checkpoint()
             batch_token = try_claim_download_batch(total, "Downloading open-access PDFs")
             if batch_token is not None:
-                # Halt may have been set while we waited for the claim.
-                if download_stop_requested():
-                    release_download_batch(batch_token)
-                    raise ParallelDownloadAborted("Stopped by user")
                 track_downloads = True
                 break
+            if _claim_wait_s is not None and waited >= _claim_wait_s:
+                track_downloads = False
+                job_progress.log(
+                    "Downloads page is busy — continuing PDF downloads with this job's progress only.",
+                    "info",
+                )
+                break
             await asyncio.sleep(0.2)
+            waited += 0.2
 
     async def _run_one(paper_id: int, paper: PaperRecord) -> tuple[int, PaperRecord]:
         nonlocal completed
@@ -777,16 +782,40 @@ async def download_papers_parallel(
                     percent=round(82 + (index / max(total, 1)) * 13, 1),
                     log=False,
                 )
-            updated = await downloader.download_paper(
-                paper_id,
-                paper,
-                topic_slug,
-                max_file_size=max_file_size,
-                on_progress=lambda received, total_bytes: (
-                    download_tracker.update_bytes(received, total_bytes) if track_downloads else None
-                ),
-                user_id=user_id,
-            )
+            # Idle hangs are handled by httpx read timeout + robots fetch timeout.
+            # Keep a generous wall-clock cap so one stuck host cannot block forever,
+            # but do not cut off large/slow ebook transfers that are still making progress.
+            item_timeout = max(900.0, float(cfg.env.download_timeout_seconds) * 8.0)
+            try:
+                updated = await asyncio.wait_for(
+                    downloader.download_paper(
+                        paper_id,
+                        paper,
+                        topic_slug,
+                        max_file_size=max_file_size,
+                        on_progress=lambda received, total_bytes: (
+                            download_tracker.update_bytes(received, total_bytes) if track_downloads else None
+                        ),
+                        user_id=user_id,
+                    ),
+                    timeout=item_timeout,
+                )
+            except TimeoutError:
+                paper.status = PaperStatus.FAILED
+                paper.extra["error"] = f"Timed out after {item_timeout:.0f}s"
+                from app.database.connection import session_scope
+                from app.database.repository import upsert_download
+
+                with session_scope() as session:
+                    upsert_download(
+                        session,
+                        paper_id,
+                        pdf_url=paper.pdf_url,
+                        status=PaperStatus.FAILED.value,
+                        error=paper.extra["error"],
+                        increment_retry=True,
+                    )
+                updated = paper
             if track_downloads:
                 download_tracker.finish_item(updated.status.value, error=updated.extra.get("error"), title=paper.title)
             if job_progress is not None:
@@ -849,18 +878,20 @@ async def download_open_access_papers(
     limit: int | None = None,
     topic_slug: str = "library",
     user_id: int | None = None,
+    work_type: str = "",
 ) -> dict[str, int]:
-    """Download pending legally available PDFs, optionally limited to one search."""
+    """Download pending legally available PDFs, optionally limited to one search / work type."""
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
     from app.database.connection import session_scope
     from app.database.models import PaperAuthor, SearchResult
-    from app.database.repository import paper_to_record
+    from app.database.repository import ebook_has_pdf_clause, paper_to_record, work_type_clause
 
     cfg = get_runtime_config()
     cap = resolve_download_limit(limit, fallback=cfg.download_limit)
     stats = {"attempted": 0, "downloaded": 0, "failed": 0, "skipped": 0}
+    kind = (work_type or "").strip().lower()
     async with AsyncHttpClient(cfg) as client:
         downloader = DownloadService(client, cfg)
         with session_scope() as session:
@@ -872,6 +903,11 @@ async def download_open_access_papers(
                 )
                 .where(Paper.status.in_(["OA_AVAILABLE", "FOUND", "FAILED"]))
             )
+            type_clause = work_type_clause(kind)
+            if type_clause is not None:
+                stmt = stmt.where(type_clause)
+            if kind == "ebook":
+                stmt = stmt.where(ebook_has_pdf_clause())
             if search_id is not None:
                 stmt = stmt.join(SearchResult, SearchResult.paper_id == Paper.id).where(
                     SearchResult.search_query_id == search_id
@@ -911,10 +947,10 @@ async def resume_downloading_papers(
     limit: int | None = None,
     topic_slug: str = "library",
     user_id: int | None = None,
-    statuses: tuple[str, ...] | None = None,
+    statuses: tuple[str, ...] = (PaperStatus.DOWNLOADING.value,),
 ) -> dict[str, int]:
-    """Retry stuck DOWNLOADING rows and papers stopped by the user (still have a PDF URL)."""
-    from sqlalchemy import or_, select
+    """Retry papers whose download row is stuck in DOWNLOADING (still has a PDF URL)."""
+    from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
     from app.database.connection import session_scope
@@ -924,7 +960,6 @@ async def resume_downloading_papers(
     cfg = get_runtime_config()
     cap = resolve_download_limit(limit, fallback=cfg.download_limit)
     stats = {"attempted": 0, "downloaded": 0, "failed": 0, "skipped": 0}
-    results: list[tuple[int, PaperRecord]] = []
     async with AsyncHttpClient(cfg) as client:
         downloader = DownloadService(client, cfg)
         with session_scope() as session:
@@ -935,17 +970,9 @@ async def resume_downloading_papers(
                     selectinload(Paper.authors).selectinload(PaperAuthor.author),
                     selectinload(Paper.downloads),
                 )
+                .where(Download.status.in_(list(statuses)))
                 .order_by(Download.id.desc())
             )
-            if statuses:
-                stmt = stmt.where(Download.status.in_(list(statuses)))
-            else:
-                stmt = stmt.where(
-                    or_(
-                        Download.status == PaperStatus.DOWNLOADING.value,
-                        Download.error_message == "Stopped by user",
-                    )
-                )
             if cap is not None:
                 stmt = stmt.limit(cap)
             papers = session.scalars(stmt).unique().all()
@@ -1099,19 +1126,41 @@ async def recheck_paywalled_open_access(
 
 
 def stop_downloads(*, clear_stuck: bool = True) -> dict[str, int | bool]:
-    """Cancel an active batch and mark DOWNLOADING rows as stopped."""
+    """Cancel an active batch, drain the queue, and clear orphaned DOWNLOADING rows.
+
+    First click sets a sticky halt and requests a cooperative stop. A second click
+    while still "Stopping…" force-clears the Downloads tracker so ebook/OA batches
+    can start again (network hangs otherwise leave the UI blocked forever).
+    """
     from app.database.connection import session_scope
     from app.database.repository import mark_downloading_stopped
-    from app.services.download_queue import drain_pending_download_jobs
-    from app.services.progress import request_download_stop
+    from app.services.download_queue import drain_pending_download_jobs, force_reset_download_queue
+    from app.services.progress import (
+        download_tracker,
+        force_clear_download_batch,
+        request_download_stop,
+    )
 
+    snap = download_tracker.snapshot()
+    already_stopping = bool(snap.get("cancelled")) and bool(snap.get("active"))
     was_active = request_download_stop()
     drained = drain_pending_download_jobs()
+    forced = False
+    if already_stopping:
+        force_clear_download_batch(message="Downloads force-stopped.")
+        force_reset_download_queue()
+        forced = True
     cleared = 0
     if clear_stuck:
         with session_scope() as session:
             cleared = mark_downloading_stopped(session, error="Stopped by user")
-    return {"ok": True, "was_active": was_active, "cleared": cleared, "drained": drained}
+    return {
+        "ok": True,
+        "was_active": was_active,
+        "cleared": cleared,
+        "drained": drained,
+        "forced": forced,
+    }
 
 
 def write_topic_metadata_csv(papers: list[PaperRecord], topic_slug: str, config: AppConfig | None = None) -> Path:

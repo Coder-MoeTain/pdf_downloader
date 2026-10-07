@@ -52,9 +52,11 @@
     logsEl.scrollTop = logsEl.scrollHeight;
   }
 
-  function setStopVisible(active) {
+  function setStopVisible(active, cancelled) {
     var btn = document.getElementById("downloadStopBtn");
-    if (btn) btn.hidden = !active;
+    if (!btn) return;
+    btn.hidden = !active;
+    btn.textContent = cancelled ? "Force stop" : "Stop";
   }
 
   function updateProgress(data) {
@@ -87,7 +89,7 @@
     if (show) panel.classList.remove("d-none");
     else if (!active) panel.classList.add("d-none");
 
-    setStopVisible(active);
+    setStopVisible(active, !!data.cancelled);
 
     if (label) label.textContent = data.message || "Downloading…";
     if (counts) counts.textContent = data.total ? (data.current || 0) + "/" + data.total : "";

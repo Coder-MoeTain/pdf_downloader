@@ -25,12 +25,15 @@
     {% if oa_pending %}
     <form method="post" action="/download-oa" class="m-0" data-busy="Starting…">
       {% if latest %}<input type="hidden" name="latest" value="1">{% endif %}
-      <button class="btn btn-primary" type="submit">Download {{ oa_pending }} open-access PDF{{ "s" if oa_pending != 1 else "" }}</button>
+      {% if library_kind == 'ebooks' %}<input type="hidden" name="kind" value="ebooks">{% endif %}
+      <button class="btn btn-primary" type="submit">Download {{ oa_pending }} {% if library_kind == 'ebooks' %}ebook{% else %}open-access{% endif %} PDF{{ "s" if oa_pending != 1 else "" }}</button>
     </form>
     {% endif %}
+    {% if library_kind != 'ebooks' %}
     <form method="post" action="/library/recheck-oa" class="m-0" data-busy="Checking…">
       <button class="btn btn-outline-primary" type="submit"{% if oa_recheck_pending %} title="Ask Unpaywall again for {{ oa_recheck_pending }} paywalled paper{{ 's' if oa_recheck_pending != 1 else '' }}"{% endif %}>Re-check Unpaywall{% if oa_recheck_pending %} ({{ oa_recheck_pending }}){% endif %}</button>
     </form>
+    {% endif %}
   </div>
 </div>
 

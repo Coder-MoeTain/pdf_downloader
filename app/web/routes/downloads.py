@@ -64,7 +64,11 @@ async def download_paper_pdf(request: Request, paper_id: int):
 
 
 @router.post("/download-oa")
-async def download_oa(request: Request, latest: str | None = Form(None)):
+async def download_oa(
+    request: Request,
+    latest: str | None = Form(None),
+    kind: str | None = Form(None),
+):
     search_id = None
     if latest:
         with session_scope() as session:
@@ -72,14 +76,21 @@ async def download_oa(request: Request, latest: str | None = Form(None)):
             if row:
                 search_id = row.id
     user_id = _request_user_id(request)
-    record_usage(request, "download", "Open-access PDF batch")
+    work_type = "ebook" if (kind or "").strip().lower() == "ebooks" else ""
+    label = "ebook" if work_type == "ebook" else "open-access"
+    record_usage(request, "download", f"{label} PDF batch")
     if oa_download_active():
         set_flash(request, "A PDF download is already running. Watch progress on the Downloads page.", "info")
-    elif enqueue_oa_download(search_id=search_id, user_id=user_id):
+    elif enqueue_oa_download(search_id=search_id, user_id=user_id, work_type=work_type):
         set_flash(
             request,
-            "Downloading legally available PDFs. This can take a few minutes — "
-            "you can browse other pages while downloads continue in the background.",
+            (
+                "Downloading legally available ebook PDFs. This can take a few minutes — "
+                "you can browse other pages while downloads continue in the background."
+                if work_type == "ebook"
+                else "Downloading legally available PDFs. This can take a few minutes — "
+                "you can browse other pages while downloads continue in the background."
+            ),
             "info",
         )
     else:
@@ -101,12 +112,11 @@ async def downloads_stop(request: Request, paper_id: int | None = Form(None)):
         level = "info" if cleared else "warning"
     else:
         result = stop_downloads(clear_stuck=True)
-        if result.get("was_active"):
-            cleared = int(result.get("cleared") or 0)
-            message = (
-                f"Downloads stopped{f' · {cleared} marked stopped' if cleared else ''}. "
-                "Use Resume when you want to continue."
-            )
+        if result.get("forced"):
+            message = "Downloads force-stopped. You can start ebook/OA downloads again."
+            level = "info"
+        elif result.get("was_active"):
+            message = "Stopping downloads… If this hangs, press Stop again to force-clear."
             level = "info"
         elif result.get("cleared"):
             message = f"Stopped {result['cleared']} stuck download(s). Use Resume to try again."

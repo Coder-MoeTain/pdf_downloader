@@ -590,19 +590,46 @@ def _tag_column_matches(column, tag: str):
     )
 
 
+def _ebook_source_match_clause():
+    """Match a single ebook source slug or a merged provider string (a+b+c)."""
+    from app.database.ebook_sources import BOOK_LIBRARY_SOURCE_SLUGS
+
+    slugs = tuple(BOOK_LIBRARY_SOURCE_SLUGS)
+    parts = [Paper.source.in_(slugs)]
+    for slug in slugs:
+        parts.append(Paper.source.like(f"{slug}+%"))
+        parts.append(Paper.source.like(f"%+{slug}"))
+        parts.append(Paper.source.like(f"%+{slug}+%"))
+    return or_(*parts)
+
+
+def _paper_like_ebook_clause():
+    """Reports/papers that must leave the ebook collection even if source is IA/OpenAlex books."""
+    # coalesce keeps NOT(clause) boolean on SQLite/MySQL when publisher/source is NULL.
+    publisher = func.coalesce(Paper.publisher, "")
+    source = func.coalesce(Paper.source, "")
+    title = func.coalesce(Paper.title, "")
+    return or_(
+        title.ilike("DTIC%"),
+        title.ilike("%technical report%"),
+        title.ilike("%technical memorandum%"),
+        title.ilike("%conference proceedings%"),
+        title.ilike("%abstract collection%"),
+        publisher.ilike("%Defense Technical Information%"),
+        publisher.ilike("%NASA Technical Reports%"),
+        publisher.ilike("%Naval Postgraduate%"),
+        source.in_(("nasa_ntrs_eo_books", "nasa_ntrs_tech_books", "nasa_ntrs")),
+    )
+
+
 def work_type_clause(work_type: str = ""):
     kind = (work_type or "").strip().lower()
     if kind == "ebook":
-        from app.database.ebook_sources import BOOK_LIBRARY_SOURCE_SLUGS
-
         # Only catalog books: papers/reports tagged ebook must not appear here.
         return and_(
             Paper.work_type == "ebook",
-            or_(
-                Paper.source.is_(None),
-                Paper.source == "",
-                Paper.source.in_(tuple(BOOK_LIBRARY_SOURCE_SLUGS)),
-            ),
+            _ebook_source_match_clause(),
+            ~_paper_like_ebook_clause(),
         )
     if kind == "article":
         return or_(Paper.work_type == "article", Paper.work_type.is_(None), Paper.work_type == "")
@@ -611,17 +638,33 @@ def work_type_clause(work_type: str = ""):
 
 def reclassify_non_ebook_records(session: Session) -> int:
     """Turn paper-like rows tagged as ebooks back into articles."""
-    from app.database.ebook_sources import BOOK_LIBRARY_SOURCE_SLUGS
+    from app.database.ebook_sources import RETIRED_EBOOK_SOURCE_SLUGS
 
+    wrong_source = and_(
+        Paper.work_type == "ebook",
+        Paper.source.is_not(None),
+        Paper.source != "",
+        ~_ebook_source_match_clause(),
+    )
+    retired = and_(
+        Paper.work_type == "ebook",
+        or_(
+            Paper.source.in_(tuple(RETIRED_EBOOK_SOURCE_SLUGS | {"nasa_ntrs"})),
+            _paper_like_ebook_clause(),
+        ),
+    )
     result = session.execute(
-        update(Paper)
-        .where(Paper.work_type == "ebook")
-        .where(Paper.source.is_not(None))
-        .where(Paper.source != "")
-        .where(Paper.source.notin_(tuple(BOOK_LIBRARY_SOURCE_SLUGS)))
-        .values(work_type="article")
+        update(Paper).where(or_(wrong_source, retired)).values(work_type="article")
     )
     count = int(result.rowcount or 0)
+    # Empty-source ebook rows with no catalog slug are not books.
+    empty = session.execute(
+        update(Paper)
+        .where(Paper.work_type == "ebook")
+        .where(or_(Paper.source.is_(None), Paper.source == ""))
+        .values(work_type="article")
+    )
+    count += int(empty.rowcount or 0)
     if count:
         invalidate_library_facets_cache()
     return count
@@ -860,7 +903,10 @@ def library_facets(session: Session, *, force: bool = False, light: bool = False
     visible_total = sum(status_counts.values())
     downloadable = session.scalar(select(func.count(Paper.id)).where(downloadable_clause(), *visible)) or 0
     open_access = session.scalar(select(func.count(Paper.id)).where(open_access_clause(), *visible)) or 0
-    paywalled = session.scalar(select(func.count(Paper.id)).where(Paper.status == PaperStatus.PAYWALLED.value)) or 0
+    paywalled_where = [Paper.status == PaperStatus.PAYWALLED.value]
+    if type_clause is not None:
+        paywalled_where.append(type_clause)
+    paywalled = session.scalar(select(func.count(Paper.id)).where(*paywalled_where)) or 0
 
     categories: list[dict] = []
     sources: list[dict] = []

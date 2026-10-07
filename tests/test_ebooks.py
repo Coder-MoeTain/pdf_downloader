@@ -78,6 +78,9 @@ def test_internet_archive_skips_journal_papers():
     )
     assert paper is None
     assert _looks_like_research_paper("Journal of Geophysical Research", "")
+    assert _looks_like_research_paper("DTIC ADA590405: Capability Set 13", "")
+    assert _looks_like_research_paper("A LES-5 BEACON RECEIVER", "", "Defense Technical Information Center")
+    assert _looks_like_research_paper("NASA Technical Reports Server (NTRS) study", "")
     assert not _looks_like_research_paper("Introduction to Remote Sensing", "An open textbook.")
 
 
@@ -102,6 +105,7 @@ def test_library_splits_papers_and_ebooks(tmp_db):
                 work_type="ebook",
                 category="Data Science",
                 pdf_url="https://example.org/ebook-split.pdf",
+                source_provider="doab_data_science",
                 authors=[],
             ),
         )
@@ -113,6 +117,7 @@ def test_library_splits_papers_and_ebooks(tmp_db):
                 status=PaperStatus.OA_AVAILABLE,
                 work_type="ebook",
                 category="Data Science",
+                source_provider="doab_data_science",
             ),
         )
         papers, paper_total = query_library(session, work_type="article")
@@ -147,6 +152,7 @@ def test_library_ebooks_page(tmp_db):
                 publication_year=2024,
                 cover_url="https://example.org/cover.png",
                 pdf_url="https://example.org/satellite-handbook.pdf",
+                source_provider="doab_remote_sensing",
             ),
         )
         save_paper(
@@ -157,6 +163,7 @@ def test_library_ebooks_page(tmp_db):
                 status=PaperStatus.OA_AVAILABLE,
                 work_type="ebook",
                 category="Data Science",
+                source_provider="doab_data_science",
             ),
         )
     client = login_admin(TestClient(app))
@@ -216,8 +223,20 @@ def test_library_ebooks_page_hides_research_papers(tmp_db):
                 source_provider="nasa_ntrs_eo_books",
             ),
         )
+        save_paper(
+            session,
+            PaperRecord(
+                title="DTIC ADA590405: Capability Set 13",
+                doi="10.1000/dtic-as-ebook",
+                status=PaperStatus.OA_AVAILABLE,
+                work_type="ebook",
+                pdf_url="https://example.org/dtic.pdf",
+                source_provider="ia_aerospace",
+                publisher="Defense Technical Information Center",
+            ),
+        )
         moved = reclassify_non_ebook_records(session)
-        assert moved == 2
+        assert moved == 3
 
     client = login_admin(TestClient(app))
     ebooks_page = client.get("/library?kind=ebooks")
@@ -226,10 +245,15 @@ def test_library_ebooks_page_hides_research_papers(tmp_db):
     assert "Open Remote Sensing Handbook" in ebooks_page.text
     assert "A journal article tagged as an ebook" not in ebooks_page.text
     assert "NASA technical report stamped ebook" not in ebooks_page.text
+    assert "DTIC ADA590405" not in ebooks_page.text
+    assert "Re-check Unpaywall" not in ebooks_page.text
+    assert 'name="kind" value="ebooks"' in ebooks_page.text
     assert papers_page.status_code == 200
     assert "A journal article tagged as an ebook" in papers_page.text
     assert "NASA technical report stamped ebook" in papers_page.text
+    assert "DTIC ADA590405" in papers_page.text
     assert "Open Remote Sensing Handbook" not in papers_page.text
+    assert "Re-check Unpaywall" in papers_page.text
 
 
 def test_search_filters_ebook_providers():
@@ -344,6 +368,7 @@ def test_ebooks_latest_results_exclude_research_papers(tmp_db):
                 work_type="ebook",
                 category="Electronics",
                 pdf_url="https://example.org/ebook.pdf",
+                source_provider="doab_electronics",
             ),
         )
         search = create_search_query(session, "radar", ["radar"], {"collection": "ebooks"})

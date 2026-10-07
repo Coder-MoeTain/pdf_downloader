@@ -80,6 +80,7 @@ def test_stop_downloads_cancels_active_batch_and_clears_rows(tmp_db):
     result = stop_downloads(clear_stuck=True)
     assert result["was_active"] is True
     assert result["cleared"] == 1
+    assert result.get("forced") is False
     assert download_tracker.is_cancelled() is True
     assert download_stop_requested() is True
     # Next claim must still see the halt (do not auto-resume).
@@ -99,3 +100,27 @@ def test_clear_download_halt_allows_downloads_again(tmp_db):
     clear_download_halt()
     assert downloads_are_halted() is False
     assert download_stop_requested() is False
+
+
+def test_second_stop_force_clears_stuck_batch(tmp_db):
+    from app.services.download_queue import enqueue_oa_download, force_reset_download_queue
+    from app.services.progress import force_clear_download_batch
+
+    _reset_download_state()
+    force_reset_download_queue()
+    token = try_claim_download_batch(3, "Hung batch")
+    assert token is not None
+    first = stop_downloads(clear_stuck=True)
+    assert first["was_active"] is True
+    assert first.get("forced") is False
+    assert download_tracker.snapshot()["active"] is True
+    assert enqueue_oa_download(search_id=None, user_id=1, work_type="ebook") is False
+
+    second = stop_downloads(clear_stuck=True)
+    assert second.get("forced") is True
+    assert download_tracker.snapshot()["active"] is False
+    assert download_tracker.is_cancelled() is False
+    assert enqueue_oa_download(search_id=None, user_id=1, work_type="ebook") is True
+    force_reset_download_queue()
+    force_clear_download_batch()
+    _reset_download_state()

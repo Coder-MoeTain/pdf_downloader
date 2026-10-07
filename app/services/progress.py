@@ -219,6 +219,19 @@ class ProgressTracker:
         with self._lock:
             self._state = self._empty()
 
+    def mark_force_stopped(self, message: str = "Downloads stopped.") -> None:
+        """End a stuck download batch immediately (UI + enqueue unblocked)."""
+        with self._lock:
+            self._append_log(message, "warning")
+            self._state["active"] = False
+            self._state["cancelled"] = False
+            self._state["phase"] = "cancelled"
+            self._state["message"] = message
+            self._state["paper_id"] = None
+            self._state["title"] = ""
+            if self._state.get("percent") is None and self._state.get("total"):
+                self._state["percent"] = 100
+
     def finish_search(
         self, *, error: str | None = None, stats: dict[str, Any] | None = None, cancelled: bool = False
     ) -> None:
@@ -394,6 +407,22 @@ def request_download_stop(message: str = "Stopping downloads…") -> bool:
     if not active:
         download_tracker.log(message, "warning")
     return active
+
+
+def force_clear_download_batch(*, message: str = "Downloads stopped.") -> None:
+    """Abandon a stuck batch so a new Downloads-page queue can start.
+
+    Cooperative cancel can hang while a PDF stream waits on the network. This
+    drops ownership and marks the tracker idle; an in-flight worker may still
+    finish quietly but must not block new enqueue.
+    """
+    global _download_batch_token, _download_halted
+    with _download_batch_lock:
+        _download_batch_token = None
+        _download_halted = False
+        snap = download_tracker.snapshot()
+        if snap.get("active") or snap.get("cancelled") or snap.get("logs"):
+            download_tracker.mark_force_stopped(message)
 
 
 def download_stop_requested() -> bool:

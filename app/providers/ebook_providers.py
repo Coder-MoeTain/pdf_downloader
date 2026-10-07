@@ -95,15 +95,35 @@ class _OapenSubjectProvider(_DoabSubjectProvider):
 
 _OPENALEX_BOOK_TYPES = frozenset({"book", "edited-book", "monograph", "reference-book"})
 _PAPER_LIKE_RE = re.compile(
-    r"\b(arxiv|doi:|proceedings of|journal of|technical (memorandum|report|note)|"
-    r"nasa/?tm|conference paper)\b",
+    r"\b("
+    r"arxiv|doi:|proceedings of|journal of|"
+    r"technical (memorandum|report|note)|"
+    r"nasa/?tm|conference paper|conference proceedings|"
+    r"dtic|defense technical information|"
+    r"nasa technical reports|ntrs\.nasa|"
+    r"ada\d{5,}|"
+    r"calhoun|naval postgraduate school|"
+    r"abstract collection"
+    r")\b",
+    re.I,
+)
+_PAPER_LIKE_PUBLISHER_RE = re.compile(
+    r"\b("
+    r"defense technical information|dtic|"
+    r"nasa technical reports|naval postgraduate|"
+    r"ieee|acm digital library"
+    r")\b",
     re.I,
 )
 
 
-def _looks_like_research_paper(title: str, description: str = "") -> bool:
+def _looks_like_research_paper(title: str, description: str = "", publisher: str = "") -> bool:
+    """True for reports/papers that must not enter the ebook library."""
     hay = f"{title} {description}".strip()
-    return bool(hay) and bool(_PAPER_LIKE_RE.search(hay))
+    if hay and _PAPER_LIKE_RE.search(hay):
+        return True
+    pub = (publisher or "").strip()
+    return bool(pub) and bool(_PAPER_LIKE_PUBLISHER_RE.search(pub))
 
 
 def _openalex_is_book(item: dict[str, Any] | None) -> bool:
@@ -153,7 +173,12 @@ class _OpenAlexBookProvider(OpenAlexProvider):
         for item in results:
             if not _openalex_is_book(item):
                 continue
-            papers.append(_stamp_ebook(self._parse(item), spec))
+            paper = self._parse(item)
+            if paper is None:
+                continue
+            if _looks_like_research_paper(paper.title, paper.abstract or "", paper.publisher or ""):
+                continue
+            papers.append(_stamp_ebook(paper, spec))
         return [paper for paper in papers if paper]
 
 
@@ -207,14 +232,16 @@ class _InternetArchiveBooksProvider(ResearchProvider):
         ident = _text(item.get("identifier"))
         if not title or not ident:
             return None
-        if _looks_like_research_paper(title, _text(item.get("description"))):
+        description = _text(item.get("description"))
+        # IA often hosts DTIC / NASA technical reports under mediatype:texts.
+        if _looks_like_research_paper(title, description):
             return None
         creators = item.get("creator")
         year = _year(item.get("year") or item.get("publicdate"))
         landing = f"https://archive.org/details/{ident}"
         return PaperRecord(
             title=title,
-            abstract=_text(item.get("description")),
+            abstract=description,
             authors=_authors_from(creators) if creators else [],
             publication_year=year,
             publisher="Internet Archive",
