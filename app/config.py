@@ -62,7 +62,7 @@ class EnvSettings(BaseSettings):
     https_redirect: bool = False
     app_host: str = "127.0.0.1"
     app_port: int = 8000
-    session_max_age: int = 60 * 60 * 12
+    session_max_age: int = 60 * 60 * 24 * 14
     login_max_attempts: int = 5
     login_window_seconds: int = 900
     admin_email: str = ""
@@ -363,6 +363,53 @@ WEAK_SESSION_SECRETS = {
 }
 
 _EPHEMERAL_SESSION_SECRET = ""
+SESSION_SECRET_FILE = ROOT_DIR / "data" / ".session_secret"
+DEFAULT_SESSION_MAX_AGE = 60 * 60 * 24 * 14
+
+
+def session_cookie_max_age() -> int:
+    try:
+        value = int(load_config().env.session_max_age or 0)
+    except Exception:
+        try:
+            value = int(os.environ.get("SESSION_MAX_AGE") or 0)
+        except (TypeError, ValueError):
+            value = 0
+    if value < 3600:
+        return DEFAULT_SESSION_MAX_AGE
+    return value
+
+
+def _read_persisted_session_secret() -> str:
+    try:
+        stored = SESSION_SECRET_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return stored if is_strong_secret(stored) else ""
+
+
+def _write_persisted_session_secret(value: str) -> None:
+    path = SESSION_SECRET_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(value.strip() + "\n", encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _ensure_persisted_session_secret() -> str:
+    stored = _read_persisted_session_secret()
+    if stored:
+        return stored
+    import secrets as _secrets
+
+    created = _secrets.token_urlsafe(48)
+    try:
+        _write_persisted_session_secret(created)
+    except OSError:
+        return created
+    return created
 
 
 def app_env() -> str:
@@ -460,7 +507,7 @@ def https_assumed(request: Any | None = None) -> bool:
 
 
 def session_secret_value() -> str:
-    """Return the signing secret. Development may use a process-ephemeral value."""
+    """Return the cookie-signing secret. Persist it so PM2 restarts keep logins."""
     global _EPHEMERAL_SESSION_SECRET
     try:
         configured = (load_config().env.session_secret or "").strip()
@@ -468,6 +515,9 @@ def session_secret_value() -> str:
         configured = (os.environ.get("SESSION_SECRET") or "").strip()
     if is_strong_secret(configured):
         return configured
+    persisted = _ensure_persisted_session_secret()
+    if is_strong_secret(persisted):
+        return persisted
     env = app_env()
     if env == "production":
         raise RuntimeError(
@@ -488,6 +538,8 @@ def validate_startup_config(cfg: AppConfig | None = None) -> None:
     cfg = cfg or load_config()
     env = app_env()
     secret = (cfg.env.session_secret or os.environ.get("SESSION_SECRET") or "").strip()
+    if not is_strong_secret(secret):
+        secret = _read_persisted_session_secret() or _ensure_persisted_session_secret()
     configured_hosts = _configured_allowed_hosts()
     proxies = trusted_proxy_ips()
     if env == "production":

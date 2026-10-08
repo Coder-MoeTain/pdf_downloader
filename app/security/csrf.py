@@ -112,6 +112,8 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         token = get_csrf_token(request)
         response = await call_next(request)
         token = str(request.session.get(CSRF_SESSION_KEY) or token)
+        from app.config import session_cookie_max_age
+
         response.set_cookie(
             CSRF_COOKIE,
             token,
@@ -119,7 +121,7 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             samesite="lax",
             secure=_cookie_secure(request),
             path="/",
-            max_age=60 * 60 * 12,
+            max_age=session_cookie_max_age(),
         )
         return response
 

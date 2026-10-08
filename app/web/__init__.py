@@ -40,6 +40,7 @@ from app.config import (
     allowed_hosts,
     app_env,
     https_assumed,
+    session_cookie_max_age,
     session_secret_value,
     trusted_proxy_ips,
     validate_startup_config,
@@ -90,7 +91,7 @@ app.add_middleware(
     session_cookie="cs_session",
     same_site="lax",
     https_only=_https_only,
-    max_age=60 * 60 * 12,
+    max_age=session_cookie_max_age(),
 )
 app.add_middleware(SecurityHeadersMiddleware)
 _proxy_ips = trusted_proxy_ips()

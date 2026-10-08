@@ -35,10 +35,38 @@ def test_production_requires_session_secret(monkeypatch):
 
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("SESSION_SECRET", "")
+    monkeypatch.setattr("app.config._read_persisted_session_secret", lambda: "")
+    monkeypatch.setattr("app.config._ensure_persisted_session_secret", lambda: "")
     load_config.cache_clear()
     cfg = AppConfig(env=EnvSettings(app_env="production", session_secret=""))
     with pytest.raises(ConfigurationError):
         validate_startup_config(cfg)
+    load_config.cache_clear()
+
+
+def test_session_secret_survives_process_restart(tmp_path, monkeypatch):
+    from app import config as cfg
+
+    secret_file = tmp_path / ".session_secret"
+    monkeypatch.setattr(cfg, "SESSION_SECRET_FILE", secret_file)
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("SESSION_SECRET", "")
+    load_config.cache_clear()
+    cfg._EPHEMERAL_SESSION_SECRET = ""
+
+    class _Env:
+        session_secret = ""
+
+    class _Cfg:
+        env = _Env()
+
+    monkeypatch.setattr(cfg, "load_config", lambda: _Cfg())
+    first = cfg.session_secret_value()
+    cfg._EPHEMERAL_SESSION_SECRET = ""
+    second = cfg.session_secret_value()
+    assert is_strong_secret(first)
+    assert first == second
+    assert secret_file.read_text(encoding="utf-8").strip() == first
     load_config.cache_clear()
 
 
