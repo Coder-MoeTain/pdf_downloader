@@ -734,19 +734,22 @@ def apply_library_text_search(stmt, query: str):
     if not text:
         return stmt
     like = f"%{text}%"
-    # Title / DOI / journal / authors first; skip abstract ILIKE (full-table text scan).
-    return (
-        stmt.outerjoin(PaperAuthor)
-        .outerjoin(Author)
-        .where(
-            or_(
-                Paper.title.ilike(like),
-                Paper.keywords.ilike(like),
-                Paper.research_fields.ilike(like),
-                Paper.journal.ilike(like),
-                Paper.doi.ilike(like),
-                Author.name.ilike(like),
-            )
+    # EXISTS keeps one row per paper. A JOIN + DISTINCT on LONGTEXT columns
+    # fails or times out on MySQL (the research-papers library search).
+    author_hit = exists().where(
+        PaperAuthor.paper_id == Paper.id,
+        Author.id == PaperAuthor.author_id,
+        Author.name.ilike(like),
+    )
+    return stmt.where(
+        or_(
+            Paper.title.ilike(like),
+            Paper.keywords.ilike(like),
+            Paper.research_fields.ilike(like),
+            Paper.journal.ilike(like),
+            Paper.doi.ilike(like),
+            Paper.category.ilike(like),
+            author_hit,
         )
     )
 
@@ -856,8 +859,6 @@ def query_library(
         )
     count_stmt = apply_library_text_search(count_stmt, q)
     stmt = apply_library_text_search(stmt, q)
-    if q.strip():
-        stmt = stmt.distinct()
     count_stmt = apply_paper_filters(count_stmt, **filters)
     stmt = apply_paper_filters(stmt, **filters)
     stmt = apply_library_sort(stmt, sort, latest=bool(latest_search_id))

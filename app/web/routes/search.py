@@ -49,6 +49,28 @@ from app.web.ui import (
 router = APIRouter()
 
 
+def _optional_year(value: str) -> int | None:
+    text = (value or "").strip()
+    if not text:
+        return None
+    try:
+        year = int(text)
+    except ValueError:
+        return None
+    if year < 1000 or year > 2100:
+        return None
+    return year
+
+
+def _max_results_value(value: str, default: int = 50) -> int:
+    try:
+        count = int(str(value or "").strip() or default)
+    except ValueError:
+        count = default
+    return max(1, min(count, 500))
+
+
+
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     def _load() -> dict:
@@ -232,7 +254,7 @@ async def search_submit(
     query: str = Form(...),
     year_from: str = Form(""),
     year_to: str = Form(""),
-    max_results: int = Form(50),
+    max_results: str = Form("50"),
     open_access_only: str | None = Form(None),
     download: str | None = Form(None),
     sort: str = Form("relevance"),
@@ -242,9 +264,9 @@ async def search_submit(
 ):
     filters = filters_from_cli(
         query,
-        year_from=int(year_from) if year_from.strip() else None,
-        year_to=int(year_to) if year_to.strip() else None,
-        max_results=max_results,
+        year_from=_optional_year(year_from),
+        year_to=_optional_year(year_to),
+        max_results=_max_results_value(max_results),
         open_access_only=bool(open_access_only),
         no_download=not bool(download),
         sort=sort,
@@ -273,7 +295,7 @@ def search_save(
     name: str = Form(""),
     year_from: str = Form(""),
     year_to: str = Form(""),
-    max_results: int = Form(50),
+    max_results: str = Form("50"),
     open_access_only: str | None = Form(None),
     sort: str = Form("relevance"),
     source: str = Form(""),
@@ -286,9 +308,9 @@ def search_save(
     from app.database.repository import save_search_config
 
     filters = {
-        "year_from": int(year_from) if year_from.strip() else None,
-        "year_to": int(year_to) if year_to.strip() else None,
-        "max_results": max_results,
+        "year_from": _optional_year(year_from),
+        "year_to": _optional_year(year_to),
+        "max_results": _max_results_value(max_results),
         "open_access_only": bool(open_access_only),
         "sort": sort,
         "source": source.strip() or None,

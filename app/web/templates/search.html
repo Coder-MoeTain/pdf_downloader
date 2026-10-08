@@ -30,6 +30,7 @@
   <div class="col-lg-7">
     <form method="post" action="/search" class="card search-form" data-busy="Starting…">
       <fieldset>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="collection" id="collection" value="{{ collection }}">
       <div class="card-body">
         <div class="mb-3">
@@ -160,34 +161,6 @@
       </div>
     </form>
     <form method="post" action="/search/save" id="saveSearchForm" class="d-none"></form>
-    <script>
-      (function () {
-        var searchForm = document.querySelector("form.search-form");
-        var saveForm = document.getElementById("saveSearchForm");
-        if (!searchForm || !saveForm) return;
-        saveForm.addEventListener("submit", function () {
-          saveForm.innerHTML = "";
-          Array.prototype.forEach.call(searchForm.elements, function (el) {
-            if (!el.name || el.type === "submit") return;
-            var input = document.createElement("input");
-            input.type = "hidden";
-            input.name = el.name === "query" ? "query" : el.name;
-            if (el.type === "checkbox") {
-              if (!el.checked) return;
-              input.value = el.value || "1";
-            } else {
-              input.value = el.value;
-            }
-            saveForm.appendChild(input);
-          });
-          var name = document.createElement("input");
-          name.type = "hidden";
-          name.name = "name";
-          name.value = (searchForm.querySelector("#query") || {}).value || "Saved search";
-          saveForm.appendChild(name);
-        });
-      })();
-    </script>
   </div>
 
   <div class="col-lg-5">
@@ -294,6 +267,8 @@
             <div class="paper-meta mb-0">{{ row.query }}</div>
           </div>
           <form method="post" action="/search">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="collection" value="{{ collection }}">
             <input type="hidden" name="query" value="{{ row.query }}">
             <button class="btn btn-sm btn-outline-primary" type="submit">Run</button>
           </form>

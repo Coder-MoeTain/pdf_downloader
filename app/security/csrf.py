@@ -66,8 +66,20 @@ def csrf_failure(request: Request) -> Response:
             {"ok": False, "error": CsrfError.public_message, "code": "csrf"},
             status_code=403,
         )
-    referer = request.headers.get("referer") or "/"
-    return RedirectResponse(referer if referer.startswith("/") else "/", status_code=303)
+    from urllib.parse import urlparse
+
+    referer = request.headers.get("referer") or ""
+    parsed = urlparse(referer)
+    target = parsed.path if parsed.path.startswith("/") else "/"
+    if parsed.query and target != "/":
+        target = f"{target}?{parsed.query}"
+    try:
+        from app.web.flash import set_flash
+
+        set_flash(request, "That form expired. Submit it again.", "warning")
+    except Exception:
+        pass
+    return RedirectResponse(target, status_code=303)
 
 
 async def csrf_protect(request: Request) -> None:

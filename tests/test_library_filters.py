@@ -377,6 +377,73 @@ def test_library_shows_latest_downloaded_first(tmp_db):
     assert titles == ["Newer download", "Older download", "Metadata only"]
 
 
+def test_library_papers_page_search_matches_title_and_author(tmp_db):
+    from app.database.repository import query_library
+    from app.models.paper import AuthorRecord
+
+    with session_scope() as session:
+        save_paper(
+            session,
+            PaperRecord(
+                title="Federated learning for satellite networks",
+                doi="10.1000/lib-search-sat",
+                status=PaperStatus.OA_AVAILABLE,
+                work_type="article",
+                authors=[AuthorRecord(name="Ada Lovelace")],
+            ),
+        )
+        save_paper(
+            session,
+            PaperRecord(
+                title="Unrelated chemistry note",
+                doi="10.1000/lib-search-chem",
+                status=PaperStatus.OA_AVAILABLE,
+                work_type="article",
+            ),
+        )
+        by_title, title_total = query_library(session, q="satellite", work_type="article")
+        by_author, author_total = query_library(session, q="Lovelace", work_type="article")
+        assert title_total == 1
+        assert by_title[0].title == "Federated learning for satellite networks"
+        assert author_total == 1
+        assert by_author[0].title == "Federated learning for satellite networks"
+
+    client = login_admin(TestClient(app))
+    page = client.get("/library?q=satellite")
+    assert page.status_code == 200
+    assert "Federated learning for satellite networks" in page.text
+    assert "Unrelated chemistry note" not in page.text
+
+
+def test_papers_search_form_queues_job(tmp_db, monkeypatch):
+    captured = {}
+
+    def fake_enqueue(*, user_id, query, filters):
+        captured["query"] = query
+        captured["collection"] = getattr(filters, "collection", None)
+        return 99
+
+    monkeypatch.setattr("app.web.routes.search.enqueue_search", fake_enqueue)
+    client = login_admin(TestClient(app))
+    page = client.get("/search")
+    assert page.status_code == 200
+    assert 'name="csrf_token"' in page.text
+    started = client.post(
+        "/search",
+        data={
+            "query": "reinforcement learning for intrusion detection",
+            "collection": "papers",
+            "max_results": "25",
+            "sort": "relevance",
+        },
+        follow_redirects=False,
+    )
+    assert started.status_code == 303
+    assert started.headers["location"] == "/search?live=1&job=99"
+    assert captured["query"] == "reinforcement learning for intrusion detection"
+    assert captured["collection"] == "papers"
+
+
 def test_downloads_pagination_and_search(tmp_db):
     from app.database.repository import upsert_download
 
