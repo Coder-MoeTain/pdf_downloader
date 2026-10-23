@@ -179,6 +179,76 @@ def test_library_ebooks_page(tmp_db):
     assert 'href="/library?kind=ebooks"' in papers_page.text
 
 
+def test_library_needs_pdf_filter_excludes_failed_and_downloaded(tmp_db):
+    from fastapi.testclient import TestClient
+
+    from app.database.connection import session_scope
+    from app.database.repository import count_oa_pdf_pending, save_paper, upsert_download
+    from app.web import app
+    from tests.conftest import login_admin
+
+    with session_scope() as session:
+        pending = save_paper(
+            session,
+            PaperRecord(
+                title="Pending ebook PDF",
+                doi="10.1000/ebook-pending",
+                status=PaperStatus.OA_AVAILABLE,
+                work_type="ebook",
+                category="Data Science",
+                pdf_url="https://example.org/pending.pdf",
+                source_provider="doab_data_science",
+            ),
+        )
+        saved = save_paper(
+            session,
+            PaperRecord(
+                title="Already on server ebook",
+                doi="10.1000/ebook-saved",
+                status=PaperStatus.DOWNLOADED,
+                work_type="ebook",
+                category="Data Science",
+                pdf_url="https://example.org/saved.pdf",
+                source_provider="doab_data_science",
+            ),
+        )
+        failed = save_paper(
+            session,
+            PaperRecord(
+                title="Failed ebook PDF",
+                doi="10.1000/ebook-failed",
+                status=PaperStatus.FAILED,
+                work_type="ebook",
+                category="Data Science",
+                pdf_url="https://example.org/failed.pdf",
+                source_provider="doab_data_science",
+            ),
+        )
+        upsert_download(
+            session,
+            saved.id,
+            pdf_url="https://example.org/saved.pdf",
+            status=PaperStatus.DOWNLOADED.value,
+            local_path="research_library/saved.pdf",
+            file_size=12,
+        )
+        assert pending.id and failed.id
+        assert count_oa_pdf_pending(session, work_type="ebook") == 1
+
+    client = login_admin(TestClient(app))
+    page = client.get("/library?kind=ebooks")
+    assert page.status_code == 200
+    assert "Needs PDF" in page.text
+    assert "Download 1 ebook PDF" in page.text
+    assert "Failed ebook PDF" not in page.text
+
+    pending_page = client.get("/library?kind=ebooks&pending=1")
+    assert pending_page.status_code == 200
+    assert "Pending ebook PDF" in pending_page.text
+    assert "Already on server ebook" not in pending_page.text
+    assert "Failed ebook PDF" not in pending_page.text
+
+
 def test_library_ebooks_page_hides_research_papers(tmp_db):
     from fastapi.testclient import TestClient
 

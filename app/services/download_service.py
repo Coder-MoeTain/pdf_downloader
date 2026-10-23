@@ -886,7 +886,13 @@ async def download_open_access_papers(
 
     from app.database.connection import session_scope
     from app.database.models import PaperAuthor, SearchResult
-    from app.database.repository import ebook_has_pdf_clause, paper_to_record, work_type_clause
+    from app.database.repository import (
+        ebook_has_pdf_clause,
+        oa_pdf_pending_clause,
+        paper_to_record,
+        visible_paper_clauses,
+        work_type_clause,
+    )
 
     cfg = get_runtime_config()
     cap = resolve_download_limit(limit, fallback=cfg.download_limit)
@@ -901,7 +907,7 @@ async def download_open_access_papers(
                     selectinload(Paper.authors).selectinload(PaperAuthor.author),
                     selectinload(Paper.downloads),
                 )
-                .where(Paper.status.in_(["OA_AVAILABLE", "FOUND", "FAILED"]))
+                .where(oa_pdf_pending_clause(), *visible_paper_clauses())
             )
             type_clause = work_type_clause(kind)
             if type_clause is not None:

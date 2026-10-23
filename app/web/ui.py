@@ -299,6 +299,8 @@ def library_href(current: dict | None = None, **overrides) -> str:
         pairs.append(("oa", "1"))
     if merged.get("pdf"):
         pairs.append(("pdf", "1"))
+    if merged.get("pending") or merged.get("pending_pdf"):
+        pairs.append(("pending", "1"))
     try:
         min_rating = int(merged.get("min_rating") or 0)
     except (TypeError, ValueError):

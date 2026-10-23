@@ -76,7 +76,7 @@ async def download_oa(
             if row:
                 search_id = row.id
     user_id = _request_user_id(request)
-    work_type = "ebook" if (kind or "").strip().lower() == "ebooks" else ""
+    work_type = "ebook" if (kind or "").strip().lower() == "ebooks" else "article"
     label = "ebook" if work_type == "ebook" else "open-access"
     record_usage(request, "download", f"{label} PDF batch")
     if oa_download_active():

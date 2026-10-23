@@ -4,21 +4,21 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
 from app.auth import (
     user_is_admin,
 )
 from app.database.connection import retry_on_sqlite_lock, session_scope
-from app.database.models import Paper, SearchQuery, SearchResult
+from app.database.models import Paper, SearchQuery
 from app.database.repository import (
+    count_oa_pdf_pending,
     delete_library_paper,
     download_user_options,
     library_facets,
     query_library,
     set_paper_rating,
-    work_type_clause,
 )
 from app.models.paper import PaperStatus
 from app.services.download_queue import enqueue_oa_recheck, oa_download_active
@@ -71,29 +71,46 @@ def library_page(
 ):
     status = status.strip().upper()
     access = access.strip().lower()
+    pending = request.query_params.get("pending", "").strip().lower() in {"1", "true", "yes"}
     if access == "open":
         oa = 1
         pdf = 0
+        pending = False
         status = ""
     elif access == "paywalled":
         status = PaperStatus.PAYWALLED.value
         oa = 0
         pdf = 0
+        pending = False
     elif access == "downloadable":
         pdf = 1
         oa = 0
+        pending = False
+        status = ""
+    elif access == "pending":
+        pending = True
+        oa = 0
+        pdf = 0
         status = ""
     downloadable = bool(pdf)
     open_access = bool(oa)
+    pending_pdf = bool(pending)
     # Access chips are exclusive: prefer the most specific requested filter.
     if status == PaperStatus.PAYWALLED.value:
+        downloadable = False
+        open_access = False
+        pending_pdf = False
+    elif pending_pdf:
+        status = ""
         downloadable = False
         open_access = False
     elif open_access:
         status = ""
         downloadable = False
+        pending_pdf = False
     elif downloadable:
         status = ""
+        pending_pdf = False
     min_rating = max(0, min(min_rating, 5))
     category = category.strip()
     source = source.strip()
@@ -124,6 +141,7 @@ def library_page(
                 status=status,
                 downloadable=downloadable,
                 open_access=open_access,
+                pending_pdf=pending_pdf,
                 min_rating=min_rating,
                 category=category,
                 year=year or None,
@@ -148,21 +166,11 @@ def library_page(
                     offset=(pager["page"] - 1) * per_page,
                     **query_kwargs,
                 )
-            oa_where = [
-                Paper.pdf_url.is_not(None),
-                Paper.status.in_(["OA_AVAILABLE", "FOUND", "FAILED"]),
-            ]
-            type_clause = work_type_clause(work_type)
-            if type_clause is not None:
-                oa_where.append(type_clause)
-            oa_stmt = select(func.count(Paper.id)).where(*oa_where)
-            if use_latest:
-                oa_stmt = (
-                    select(func.count(Paper.id))
-                    .join(SearchResult, SearchResult.paper_id == Paper.id)
-                    .where(SearchResult.search_query_id == latest_search.id, *oa_where)
-                )
-            oa_pending = session.scalar(oa_stmt) or 0
+            oa_pending = count_oa_pdf_pending(
+                session,
+                work_type=work_type,
+                search_id=latest_search.id if use_latest else None,
+            )
             # User filter UI is unused on the library page; skip the join unless filtering.
             if user_id:
                 user_options = download_user_options(session, include_id=user_id)
@@ -200,6 +208,7 @@ def library_page(
             "downloadable": 0,
             "downloaded": 0,
             "open_access": 0,
+            "needs_pdf": 0,
             "paywalled": 0,
         }
     if category and not any(item["name"] == category for item in facets["categories"]):
@@ -217,6 +226,7 @@ def library_page(
         "status": status,
         "pdf": downloadable,
         "oa": open_access,
+        "pending": pending_pdf,
         "min_rating": min_rating,
         "latest": use_latest,
         "category": category,
@@ -230,7 +240,17 @@ def library_page(
     }
     user_label = next((item["name"] for item in user_options if item["id"] == user_id), "")
     has_filters = bool(
-        q or status or downloadable or open_access or min_rating or category or year or source or journal or user_id
+        q
+        or status
+        or downloadable
+        or open_access
+        or pending_pdf
+        or min_rating
+        or category
+        or year
+        or source
+        or journal
+        or user_id
     )
     stats = library_status_panel(facets)
     base_filters = {"latest": use_latest, "sort": sort, "per_page": per_page, "kind": filters["kind"]}
@@ -244,23 +264,31 @@ def library_page(
             "active": not has_filters,
         },
         {
-            "href": library_href(base_filters, pdf=True, oa=False, status="", page=1),
+            "href": library_href(base_filters, pdf=True, oa=False, pending=False, status="", page=1),
             "label": "On server",
             "value": stats["downloadable"],
             "tone": "success",
             "hint": "PDF file saved locally",
-            "active": bool(downloadable) and not open_access and status != PaperStatus.PAYWALLED.value,
+            "active": bool(downloadable) and not open_access and not pending_pdf and status != PaperStatus.PAYWALLED.value,
         },
         {
-            "href": library_href(base_filters, oa=True, pdf=False, status="", page=1),
+            "href": library_href(base_filters, pending=True, pdf=False, oa=False, status="", page=1),
+            "label": "Needs PDF",
+            "value": oa_pending,
+            "tone": "info",
+            "hint": "Not downloaded yet",
+            "active": bool(pending_pdf),
+        },
+        {
+            "href": library_href(base_filters, oa=True, pdf=False, pending=False, status="", page=1),
             "label": "Open access",
             "value": stats["open_access"],
             "tone": "secondary",
             "hint": "OA metadata / link",
-            "active": bool(open_access),
+            "active": bool(open_access) and not pending_pdf,
         },
         {
-            "href": library_href(base_filters, status=PaperStatus.PAYWALLED.value, pdf=False, oa=False, page=1),
+            "href": library_href(base_filters, status=PaperStatus.PAYWALLED.value, pdf=False, oa=False, pending=False, page=1),
             "label": "Paywalled",
             "value": stats["paywalled"],
             "tone": "warning",
@@ -278,6 +306,7 @@ def library_page(
             status=status,
             pdf=downloadable,
             oa=open_access,
+            pending=pending_pdf,
             min_rating=min_rating,
             category=category,
             year=year,

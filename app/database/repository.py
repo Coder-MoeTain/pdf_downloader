@@ -513,6 +513,44 @@ def downloadable_clause():
     )
 
 
+def oa_pdf_pending_clause():
+    """OA/found works with a PDF URL that are not yet saved on this server.
+
+    Excludes FAILED (already tried) and rows that already have a local PDF.
+    """
+    return and_(
+        Paper.pdf_url.is_not(None),
+        Paper.pdf_url != "",
+        Paper.status.in_([PaperStatus.OA_AVAILABLE.value, PaperStatus.FOUND.value]),
+        ~downloadable_clause(),
+    )
+
+
+def count_oa_pdf_pending(
+    session: Session,
+    *,
+    work_type: str = "",
+    search_id: int | None = None,
+) -> int:
+    """Count works that still need a legal PDF download for this collection."""
+    where = [oa_pdf_pending_clause(), *visible_paper_clauses()]
+    kind = (work_type or "").strip().lower()
+    type_clause = work_type_clause(kind)
+    if type_clause is not None:
+        where.append(type_clause)
+    if kind == "ebook":
+        where.append(ebook_has_pdf_clause())
+    if search_id is not None:
+        stmt = (
+            select(func.count(Paper.id))
+            .join(SearchResult, SearchResult.paper_id == Paper.id)
+            .where(SearchResult.search_query_id == int(search_id), *where)
+        )
+    else:
+        stmt = select(func.count(Paper.id)).where(*where)
+    return int(session.scalar(stmt) or 0)
+
+
 def open_access_clause():
     """Papers marked open access or currently available as OA metadata."""
     return or_(
@@ -684,6 +722,7 @@ def apply_paper_filters(
     status: str = "",
     downloadable: bool = False,
     open_access: bool = False,
+    pending_pdf: bool = False,
     min_rating: int = 0,
     category: str = "",
     year: int | None = None,
@@ -696,9 +735,11 @@ def apply_paper_filters(
         stmt = stmt.where(Paper.status == status)
     for clause in visible_paper_clauses(status=status):
         stmt = stmt.where(clause)
-    if downloadable:
+    if pending_pdf:
+        stmt = stmt.where(oa_pdf_pending_clause())
+    elif downloadable:
         stmt = stmt.where(downloadable_clause())
-    if open_access:
+    if open_access and not pending_pdf:
         stmt = stmt.where(open_access_clause())
     if min_rating:
         stmt = stmt.where(Paper.user_rating.is_not(None), Paper.user_rating >= min_rating)
@@ -790,6 +831,7 @@ def library_filter_kwargs(
     status: str = "",
     downloadable: bool = False,
     open_access: bool = False,
+    pending_pdf: bool = False,
     min_rating: int = 0,
     category: str = "",
     year: int | None = None,
@@ -802,6 +844,7 @@ def library_filter_kwargs(
         "status": status,
         "downloadable": downloadable,
         "open_access": open_access,
+        "pending_pdf": pending_pdf,
         "min_rating": min_rating,
         "category": category,
         "year": year,
@@ -819,6 +862,7 @@ def query_library(
     status: str = "",
     downloadable: bool = False,
     open_access: bool = False,
+    pending_pdf: bool = False,
     min_rating: int = 0,
     category: str = "",
     year: int | None = None,
@@ -836,6 +880,7 @@ def query_library(
         status=status,
         downloadable=downloadable,
         open_access=open_access,
+        pending_pdf=pending_pdf,
         min_rating=min_rating,
         category=category,
         year=year,
@@ -904,6 +949,7 @@ def library_facets(session: Session, *, force: bool = False, light: bool = False
     visible_total = sum(status_counts.values())
     downloadable = session.scalar(select(func.count(Paper.id)).where(downloadable_clause(), *visible)) or 0
     open_access = session.scalar(select(func.count(Paper.id)).where(open_access_clause(), *visible)) or 0
+    needs_pdf = session.scalar(select(func.count(Paper.id)).where(oa_pdf_pending_clause(), *visible)) or 0
     paywalled_where = [Paper.status == PaperStatus.PAYWALLED.value]
     if type_clause is not None:
         paywalled_where.append(type_clause)
@@ -967,6 +1013,7 @@ def library_facets(session: Session, *, force: bool = False, light: bool = False
         "downloadable": downloadable,
         "downloaded": downloadable,
         "open_access": open_access,
+        "needs_pdf": needs_pdf,
         "paywalled": paywalled,
     }
     with _facets_lock:
